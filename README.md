@@ -146,7 +146,7 @@ gantt
 | [v0.4](docs/roadmap.md#v04--visual-mode--ex-commands--) | Visual + ex  | `v V`, `:w :q :e`, status line.            |
 | [v0.5](docs/roadmap.md#v05--file-palette--multi-file--) | Files        | `Ctrl-P` over `/repo` + `/local`, buffers. |
 | [v0.6](docs/roadmap.md#v06--markdown-affordances--)     | Markdown     | Headings, list continuation, soft-wrap.    |
-| [v0.7](docs/roadmap.md#v07--search--better-git--)       | Search + git | `/`, `:Gpull`, `:Gbranch`, commit msg.     |
+| [v0.7](docs/roadmap.md#v07--search--better-git--)       | Search + git | `/`, `:Gpull`, `:Gbranch`.                 |
 | [v0.8](docs/roadmap.md#v08--power-battery--sleep--)     | Power        | 18650 + sleep + lid switch.                |
 | [v0.9](docs/roadmap.md#v09--robustness--)               | Robustness   | Crash-safe writes, reconnect, settings.    |
 | [v1.0](docs/roadmap.md#v10--polish--)                   | Polish       | Boot ≤ 3 s, fonts, enclosure, guide.       |

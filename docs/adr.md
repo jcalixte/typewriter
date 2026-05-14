@@ -211,14 +211,17 @@ on-device, and reasonably secure for a personal appliance.
 
 ### Decision
 
-**HTTPS + PAT.** Stored in internal LittleFS, encrypted with a key derived
-from the chip's eFuse so a stolen SD card alone is not enough. Captive
-portal accepts the PAT during first-run setup.
+**HTTPS + PAT.** In v0.1 the PAT (and all other config) is compiled into the
+firmware binary via build-time env vars — the dev's-only-user model makes the
+binary-as-secret-store acceptable. From v0.9 onward, the PAT moves to
+encrypted LittleFS with a key derived from the chip's eFuse, so a stolen SD
+card alone is not enough.
 
 ### Consequences
 
-- The user must generate a PAT with `repo` scope. Documented in
-  [v0.1 product → first-run flow](v0.1-mvp-product.md#first-run-provisioning-flow).
+- The user (= dev, in v0.1) must generate a PAT with `repo` scope and supply
+  it as a build-time env var. Provisioning is build-time only — see
+  [v0.1 product → provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only).
 - PAT is never logged. Validated in code review.
 - Rotation in v0.1 = wipe NVS and re-run setup. Proper rotation UI is v0.9
   — see [roadmap → v0.9](roadmap.md#v09--robustness--).
@@ -368,6 +371,54 @@ if TinyUSB host turns out unstable
   charging surface.
 - Wi-Fi and keyboard input do not contend for radio time.
 - If we ever want a fully wireless build, we revisit with a BLE-HID ADR.
+
+---
+
+## ADR-010: Publish UX — atomic `Ctrl-G`, auto-timestamp commit message, no user prompt
+
+**Status:** Accepted — 2026-05-14
+**Scope:** Whole project, all releases.
+
+### Context
+
+The device needs an action that ships writing to the git remote. Most
+git-using tools expose `commit` and `push` as distinct user gestures, often
+with a commit-message prompt. The device's actual user (= the author of this
+firmware) already uses the [`gct` shell alias](../CONTEXT.md#user-facing-actions)
+for their own writing: `git add . && git commit -m "<timestamp>" && git push`,
+with a `git pull --no-edit` fallback when the push fails non-fast-forward.
+`gct` is the established workflow; the typewriter mirrors it.
+
+### Options considered
+
+| Option                                                | Pros                                                                                                  | Cons                                                                                                                                              |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Three separate gestures** (save / commit / push)    | Maximally git-native; user has fine control.                                                          | Three keys to remember, three failure modes to surface, three concepts in the user's head. Wrong shape for an appliance whose job is to remove ceremony. |
+| **One gesture, prompt for message** (`Ctrl-G` → modal asking for message → commit → push) | Conventional "publish" pattern; each commit is named.                                                 | A modal prompt on e-ink is hostile (latency, full refresh); the user's actual workflow (`gct`) explicitly avoids authoring messages; messages would be noise (`"updated notes"` × 1000). |
+| **One gesture, auto-timestamp message** (`Ctrl-G` mirrors `gct`) | Matches the user's real workflow; one key, one outcome; no prompts, no modes, no decisions in the writing path. | Commit history is timestamp-noise (useless for code archaeology); a future reader will wonder where the commit messages went; locks in a UX assumption that's hard to undo without breaking muscle memory. |
+
+### Decision
+
+**One gesture, auto-timestamp message, atomic from the user's view.** `Ctrl-G`
+runs the full `gct` sequence (stage all → short-circuit if nothing staged →
+commit with ISO-8601 timestamp → push → on push failure, `pull --no-edit` then
+retry). Failure surfaces as a single retry-able outcome in the status line.
+
+### Consequences
+
+- The user's vocabulary collapses to **Save** and **Publish**;
+  [`CONTEXT.md`](../CONTEXT.md#user-facing-actions) pins this — *commit* is
+  not a user-facing term.
+- Commit history is a stream of timestamps. The device is a writing tool, not
+  a code repository — the history is here for recoverability, not narrative.
+- The pull-merge-retry path means the device may author merge commits on the
+  user's behalf, with git's default merge message. Acceptable: the user
+  doesn't read commit history from the device anyway.
+- The previously-planned "commit message prompt" item in v0.7 has been
+  removed from the roadmap.
+- Reversing this later (introducing message prompts) would change the
+  semantics of `Ctrl-G` and break the user's muscle memory. Hard-to-reverse
+  by design.
 
 ---
 

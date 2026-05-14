@@ -17,9 +17,11 @@ The minimum thing that justifies the hardware existing. Full design:
 - [ ] Insert-only editing (no modes yet), backspace, enter, arrow keys
 - [ ] Line wrap, no line numbers yet
 - [ ] Save on `Ctrl-S` → SD
-- [ ] Wi-Fi credentials via captive portal on first boot, stored in NVS
-- [ ] `Ctrl-G` runs: `git add notes.md && git commit -m "wip" && git push` to a
-      pre-configured remote, using a PAT entered during setup
+- [ ] Wi-Fi credentials + remote URL + PAT + author baked into the binary at
+      build time via env vars (no NVS, no on-device provisioning UI in v0.1)
+- [ ] `Ctrl-G` runs: `git add .` → commit with an ISO-8601 timestamp message →
+      `git push`; on push failure, `git pull --no-edit` then retry the push
+      (no-op short-circuit when nothing is staged). PAT from first-run setup.
 - [ ] Partial refresh on edits; full refresh on save
 
 Out of scope: Vim, palette, multiple files, branches, conflict handling.
@@ -52,6 +54,9 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 - [ ] `:e` and palette share the same recent-files list
 - [ ] `:enew` creates a new file — prompts for scope (tracked vs local)
 - [ ] `Ctrl-G` is disabled / hidden when the current buffer is local-scope
+- [ ] Status line briefly shows file count on `Ctrl-G` when the publish bundles
+      more than one dirty Tracked file (e.g. `"publishing 3 files: abc1234"`),
+      so workspace-scoped behaviour stays visible to the user
 
 ## v0.6 — Markdown affordances — [ ]
 
@@ -65,7 +70,6 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 - [ ] `/` forward search, `n N`
 - [ ] `:Gpull` (fetch + fast-forward only; refuse on conflict and surface it)
 - [ ] `:Gbranch` to switch branches; refuse with dirty tree
-- [ ] Commit message prompt instead of hard-coded `"wip"`
 
 ## v0.8 — Power: battery + sleep — [ ]
 
@@ -81,7 +85,9 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 - [ ] Recover from interrupted push (re-attempt on next save)
 - [ ] SD card removal / reinsert handling
 - [ ] Wi-Fi reconnect with backoff
-- [ ] Settings screen: SSID, PAT rotation, default remote, commit author
+- [ ] On-device provisioning + settings screen: SSID, PAT rotation, default
+      remote, commit author (replaces the v0.1 dev-only NVS-flashing path —
+      first release usable by someone who is not the firmware author)
 
 ## v1.0 — Polish — [ ]
 
