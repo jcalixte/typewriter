@@ -31,3 +31,7 @@ config.local.*
 # Logs and temp
 *.log
 *.tmp
+
+# Node tooling
+node_modules/
+
