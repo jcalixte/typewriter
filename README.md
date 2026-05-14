@@ -108,7 +108,8 @@ Frequent releases. Each version is a usable artifact, not a checkpoint.
 
 ### v0.1 — MVP: "it writes, it pushes" — [ ]
 
-The minimum thing that justifies the hardware existing.
+The minimum thing that justifies the hardware existing. Full design:
+[product](docs/v0.1-mvp-product.md) · [technical](docs/v0.1-mvp-technical.md).
 
 - [ ] ESP32-S3 boots, e-ink shows splash + boot log
 - [ ] USB host enumerates the Nuphy, key events reach the editor
