@@ -1,0 +1,33 @@
+# Rust / Cargo
+/target/
+**/target/
+Cargo.lock.bak
+*.rs.bk
+
+# esp-idf / embedded build artifacts
+/build/
+**/build/
+sdkconfig
+sdkconfig.old
+sdkconfig.defaults.*.bak
+.embuild/
+managed_components/
+dependencies.lock
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local config and secrets
+.env
+.env.local
+*.local.toml
+config.local.*
+
+# Logs and temp
+*.log
+*.tmp
