@@ -197,7 +197,7 @@ the scale where async wins. The number of "tasks" is bounded and small (≤ 8).
 
 | Option | Pros | Cons |
 |---|---|---|
-| **`std::thread` + channels** | Boring, debuggable, stack traces work, no executor to tune; ESP-IDF FreeRTOS underneath is well-understood. | Each thread costs ~8 KB stack; not zero-cost like async. |
+| **`std::thread` + channels** | Boring, debuggable, stack traces work, no executor to tune; ESP-IDF FreeRTOS underneath is well-understood. | Each thread costs 8–32 KB stack depending on workload; not zero-cost like async. |
 | **`embassy` async** | Trendy, ergonomic, low memory per task. | `esp-idf-rs` and `embassy` don't mix cleanly; adopting embassy means dropping `std` and rewriting against `esp-hal` (ADR-001 reversed). |
 | **`tokio` on `esp-idf-rs`** | Familiar async. | Heavy executor, oversized for ≤ 8 tasks, mbedtls/`gitoxide` integration would need a lot of glue. |
 | **Single-threaded event loop** | Smallest memory. | Long-running ops (git push, full refresh) block input. |
@@ -208,7 +208,9 @@ the scale where async wins. The number of "tasks" is bounded and small (≤ 8).
 runtime to tune, no colour-of-functions problem.
 
 ### Consequences
-- ~40 KB of stack space for task stacks. Easily affordable.
+- ~76 KB of stack space across the five task stacks (8 + 8 + 16 + 12 + 32
+  KB — see v0.1 technical design for the breakdown). Comfortable in the
+  ESP32-S3's 512 KB internal SRAM.
 - Refresh / git / Wi-Fi each get their own thread, so a slow push doesn't
   freeze typing.
 - If task count balloons past ~10 (unlikely), revisit.
