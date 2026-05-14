@@ -49,7 +49,9 @@ proven.
 ## Software stack
 
 **Language: Rust on `esp-idf-rs` (std).** Decision is load-bearing — see the
-rejected alternatives below.
+rejected alternatives below, and [`docs/adr.md`](docs/adr.md) for the full
+decision log covering language, UI strategy, display, git lib, auth,
+concurrency, storage, power, and keyboard transport.
 
 | Layer | Crate / Component | Notes |
 |---|---|---|
