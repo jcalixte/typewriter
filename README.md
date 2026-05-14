@@ -110,99 +110,42 @@ around, not against:
 ## Roadmap
 
 Frequent releases. Each version is a usable artifact, not a checkpoint.
+Macro-plan below; per-version scope lives in [`docs/roadmap.md`](docs/roadmap.md).
 
-### v0.1 — MVP: "it writes, it pushes" — [ ]
+```mermaid
+gantt
+    title Typewriter — macro plan
+    dateFormat YYYY-MM-DD
+    axisFormat %b %Y
+    section MVP
+    v0.1 it writes, it pushes :v01, 2026-06-01, 4w
+    section Vim
+    v0.2 navigation           :v02, after v01, 3w
+    v0.3 editing              :v03, after v02, 3w
+    v0.4 visual + ex          :v04, after v03, 2w
+    section Files
+    v0.5 palette + multi-file :v05, after v04, 3w
+    v0.6 markdown             :v06, after v05, 2w
+    v0.7 search + git         :v07, after v06, 3w
+    section Hardware polish
+    v0.8 battery + sleep      :v08, after v07, 4w
+    v0.9 robustness           :v09, after v08, 4w
+    v1.0 polish               :v10, after v09, 4w
+```
 
-The minimum thing that justifies the hardware existing. Full design:
-[product](docs/v0.1-mvp-product.md) · [technical](docs/v0.1-mvp-technical.md).
-
-- [ ] ESP32-S3 boots, e-ink shows splash + boot log
-- [ ] USB host enumerates the Nuphy, key events reach the editor
-- [ ] One hard-coded file (`/sd/repo/notes.md`) opens on boot
-- [ ] Insert-only editing (no modes yet), backspace, enter, arrow keys
-- [ ] Line wrap, no line numbers yet
-- [ ] Save on `Ctrl-S` → SD
-- [ ] Wi-Fi credentials via captive portal on first boot, stored in NVS
-- [ ] `Ctrl-G` runs: `git add notes.md && git commit -m "wip" && git push` to a
-      pre-configured remote, using a PAT entered during setup
-- [ ] Partial refresh on edits; full refresh on save
-
-Out of scope: Vim, palette, multiple files, branches, conflict handling.
-
-### v0.2 — Vim navigation — [ ]
-
-- [ ] Mode state machine (Normal / Insert), mode indicator in status line
-- [ ] Movement: `h j k l`, `w b e`, `0 $`, `gg G`, `Ctrl-d Ctrl-u`
-- [ ] `i a o O A` to enter Insert
-- [ ] `Esc` returns to Normal
-- [ ] Line numbers (absolute) in the left gutter
-
-### v0.3 — Vim editing — [ ]
-
-- [ ] `x dd yy p P`, `dw dd d$`, repeat with `.`
-- [ ] Undo / redo (`u`, `Ctrl-r`) — bounded history in PSRAM
-- [ ] Numeric prefixes (`3dd`, `5j`)
-
-### v0.4 — Visual mode + ex commands — [ ]
-
-- [ ] Visual char (`v`) and line (`V`) modes, `y d c` on selections
-- [ ] `:` command line: `:w :q :wq :e <path>`
-- [ ] Status line shows file path, dirty flag, mode
-
-### v0.5 — File palette + multi-file — [ ]
-
-- [ ] `Ctrl-P` opens fuzzy file palette over **both** `/sd/repo/` and
-      `/sd/local/`, with a scope marker (e.g. `[git]` / `[local]`) per result
-- [ ] Open, switch, close buffers (keep ≤ 3 in memory)
-- [ ] `:e` and palette share the same recent-files list
-- [ ] `:enew` creates a new file — prompts for scope (tracked vs local)
-- [ ] `Ctrl-G` is disabled / hidden when the current buffer is local-scope
-
-### v0.6 — Markdown affordances — [ ]
-
-- [ ] Heading lines bolded in render
-- [ ] List continuation on Enter inside `- ` / `1. `
-- [ ] Soft-wrap at word boundaries
-- [ ] Optional column ruler at 80
-
-### v0.7 — Search + better git — [ ]
-
-- [ ] `/` forward search, `n N`
-- [ ] `:Gpull` (fetch + fast-forward only; refuse on conflict and surface it)
-- [ ] `:Gbranch` to switch branches; refuse with dirty tree
-- [ ] Commit message prompt instead of hard-coded `"wip"`
-
-### v0.8 — Power: battery + sleep — [ ]
-
-- [ ] Measure idle / typing / push current draw on bench
-- [ ] 18650 + IP5306 charge board, soft power switch
-- [ ] Light sleep on idle > 30 s (keyboard interrupt wakes)
-- [ ] Deep sleep on lid close (reed switch); restore cursor + buffer
-- [ ] Battery indicator in status line
-
-### v0.9 — Robustness — [ ]
-
-- [ ] Crash-safe writes (write to `.tmp`, fsync, rename)
-- [ ] Recover from interrupted push (re-attempt on next save)
-- [ ] SD card removal / reinsert handling
-- [ ] Wi-Fi reconnect with backoff
-- [ ] Settings screen: SSID, PAT rotation, default remote, commit author
-
-### v1.0 — Polish — [ ]
-
-- [ ] Boot time ≤ 3 s to usable cursor
-- [ ] Font selection (at least one serif + one mono)
-- [ ] Enclosure design files in `hardware/`
-- [ ] User guide
-
-### v1.x — Stretch / nice-to-have
-
-- 10.3" panel upgrade via IT8951
-- Multiple remotes / repos
-- Spell-check (dictionary in flash, naive)
-- Stats: words today, streak
-- Theme: light / dark (inverted e-ink)
-- BLE-HID fallback for wireless keyboards
+| Version | Theme | One-liner |
+|---|---|---|
+| [v0.1](docs/roadmap.md#v01--mvp-it-writes-it-pushes--) | MVP | Boots, edits one file, `Ctrl-G` pushes. |
+| [v0.2](docs/roadmap.md#v02--vim-navigation--) | Vim nav | Normal/Insert, motions, line numbers. |
+| [v0.3](docs/roadmap.md#v03--vim-editing--) | Vim edit | `dd yy p`, undo/redo, counts. |
+| [v0.4](docs/roadmap.md#v04--visual-mode--ex-commands--) | Visual + ex | `v V`, `:w :q :e`, status line. |
+| [v0.5](docs/roadmap.md#v05--file-palette--multi-file--) | Files | `Ctrl-P` over `/repo` + `/local`, buffers. |
+| [v0.6](docs/roadmap.md#v06--markdown-affordances--) | Markdown | Headings, list continuation, soft-wrap. |
+| [v0.7](docs/roadmap.md#v07--search--better-git--) | Search + git | `/`, `:Gpull`, `:Gbranch`, commit msg. |
+| [v0.8](docs/roadmap.md#v08--power-battery--sleep--) | Power | 18650 + sleep + lid switch. |
+| [v0.9](docs/roadmap.md#v09--robustness--) | Robustness | Crash-safe writes, reconnect, settings. |
+| [v1.0](docs/roadmap.md#v10--polish--) | Polish | Boot ≤ 3 s, fonts, enclosure, guide. |
+| [v1.x](docs/roadmap.md#v1x--stretch--nice-to-have) | Stretch | 10.3" panel, spell-check, themes, BLE. |
 
 ---
 
