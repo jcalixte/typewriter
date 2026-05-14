@@ -7,6 +7,14 @@ as a consequence. Status moves from **Proposed** → **Accepted** →
 
 Format inspired by Michael Nygard's ADR template, kept short on purpose.
 
+**Related docs:**
+[`../README.md`](../README.md) — project overview, hardware table, macro plan.
+[`roadmap.md`](roadmap.md) — per-version scope (v0.1 → v1.x).
+[`v0.1-mvp-product.md`](v0.1-mvp-product.md) — what the v0.1 device must do.
+[`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) — how v0.1 is built.
+[`qfd.md`](qfd.md) — Quality Function Deployment: requirements → functions →
+components, with the tradeoffs from this file ranked by user-facing weight.
+
 ---
 
 ## ADR-001: Language and runtime — Rust on `esp-idf-rs` (std)
@@ -42,7 +50,11 @@ and TLS without writing them, and has Espressif as an actual upstream.
 - Cross-compiling toolchain (`espup`) is one more thing to install.
 - We will not use `tokio` or async runtimes in v0.1 — see ADR-006.
 - Revisit if `esp-idf-rs` upstream stalls or if `gitoxide` doesn't compile
-  cleanly against it (spike 7 is the kill-switch).
+  cleanly against it (spike 7 is the kill-switch — see
+  [v0.1 technical: hardware bring-up order](v0.1-mvp-technical.md#hardware-bring-up-order)).
+
+See also: [qfd.md §7](qfd.md#7-tradeoffs-and-their-why-linked-to-adrs) for
+the binary-size / build-time costs traded against ecosystem access.
 
 ---
 
@@ -77,6 +89,10 @@ refresh regions.
 - If we later want to render to a terminal for desktop testing, we add a
   second backend; the widget API stays.
 
+Implementation: [v0.1 technical → render module](v0.1-mvp-technical.md#module-breakdown).
+Owns the two top-ranked functions (H1 latency, H2 region area) in
+[qfd.md §3](qfd.md#3-house-of-quality--whats--hows).
+
 ---
 
 ## ADR-003: Display — GDEY0579T93 + DESPI-c579 breakout
@@ -107,11 +123,14 @@ controller — same SPI driver model as any other e-paper.
 
 ### Consequences
 - Visible edit area is ~11 lines. UI design must embrace this (no
-  multi-pane, no large headers).
+  multi-pane, no large headers). See
+  [v0.1 product → screen layout](v0.1-mvp-product.md#screen-layout).
 - Driver: if `epd-waveshare` doesn't already support this panel's
   controller (SSD1683-class), we write ~300 LoC of `embedded-hal` SPI
-  driver. Validated in spike 2.
+  driver. Validated in spike 2 — see
+  [v0.1 technical → hardware bring-up order](v0.1-mvp-technical.md#hardware-bring-up-order).
 - 10.3" upgrade path is preserved by keeping the renderer resolution-agnostic.
+  See [roadmap → v1.x](roadmap.md#v1x--stretch--nice-to-have).
 
 ---
 
@@ -146,7 +165,11 @@ risk table).
 - We become an early-ish embedded user of `gitoxide`; bugs reported back
   upstream.
 - Auth via PAT in an Authorization header — no SSH (see ADR-005).
-- Performance on PSRAM during pack operations is a watched metric.
+- Performance on PSRAM during pack operations is a watched metric — top-3
+  priority in [qfd.md §6](qfd.md#6-critical-performance-budget).
+
+Implementation: [v0.1 technical → `git` module](v0.1-mvp-technical.md#module-breakdown)
+and [risks table](v0.1-mvp-technical.md#risks-and-how-well-know-they-bit-us).
 
 ---
 
@@ -175,9 +198,11 @@ from the chip's eFuse so a stolen SD card alone is not enough. Captive
 portal accepts the PAT during first-run setup.
 
 ### Consequences
-- The user must generate a PAT with `repo` scope. Documented.
+- The user must generate a PAT with `repo` scope. Documented in
+  [v0.1 product → first-run flow](v0.1-mvp-product.md#first-run-provisioning-flow).
 - PAT is never logged. Validated in code review.
-- Rotation in v0.1 = wipe NVS and re-run setup. Proper rotation UI is v0.9.
+- Rotation in v0.1 = wipe NVS and re-run setup. Proper rotation UI is v0.9
+  — see [roadmap → v0.9](roadmap.md#v09--robustness--).
 - Revisit if we ever want to support multiple remotes per device with
   different credentials.
 
@@ -209,8 +234,8 @@ runtime to tune, no colour-of-functions problem.
 
 ### Consequences
 - ~76 KB of stack space across the five task stacks (8 + 8 + 16 + 12 + 32
-  KB — see v0.1 technical design for the breakdown). Comfortable in the
-  ESP32-S3's 512 KB internal SRAM.
+  KB — see [v0.1 technical → threads / tasks](v0.1-mvp-technical.md#threads--tasks)
+  for the breakdown). Comfortable in the ESP32-S3's 512 KB internal SRAM.
 - Refresh / git / Wi-Fi each get their own thread, so a slow push doesn't
   freeze typing.
 - If task count balloons past ~10 (unlikely), revisit.
