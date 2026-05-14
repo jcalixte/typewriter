@@ -5,8 +5,11 @@ must *do* (engineering functions) and what we must *build* (components).
 Surfaces the few targets that dominate the design and the conflicts between
 them. Every decision cell points back to [`adr.md`](adr.md).
 
-Scope: v0.1 MVP, with the v0.2–v1.0 trajectory ([README](../README.md)) in
-mind so we don't paint into a corner.
+Scope: v0.1 MVP — see
+[`v0.1-mvp-product.md`](v0.1-mvp-product.md) for user-facing scope and
+[`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) for implementation —
+with the v0.2–v1.0 trajectory ([README](../README.md),
+[roadmap](roadmap.md)) in mind so we don't paint into a corner.
 
 Format inspired by the classic House of Quality, kept compact. Strength
 weights: **9** strong, **3** medium, **1** weak, blank none.
@@ -18,20 +21,20 @@ weights: **9** strong, **3** medium, **1** weak, blank none.
 What a user (= me) values about the device, with importance weights on a
 1–10 scale. Source columns point at the doc the requirement comes from.
 
-| ID  | Requirement                                       | Weight | Source                |
-|-----|---------------------------------------------------|:------:|-----------------------|
-| W1  | Sub-second visible response to typing             | 10     | product §UX, README   |
-| W2  | `Ctrl-G` reliably lands a commit on GitHub        | 9      | product user story 4  |
-| W3  | Pulling power never corrupts the file             | 10     | product story 5, AC   |
-| W4  | One-shot first-run setup, never repeated          | 7      | product story 1       |
-| W5  | Quick boot to a writing cursor                    | 6      | product AC (≤ 5 s)    |
-| W6  | Long sessions without crash / lag / drift         | 9      | product AC (1 h soak) |
-| W7  | Distraction-free, single-purpose surface          | 8      | README vision         |
-| W8  | E-ink-honest UI (no blink, no animation, no flash spam) | 7 | README §UX            |
-| W9  | Refactorable across nine downstream releases      | 8      | README roadmap        |
-| W10 | Hackable / DIY-shaped BOM and code                | 5      | README title          |
-| W11 | Multi-day battery life (v0.8 onward)              | 4      | README v0.8           |
-| W12 | Local-only file scope coexists with git scope (v0.5+) | 5  | README scopes         |
+| ID  | Requirement                                       | Weight | Source |
+|-----|---------------------------------------------------|:------:|--------|
+| W1  | Sub-second visible response to typing             | 10     | [product → story 2](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium) |
+| W2  | `Ctrl-G` reliably lands a commit on GitHub        | 9      | [product → story 4](v0.1-mvp-product.md#user-stories) |
+| W3  | Pulling power never corrupts the file             | 10     | [product → story 5](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria) |
+| W4  | One-shot first-run setup, never repeated          | 7      | [product → story 1](v0.1-mvp-product.md#user-stories) |
+| W5  | Quick boot to a writing cursor                    | 6      | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s) |
+| W6  | Long sessions without crash / lag / drift         | 9      | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak) |
+| W7  | Distraction-free, single-purpose surface          | 8      | [README → vision](../README.md#vision) |
+| W8  | E-ink-honest UI (no blink, no animation, no flash spam) | 7 | [README → UX](../README.md#ux-boundaries-set-by-the-medium) |
+| W9  | Refactorable across nine downstream releases      | 8      | [roadmap](roadmap.md) |
+| W10 | Hackable / DIY-shaped BOM and code                | 5      | [README → vision](../README.md#vision) |
+| W11 | Multi-day battery life (v0.8 onward)              | 4      | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--) |
+| W12 | Local-only file scope coexists with git scope (v0.5+) | 5  | [README → scopes](../README.md#vision), [roadmap → v0.5](roadmap.md#v05--file-palette--multi-file--) |
 
 ---
 
