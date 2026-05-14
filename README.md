@@ -51,7 +51,9 @@ proven.
 **Language: Rust on `esp-idf-rs` (std).** Decision is load-bearing — see the
 rejected alternatives below, and [`docs/adr.md`](docs/adr.md) for the full
 decision log covering language, UI strategy, display, git lib, auth,
-concurrency, storage, power, and keyboard transport.
+concurrency, storage, power, and keyboard transport. How each decision is
+weighted against the user-facing requirements — and the critical performance
+budget that falls out — lives in [`docs/qfd.md`](docs/qfd.md).
 
 | Layer | Crate / Component | Notes |
 |---|---|---|
