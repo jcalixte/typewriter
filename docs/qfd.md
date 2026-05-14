@@ -37,6 +37,8 @@ What a user (= me) values about the device, with importance weights on a
 | W10 | Hackable / DIY-shaped BOM and code                      |   5    | [README → vision](../README.md#vision)                                                                             |
 | W11 | Multi-day battery life (v0.8 onward)                    |   4    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--)                                                           |
 | W12 | Local-only file scope coexists with git scope (v0.5+)   |   5    | [README → scopes](../README.md#vision), [roadmap → v0.5](roadmap.md#v05--file-palette--multi-file--)               |
+| W13 | Beautiful monospace font on the writing surface         |   7    | [roadmap → v1.0](roadmap.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium)                          |
+| W14 | Beautiful serif font option for reading / published view |  4    | [roadmap → v1.0](roadmap.md)                                                                                        |
 
 ---
 
@@ -61,7 +63,7 @@ shows what "better" looks like (↑ higher, ↓ lower, → fixed).
 | H12 | Wi-Fi reconnect on transient outage                |  ↓  | ≤ 30 s                   | ≤ 10 s              |
 | H13 | Idle / typing / push current draw                  |  ↓  | measured only            | sized for >2 days   |
 | H14 | Module count / public-API surface (refactor proxy) |  →  | ≤ 8 modules              | same                |
-| H15 | Build time (clean, release)                        |  ↓  | ≤ 10 min                 | ≤ 7 min             |
+| H15 | Build time (clean, release)                        |  ↓  | ≤ 7 min                  | ≤ 5 min             |
 
 ---
 
@@ -85,27 +87,37 @@ weighted vote on which functions deserve the most engineering attention.
 | W10 (5) |         |         |         |         |         |          |           |         |         |    3    |         |          |   1    |    3    |     1     |
 | W11 (4) |         |         |         |         |         |          |           |         |         |         |         |          | **9**  |         |           |
 | W12 (5) |         |         |         |         |         |    1     |           |    3    |         |         |         |          |        |    3    |           |
-| **Σ**   | **138** | **174** | **126** | **54**  | **108** | **132**  |  **27**   | **147** | **162** | **38**  | **41**  | **120**  | **74** | **115** |  **29**   |
+| W13 (7) |    1    |    3    |         |         |         |          |           |         |    3    |         |         |          |        |         |           |
+| W14 (4) |         |         |         |         |         |          |           |         |    3    |         |         |          |        |         |           |
+| **Σ**   | **155** | **198** | **144** | **54**  | **111** | **134**  |  **27**   | **132** | **205** | **41**  | **45**  | **129**  | **65** | **117** |  **29**   |
 
 ### Top engineering priorities (from importance)
 
-1. **H2 — partial-refresh region area** (174). Bound how many pixels the
-   panel has to flip per keypress; [ADR-003] is the hardware-side answer.
-2. **H9 — PSRAM heap during push** (162). gitoxide pack + rope + TLS all
+1. **H9 — PSRAM heap during push** (205). gitoxide pack + rope + TLS all
    share the same arena; [ADR-001] and [ADR-004] trade binary size for ecosystem
-   so this becomes the watched metric.
-3. **H8 — save durability** (147). Atomic-rename + fsync; FAT's weakness is
-   acknowledged in [ADR-007] and mitigated, not designed around.
-4. **H1 — keypress latency** (138). The single most user-visible number;
+   so this becomes the watched metric. Two embedded fonts (W13, W14) each
+   keep their own glyph cache, adding to the pressure.
+2. **H2 — partial-refresh region area** (198). Bound how many pixels the
+   panel has to flip per keypress; [ADR-003] is the hardware-side answer.
+   A mono writing surface (W13) bounds it predictably; a serif option (W14)
+   widens it.
+3. **H1 — keypress latency** (155). The single most user-visible number;
    [ADR-002] and [ADR-003] are co-conspirators.
-5. **H6 — push success rate** (132). [ADR-004] (gitoxide) and [ADR-005] (PAT
-   over HTTPS) own this jointly; spike 7 is the kill-switch.
-6. **H3 — full-refresh cadence** (126). The ghosting/flash tradeoff; lives
+4. **H3 — full-refresh cadence** (144). The ghosting/flash tradeoff; lives
    in the render layer.
+5. **H6 — push success rate** (134). [ADR-004] (gitoxide) and [ADR-005] (PAT
+   over HTTPS) own this jointly; spike 7 is the kill-switch.
+6. **H8 — save durability** (132). Atomic-rename + fsync; FAT's weakness is
+   acknowledged in [ADR-007] and mitigated, not designed around. H8 sits
+   below the latency cluster because only three WHATs touch it (W3, W6,
+   W12) — fewer voters, not weaker requirement.
 
 The bottom three (H7 push time, H15 build time, H10 binary size) are real
 costs but ones we knowingly took on ([ADR-001]) and are not in the critical
-path of user experience.
+path of user experience. The tightened H15 v0.1 target (≤ 7 min) reflects
+user preference for faster iteration, not matrix-derived priority; if it
+pushes back against [ADR-001]'s "+5–10 min" pricing, the target moves
+before the runtime decision does.
 
 ---
 
@@ -162,6 +174,15 @@ The roof shows where pushing one function pushes another the wrong way.
   parked.
 - **H14 modularity ↔ H15 build time** (mild). More small crates = more
   link work. Boring vs valuable; we lean toward modularity.
+- **W13/W14 fonts ↔ H9 heap + H10 binary** (mild, future). Embedding both
+  a mono and a serif typeface inflates the binary and adds a second glyph
+  cache. Not load-bearing in v0.1 (one font), but the v1.0 typography goal
+  is the reason H9 and H10 need slack rather than being squeezed to the
+  minimum.
+- **Tightened H15 ↔ [ADR-001]** (mild). Pulling v0.1 build time from
+  ≤ 10 min to ≤ 7 min eats into [ADR-001]'s accepted "+5–10 min" cost.
+  Worth aiming at via cargo profile / vendor LTO / crate-graph trims;
+  worth giving up before reversing [ADR-001].
 
 ---
 
@@ -322,6 +343,13 @@ These are the live tensions we are watching, not deciding harder:
   single user-facing **Publish**. Resolved by introducing
   [`CONTEXT.md`](../CONTEXT.md) as the canonical glossary; user-facing text
   now uses **Save** and **Publish** only.
+- **House of Quality column sums recomputed.** Earlier Σ row drifted from
+  the matrix arithmetic — H1 listed 138 but sums to 148; H8 147 vs 132;
+  H9 162 vs 172; H13 74 vs 65; smaller deltas elsewhere. Recomputed all
+  sums from the cells. Folded in W13/W14 at the same pass. The reordering
+  moved H9 to #1 (205), H2 to #2 (198), H1 to #3 (155); H8 dropped from
+  #3 to #6 (132). H8's drop is a "fewer WHAT voters" artifact, not a
+  signal that durability matters less to the design.
 
 The minor variance between README's "~12 lines" and product/[ADR-003]'s
 "~11 lines" of edit area is within rounding for a 14 px glyph in a 240 px
