@@ -15,14 +15,17 @@ edits Markdown files, and (optionally) pushes them to a git remote (GitHub
 first) over Wi-Fi. No browser, no notifications, no apps. Open lid → write →
 push (or don't) → close lid.
 
-Two file scopes coexist on the SD card:
+Two file scopes coexist on the SD card — formal definitions in
+[`CONTEXT.md`](CONTEXT.md):
 
-- **Tracked** — lives in the git working copy, gets committed and pushed.
-- **Local** — never leaves the device. Drafts, journal entries, scratch, things
-  that aren't ready or aren't anyone else's business.
+- **Tracked** — lives in the git working copy, gets **Published** when the
+  user presses `Ctrl-G`.
+- **Local** — never leaves the device. Permanently-private: journal entries,
+  scratch, things that aren't anyone else's business. There is no "promote
+  to Tracked" gesture — scope is fixed at file creation.
 
-Same editor, same keymap; the difference is just whether `Ctrl-G` (commit &
-push) is offered.
+Same editor, same keymap; the difference is just whether `Ctrl-G` (publish to
+the remote) is offered.
 
 ---
 
@@ -162,10 +165,12 @@ gantt
     git/        gitoxide wrapper, auth
     usb/        TinyUSB host glue
     fs/         SD + NVS
-  build.rs
+  build.rs      reads TW_* env vars (Wi-Fi, PAT, author) — v0.1 config path
   sdkconfig.defaults
 /hardware       BOM, schematic, enclosure (later)
-/docs           ADRs, power measurements
+/docs           ADRs, QFD, roadmap, per-version product + technical specs
+CONTEXT.md      project glossary — Tracked / Local / Save / Publish, and the
+                principles that fall out of them
 package.json    pnpm + oxfmt — formatting toolchain for docs/JSON
                 (companions: pnpm-lock.yaml, .oxfmtrc.json, .node-version)
 ```

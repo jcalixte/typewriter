@@ -9,6 +9,9 @@ Format inspired by Michael Nygard's ADR template, kept short on purpose.
 
 **Related docs:**
 [`../README.md`](../README.md) — project overview, hardware table, macro plan.
+[`../CONTEXT.md`](../CONTEXT.md) — project glossary: **Tracked**, **Local**,
+**Save**, **Publish**, plus the principles ("writing tool, not sync engine")
+that constrain ADR-010 specifically.
 [`roadmap.md`](roadmap.md) — per-version scope (v0.1 → v1.x).
 [`v0.1-mvp-product.md`](v0.1-mvp-product.md) — what the v0.1 device must do.
 [`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) — how v0.1 is built.
