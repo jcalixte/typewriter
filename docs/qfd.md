@@ -1,7 +1,7 @@
 # Quality Function Deployment
 
-Translates what the device must *be* (user-facing requirements) into what it
-must *do* (engineering functions) and what we must *build* (components).
+Translates what the device must _be_ (user-facing requirements) into what it
+must _do_ (engineering functions) and what we must _build_ (components).
 Surfaces the few targets that dominate the design and the conflicts between
 them. Every decision cell points back to [`adr.md`](adr.md).
 
@@ -21,20 +21,20 @@ weights: **9** strong, **3** medium, **1** weak, blank none.
 What a user (= me) values about the device, with importance weights on a
 1–10 scale. Source columns point at the doc the requirement comes from.
 
-| ID  | Requirement                                       | Weight | Source |
-|-----|---------------------------------------------------|:------:|--------|
-| W1  | Sub-second visible response to typing             | 10     | [product → story 2](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium) |
-| W2  | `Ctrl-G` reliably lands a commit on GitHub        | 9      | [product → story 4](v0.1-mvp-product.md#user-stories) |
-| W3  | Pulling power never corrupts the file             | 10     | [product → story 5](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria) |
-| W4  | One-shot first-run setup, never repeated          | 7      | [product → story 1](v0.1-mvp-product.md#user-stories) |
-| W5  | Quick boot to a writing cursor                    | 6      | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s) |
-| W6  | Long sessions without crash / lag / drift         | 9      | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak) |
-| W7  | Distraction-free, single-purpose surface          | 8      | [README → vision](../README.md#vision) |
-| W8  | E-ink-honest UI (no blink, no animation, no flash spam) | 7 | [README → UX](../README.md#ux-boundaries-set-by-the-medium) |
-| W9  | Refactorable across nine downstream releases      | 8      | [roadmap](roadmap.md) |
-| W10 | Hackable / DIY-shaped BOM and code                | 5      | [README → vision](../README.md#vision) |
-| W11 | Multi-day battery life (v0.8 onward)              | 4      | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--) |
-| W12 | Local-only file scope coexists with git scope (v0.5+) | 5  | [README → scopes](../README.md#vision), [roadmap → v0.5](roadmap.md#v05--file-palette--multi-file--) |
+| ID  | Requirement                                             | Weight | Source                                                                                                             |
+| --- | ------------------------------------------------------- | :----: | ------------------------------------------------------------------------------------------------------------------ |
+| W1  | Sub-second visible response to typing                   |   10   | [product → story 2](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium) |
+| W2  | `Ctrl-G` reliably lands a commit on GitHub              |   9    | [product → story 4](v0.1-mvp-product.md#user-stories)                                                              |
+| W3  | Pulling power never corrupts the file                   |   10   | [product → story 5](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)       |
+| W4  | One-shot first-run setup, never repeated                |   7    | [product → story 1](v0.1-mvp-product.md#user-stories)                                                              |
+| W5  | Quick boot to a writing cursor                          |   6    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s)                                            |
+| W6  | Long sessions without crash / lag / drift               |   9    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak)                                         |
+| W7  | Distraction-free, single-purpose surface                |   8    | [README → vision](../README.md#vision)                                                                             |
+| W8  | E-ink-honest UI (no blink, no animation, no flash spam) |   7    | [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                                        |
+| W9  | Refactorable across nine downstream releases            |   8    | [roadmap](roadmap.md)                                                                                              |
+| W10 | Hackable / DIY-shaped BOM and code                      |   5    | [README → vision](../README.md#vision)                                                                             |
+| W11 | Multi-day battery life (v0.8 onward)                    |   4    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--)                                                           |
+| W12 | Local-only file scope coexists with git scope (v0.5+)   |   5    | [README → scopes](../README.md#vision), [roadmap → v0.5](roadmap.md#v05--file-palette--multi-file--)               |
 
 ---
 
@@ -43,23 +43,23 @@ What a user (= me) values about the device, with importance weights on a
 Measurable characteristics. Targets are v0.1 unless noted. Direction column
 shows what "better" looks like (↑ higher, ↓ lower, → fixed).
 
-| ID  | Function                                              | Dir | v0.1 target              | v1.0 target           |
-|-----|-------------------------------------------------------|:---:|--------------------------|-----------------------|
-| H1  | Keypress → glyph latency                              | ↓   | ≤ 200 ms                 | ≤ 150 ms              |
-| H2  | Partial-refresh region area per keystroke             | ↓   | ≤ 1 text line (~22 px h) | same                  |
-| H3  | Full-refresh cadence (clears ghosting)                | →   | 1 per 20 partials        | tuned by panel temp   |
-| H4  | Cold boot → cursor ready                              | ↓   | ≤ 5 s                    | ≤ 3 s                 |
-| H5  | Continuous-typing endurance (no drop, no leak)        | ↑   | ≥ 1 h                    | ≥ 8 h                 |
-| H6  | `Ctrl-G` push success rate on healthy Wi-Fi           | ↑   | ≥ 95 %                   | ≥ 99 %                |
-| H7  | Push end-to-end (one-file commit)                     | ↓   | ≤ 30 s                   | ≤ 10 s                |
-| H8  | Save survives power loss after status confirms        | →   | 100 %                    | 100 %                 |
-| H9  | PSRAM heap headroom during push                       | ↑   | ≥ 1 MB free at peak      | same                  |
-| H10 | Firmware binary size                                  | ↓   | ≤ 2 MB                   | ≤ 1.5 MB              |
-| H11 | Stack budget across all tasks                         | ↓   | ≤ 80 KB (sum)            | same                  |
-| H12 | Wi-Fi reconnect on transient outage                   | ↓   | ≤ 30 s                   | ≤ 10 s                |
-| H13 | Idle / typing / push current draw                     | ↓   | measured only            | sized for >2 days     |
-| H14 | Module count / public-API surface (refactor proxy)    | →   | ≤ 8 modules              | same                  |
-| H15 | Build time (clean, release)                           | ↓   | ≤ 10 min                 | ≤ 7 min               |
+| ID  | Function                                           | Dir | v0.1 target              | v1.0 target         |
+| --- | -------------------------------------------------- | :-: | ------------------------ | ------------------- |
+| H1  | Keypress → glyph latency                           |  ↓  | ≤ 200 ms                 | ≤ 150 ms            |
+| H2  | Partial-refresh region area per keystroke          |  ↓  | ≤ 1 text line (~22 px h) | same                |
+| H3  | Full-refresh cadence (clears ghosting)             |  →  | 1 per 20 partials        | tuned by panel temp |
+| H4  | Cold boot → cursor ready                           |  ↓  | ≤ 5 s                    | ≤ 3 s               |
+| H5  | Continuous-typing endurance (no drop, no leak)     |  ↑  | ≥ 1 h                    | ≥ 8 h               |
+| H6  | `Ctrl-G` push success rate on healthy Wi-Fi        |  ↑  | ≥ 95 %                   | ≥ 99 %              |
+| H7  | Push end-to-end (one-file commit)                  |  ↓  | ≤ 30 s                   | ≤ 10 s              |
+| H8  | Save survives power loss after status confirms     |  →  | 100 %                    | 100 %               |
+| H9  | PSRAM heap headroom during push                    |  ↑  | ≥ 1 MB free at peak      | same                |
+| H10 | Firmware binary size                               |  ↓  | ≤ 2 MB                   | ≤ 1.5 MB            |
+| H11 | Stack budget across all tasks                      |  ↓  | ≤ 80 KB (sum)            | same                |
+| H12 | Wi-Fi reconnect on transient outage                |  ↓  | ≤ 30 s                   | ≤ 10 s              |
+| H13 | Idle / typing / push current draw                  |  ↓  | measured only            | sized for >2 days   |
+| H14 | Module count / public-API surface (refactor proxy) |  →  | ≤ 8 modules              | same                |
+| H15 | Build time (clean, release)                        |  ↓  | ≤ 10 min                 | ≤ 7 min             |
 
 ---
 
@@ -69,21 +69,21 @@ Reading: row × column cell is how strongly the function (H) advances the
 requirement (W). Importance at the bottom is `Σ(weight × strength)` — the
 weighted vote on which functions deserve the most engineering attention.
 
-|       | H1 lat | H2 area | H3 cad | H4 boot | H5 soak | H6 push% | H7 push s | H8 dura | H9 heap | H10 bin | H11 stk | H12 wifi | H13 mA | H14 mod | H15 build |
-|-------|:------:|:-------:|:------:|:-------:|:-------:|:--------:|:---------:|:-------:|:-------:|:-------:|:-------:|:--------:|:------:|:-------:|:---------:|
-| W1 (10) | **9** | 9       | 3      |         | 3       |          |           |         | 1       |         | 1       |          |        |         |           |
-| W2 (9)  |       |         |        |         |         | **9**    | 3         |         | 9       |         |         | 9        |        |         |           |
-| W3 (10) |       |         |        |         |         |          |           | **9**   |         |         |         |          |        |         |           |
-| W4 (7)  |       |         |        |         |         | 3        |           |         |         |         |         | 3        |        | 1       |           |
-| W5 (6)  |       |         |        | **9**   |         |          |           |         |         | 3       |         |          |        |         |           |
-| W6 (9)  | 3     |         | 3      |         | **9**   | 3        |           | 3       | 9       |         | 3       | 3        |        |         |           |
-| W7 (8)  | 3     | 3       | 3      |         |         |          |           |         |         |         |         |          | 3      | 1       |           |
-| W8 (7)  | 1     | 9       | **9**  |         |         |          |           |         |         |         |         |          |        |         |           |
-| W9 (8)  |       |         |        |         |         |          |           |         |         | 1       | 1       |          |        | **9**   | 3         |
-| W10 (5) |       |         |        |         |         |          |           |         |         | 3       |         |          | 1      | 3       | 1         |
-| W11 (4) |       |         |        |         |         |          |           |         |         |         |         |          | **9**  |         |           |
-| W12 (5) |       |         |        |         |         | 1        |           | 3       |         |         |         |          |        | 3       |           |
-| **Σ**  | **138**| **174** | **126**| **54**  | **108** | **132**  | **27**    | **147** | **162** | **38**  | **41**  | **120**  | **74** | **115** | **29**    |
+|         | H1 lat  | H2 area | H3 cad  | H4 boot | H5 soak | H6 push% | H7 push s | H8 dura | H9 heap | H10 bin | H11 stk | H12 wifi | H13 mA | H14 mod | H15 build |
+| ------- | :-----: | :-----: | :-----: | :-----: | :-----: | :------: | :-------: | :-----: | :-----: | :-----: | :-----: | :------: | :----: | :-----: | :-------: |
+| W1 (10) |  **9**  |    9    |    3    |         |    3    |          |           |         |    1    |         |    1    |          |        |         |           |
+| W2 (9)  |         |         |         |         |         |  **9**   |     3     |         |    9    |         |         |    9     |        |         |           |
+| W3 (10) |         |         |         |         |         |          |           |  **9**  |         |         |         |          |        |         |           |
+| W4 (7)  |         |         |         |         |         |    3     |           |         |         |         |         |    3     |        |    1    |           |
+| W5 (6)  |         |         |         |  **9**  |         |          |           |         |         |    3    |         |          |        |         |           |
+| W6 (9)  |    3    |         |    3    |         |  **9**  |    3     |           |    3    |    9    |         |    3    |    3     |        |         |           |
+| W7 (8)  |    3    |    3    |    3    |         |         |          |           |         |         |         |         |          |   3    |    1    |           |
+| W8 (7)  |    1    |    9    |  **9**  |         |         |          |           |         |         |         |         |          |        |         |           |
+| W9 (8)  |         |         |         |         |         |          |           |         |         |    1    |    1    |          |        |  **9**  |     3     |
+| W10 (5) |         |         |         |         |         |          |           |         |         |    3    |         |          |   1    |    3    |     1     |
+| W11 (4) |         |         |         |         |         |          |           |         |         |         |         |          | **9**  |         |           |
+| W12 (5) |         |         |         |         |         |    1     |           |    3    |         |         |         |          |        |    3    |           |
+| **Σ**   | **138** | **174** | **126** | **54**  | **108** | **132**  |  **27**   | **147** | **162** | **38**  | **41**  | **120**  | **74** | **115** |  **29**   |
 
 ### Top engineering priorities (from importance)
 
@@ -114,7 +114,7 @@ The roof shows where pushing one function pushes another the wrong way.
 **`– –`** strong conflict.
 
 |         | H1  | H2  | H3  | H4  | H5  | H6  | H7  | H8  | H9  | H10 | H11 | H12 | H13 | H14 | H15 |
-|---------|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
+| ------- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **H1**  | —   | ++  | –   |     | +   |     |     |     |     |     |     |     | –   |     |     |
 | **H2**  |     | —   | ++  |     |     |     |     |     |     |     |     |     | +   |     |     |
 | **H3**  |     |     | —   |     |     |     |     |     |     |     |     |     | +   |     |     |
@@ -137,7 +137,7 @@ The roof shows where pushing one function pushes another the wrong way.
   second pile up ghosting faster, demanding earlier full refreshes —
   visible flashes that hurt H8 perception and H1 burst behaviour. The
   ADR-003 strip aspect is the structural answer: a small framebuffer makes
-  *both* cheaper, not one at the expense of the other. The runtime answer
+  _both_ cheaper, not one at the expense of the other. The runtime answer
   is render §H3: schedule full refreshes on idle ≥ 1 s (v0.1 tech doc).
 - **H9 heap ↔ H10 binary size** (strong). std + gitoxide + mbedtls inflate
   both. We chose to spend on these (ADR-001, ADR-004) because 16 MB flash
@@ -170,44 +170,44 @@ constrains the choice.
 
 Components (with anchoring ADR):
 
-| ID  | Component                                    | ADR        |
-|-----|----------------------------------------------|------------|
-| C1  | ESP32-S3-N16R8 SoC                           | ADR-001, ADR-008 |
-| C2  | `esp-idf-rs` (std) + ESP-IDF                 | ADR-001    |
-| C3  | `std::thread` + `crossbeam-channel`          | ADR-006    |
-| C4  | PSRAM allocator wrapper                      | ADR-001    |
-| C5  | GDEY0579T93 + DESPI-c579 panel               | ADR-003    |
-| C6  | `embedded-graphics` + e-paper driver         | ADR-002, ADR-003 |
-| C7  | Custom widget / dirty-rect layer             | ADR-002    |
-| C8  | `ropey` rope buffer                          | ADR-001 (ecosystem) |
-| C9  | TinyUSB host (`esp-idf` bindings)            | ADR-009    |
-| C10 | FAT on microSD                               | ADR-007    |
-| C11 | LittleFS on internal flash                   | ADR-007    |
-| C12 | `gitoxide` (`gix-*`)                         | ADR-004    |
-| C13 | mbedtls TLS (via ESP-IDF)                    | ADR-005    |
-| C14 | HTTPS + GitHub PAT auth                      | ADR-005    |
-| C15 | eFuse-derived encryption key                 | ADR-005, ADR-007 |
-| C16 | USB-C wall PSU                               | ADR-008    |
+| ID  | Component                            | ADR                 |
+| --- | ------------------------------------ | ------------------- |
+| C1  | ESP32-S3-N16R8 SoC                   | ADR-001, ADR-008    |
+| C2  | `esp-idf-rs` (std) + ESP-IDF         | ADR-001             |
+| C3  | `std::thread` + `crossbeam-channel`  | ADR-006             |
+| C4  | PSRAM allocator wrapper              | ADR-001             |
+| C5  | GDEY0579T93 + DESPI-c579 panel       | ADR-003             |
+| C6  | `embedded-graphics` + e-paper driver | ADR-002, ADR-003    |
+| C7  | Custom widget / dirty-rect layer     | ADR-002             |
+| C8  | `ropey` rope buffer                  | ADR-001 (ecosystem) |
+| C9  | TinyUSB host (`esp-idf` bindings)    | ADR-009             |
+| C10 | FAT on microSD                       | ADR-007             |
+| C11 | LittleFS on internal flash           | ADR-007             |
+| C12 | `gitoxide` (`gix-*`)                 | ADR-004             |
+| C13 | mbedtls TLS (via ESP-IDF)            | ADR-005             |
+| C14 | HTTPS + GitHub PAT auth              | ADR-005             |
+| C15 | eFuse-derived encryption key         | ADR-005, ADR-007    |
+| C16 | USB-C wall PSU                       | ADR-008             |
 
 Function-to-component matrix (9 strong / 3 medium / 1 weak):
 
-|       | C1 SoC | C2 std | C3 thr | C4 PSR | C5 EPD | C6 eg | C7 wid | C8 rope | C9 USB | C10 SD | C11 LFS | C12 gix | C13 TLS | C14 PAT | C15 efs | C16 PSU |
-|-------|:------:|:------:|:------:|:------:|:------:|:-----:|:------:|:-------:|:------:|:------:|:-------:|:-------:|:-------:|:-------:|:-------:|:-------:|
-| H1 lat   | 3 | 1 | 9 | 3 | 9 | 9 | 9 | 3 | 9 |   |   |   |   |   |   |   |
-| H2 area  |   |   |   |   | 9 | 9 | 9 |   |   |   |   |   |   |   |   |   |
-| H3 cad   |   |   |   |   | 9 | 3 | 9 |   |   |   |   |   |   |   |   |   |
-| H4 boot  | 3 | 9 | 3 | 1 | 3 |   |   |   |   | 9 | 3 |   |   |   |   |   |
-| H5 soak  | 3 | 3 | 3 | 9 | 1 |   |   | 9 | 9 | 3 |   | 3 | 3 |   |   |   |
-| H6 push% |   | 3 |   |   |   |   |   |   |   |   |   | 9 | 9 | 9 |   |   |
-| H7 push s|   |   | 3 | 1 |   |   |   |   |   | 3 |   | 9 | 9 |   |   |   |
-| H8 dura  |   | 3 |   |   |   |   |   |   |   | 9 | 9 |   |   |   |   |   |
-| H9 heap  | 3 | 3 |   | 9 |   |   |   | 3 |   |   |   | 9 | 9 |   |   |   |
-| H10 bin  |   | 9 | 1 |   |   | 3 | 3 | 3 | 3 |   |   | 9 | 3 |   |   |   |
-| H11 stk  |   |   | 9 |   |   |   |   |   | 3 |   |   | 3 |   |   |   |   |
-| H12 wifi | 3 | 9 |   |   |   |   |   |   |   |   |   |   | 3 |   |   |   |
-| H13 mA   | 9 |   | 1 |   | 9 |   |   |   | 3 | 3 |   |   |   |   |   | 9 |
-| H14 mod  |   | 3 | 3 |   |   | 3 | 9 | 3 |   |   |   | 9 |   |   |   |   |
-| H15 build|   | 9 |   |   |   |   |   |   |   |   |   | 9 | 3 |   |   |   |
+|           | C1 SoC | C2 std | C3 thr | C4 PSR | C5 EPD | C6 eg | C7 wid | C8 rope | C9 USB | C10 SD | C11 LFS | C12 gix | C13 TLS | C14 PAT | C15 efs | C16 PSU |
+| --------- | :----: | :----: | :----: | :----: | :----: | :---: | :----: | :-----: | :----: | :----: | :-----: | :-----: | :-----: | :-----: | :-----: | :-----: |
+| H1 lat    |   3    |   1    |   9    |   3    |   9    |   9   |   9    |    3    |   9    |        |         |         |         |         |         |         |
+| H2 area   |        |        |        |        |   9    |   9   |   9    |         |        |        |         |         |         |         |         |         |
+| H3 cad    |        |        |        |        |   9    |   3   |   9    |         |        |        |         |         |         |         |         |         |
+| H4 boot   |   3    |   9    |   3    |   1    |   3    |       |        |         |        |   9    |    3    |         |         |         |         |         |
+| H5 soak   |   3    |   3    |   3    |   9    |   1    |       |        |    9    |   9    |   3    |         |    3    |    3    |         |         |         |
+| H6 push%  |        |   3    |        |        |        |       |        |         |        |        |         |    9    |    9    |    9    |         |         |
+| H7 push s |        |        |   3    |   1    |        |       |        |         |        |   3    |         |    9    |    9    |         |         |         |
+| H8 dura   |        |   3    |        |        |        |       |        |         |        |   9    |    9    |         |         |         |         |         |
+| H9 heap   |   3    |   3    |        |   9    |        |       |        |    3    |        |        |         |    9    |    9    |         |         |         |
+| H10 bin   |        |   9    |   1    |        |        |   3   |   3    |    3    |   3    |        |         |    9    |    3    |         |         |         |
+| H11 stk   |        |        |   9    |        |        |       |        |         |   3    |        |         |    3    |         |         |         |         |
+| H12 wifi  |   3    |   9    |        |        |        |       |        |         |        |        |         |         |    3    |         |         |         |
+| H13 mA    |   9    |        |   1    |        |   9    |       |        |         |   3    |   3    |         |         |         |         |         |    9    |
+| H14 mod   |        |   3    |   3    |        |        |   3   |   9    |    3    |        |        |         |    9    |         |         |         |         |
+| H15 build |        |   9    |        |        |        |       |        |         |        |        |         |    9    |    3    |         |         |         |
 
 ### Read across, not down
 
@@ -219,7 +219,7 @@ Function-to-component matrix (9 strong / 3 medium / 1 weak):
   `libgit2-sys` if spike 7 fails). It's also why H9 sits in the top three
   priorities — `gitoxide`'s memory profile is the unknown.
 - **C2** (std runtime) sits underneath almost everything, but it's the
-  *enabler* (H4 boot, H10 binary, H12 Wi-Fi) rather than the bottleneck.
+  _enabler_ (H4 boot, H10 binary, H12 Wi-Fi) rather than the bottleneck.
   Reversing ADR-001 would force re-deciding ADR-004, ADR-005, ADR-006,
   ADR-007 all at once — they're a single decision in three drawers.
 
@@ -230,21 +230,21 @@ Function-to-component matrix (9 strong / 3 medium / 1 weak):
 Pulled from §3 importance and §4 conflicts, in priority order. These are
 the numbers spikes 2–7 must validate before integration starts.
 
-| Rank | Function       | Target               | Watched on            | If we miss it                                 |
-|------|----------------|----------------------|-----------------------|-----------------------------------------------|
-| 1    | H2 region area | ≤ 1 line per keypress| spike 2 + spike 5     | Increase font size to shrink per-glyph dirty rect (ADR-003 consequence) |
-| 2    | H9 PSRAM heap  | ≥ 1 MB free at push peak | spike 7           | ADR-004 kill-switch → `libgit2-sys`; cap rope at 128 KB |
-| 3    | H8 durability  | 100 % survive power yank after status | bench HIL  | Re-evaluate ADR-007 (move config to internal NVS only) |
-| 4    | H1 latency     | ≤ 200 ms keypress→glyph | spike 5            | Larger partial-refresh region; render multi-char bursts |
-| 5    | H6 push %      | ≥ 95 % on healthy Wi-Fi | spike 6 + spike 7 | TLS cipher trim; reconnect backoff tuning     |
-| 6    | H3 cadence     | full every ~20 partials | spike 2            | Adjust per panel temperature; defer flash to idle ≥ 1 s |
-| 7    | H4 boot        | ≤ 5 s to cursor      | integration smoke     | Trim startup logging; lazy-mount SD after splash |
-| 8    | H5 soak        | 1 h no leak / no drop| 1 h bench soak        | Glyph-cache eviction; PSRAM heap-fragmentation review |
+| Rank | Function       | Target                                | Watched on        | If we miss it                                                           |
+| ---- | -------------- | ------------------------------------- | ----------------- | ----------------------------------------------------------------------- |
+| 1    | H2 region area | ≤ 1 line per keypress                 | spike 2 + spike 5 | Increase font size to shrink per-glyph dirty rect (ADR-003 consequence) |
+| 2    | H9 PSRAM heap  | ≥ 1 MB free at push peak              | spike 7           | ADR-004 kill-switch → `libgit2-sys`; cap rope at 128 KB                 |
+| 3    | H8 durability  | 100 % survive power yank after status | bench HIL         | Re-evaluate ADR-007 (move config to internal NVS only)                  |
+| 4    | H1 latency     | ≤ 200 ms keypress→glyph               | spike 5           | Larger partial-refresh region; render multi-char bursts                 |
+| 5    | H6 push %      | ≥ 95 % on healthy Wi-Fi               | spike 6 + spike 7 | TLS cipher trim; reconnect backoff tuning                               |
+| 6    | H3 cadence     | full every ~20 partials               | spike 2           | Adjust per panel temperature; defer flash to idle ≥ 1 s                 |
+| 7    | H4 boot        | ≤ 5 s to cursor                       | integration smoke | Trim startup logging; lazy-mount SD after splash                        |
+| 8    | H5 soak        | 1 h no leak / no drop                 | 1 h bench soak    | Glyph-cache eviction; PSRAM heap-fragmentation review                   |
 
 The two not-in-MVP rows but already-shaped-by-design:
 
-| —   | H13 current   | Measured only in v0.1 | bench multimeter      | Cell sizing for v0.8 is data-driven, not spec-sheet |
-| —   | H11 stacks    | Sum ≤ 80 KB           | static analysis       | Was off-by-2x in ADR-006 pre-fix — corrected in §7 |
+| — | H13 current | Measured only in v0.1 | bench multimeter | Cell sizing for v0.8 is data-driven, not spec-sheet |
+| — | H11 stacks | Sum ≤ 80 KB | static analysis | Was off-by-2x in ADR-006 pre-fix — corrected in §7 |
 
 ---
 
@@ -252,19 +252,19 @@ The two not-in-MVP rows but already-shaped-by-design:
 
 Plain-language summary of what we accepted in exchange for what.
 
-| Tradeoff                                              | Got                           | Paid                          | ADR     |
-|-------------------------------------------------------|-------------------------------|-------------------------------|---------|
-| std (esp-idf-rs) over no_std (esp-hal)                | Heap, threads, VFS, mbedtls, gitoxide-compatible | +1 MB binary, +5–10 min builds | ADR-001 |
-| Custom widget layer over Ratatui                      | Dirty-rects aligned to e-ink regions; 200 KB binary back | 500 LoC we own and maintain | ADR-002 |
-| 5.79" strip panel over 7.5" page or 10.3" reader      | 27 KB framebuffer, fast partial refresh, "Freewrite" UX | Only ~11 visible lines       | ADR-003 |
-| `gitoxide` over `libgit2-sys`                         | Pure Rust, modular, no FFI cross-compile pain  | Smart-HTTP path is newer; PSRAM profile unproven (spike 7) | ADR-004 |
-| HTTPS + PAT over OAuth device-flow or SSH              | First-run UX fits in a captive-portal form     | Long-lived secret on device; manual rotation in v0.1 | ADR-005 |
-| `std::thread` over `embassy` or `tokio`                | Boring, debuggable, real stack traces; no exec to tune | ~76 KB total stack across 5 tasks | ADR-006 |
-| FAT-on-SD + LittleFS-on-flash split                    | Desktop can read SD; config survives SD reformat | Two filesystems to manage; FAT's power-loss weakness mitigated by atomic-rename | ADR-007 |
-| Wall power for v0.1, battery deferred                   | Measure real draw before sizing the cell       | Tethered MVP; not the final aesthetic | ADR-008 |
-| USB host (TinyUSB) over BLE-HID                        | No radio contention with Wi-Fi during push; keyboard powered from the device | One more USB connector on enclosure | ADR-009 |
+| Tradeoff                                         | Got                                                                          | Paid                                                                            | ADR     |
+| ------------------------------------------------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------- |
+| std (esp-idf-rs) over no_std (esp-hal)           | Heap, threads, VFS, mbedtls, gitoxide-compatible                             | +1 MB binary, +5–10 min builds                                                  | ADR-001 |
+| Custom widget layer over Ratatui                 | Dirty-rects aligned to e-ink regions; 200 KB binary back                     | 500 LoC we own and maintain                                                     | ADR-002 |
+| 5.79" strip panel over 7.5" page or 10.3" reader | 27 KB framebuffer, fast partial refresh, "Freewrite" UX                      | Only ~11 visible lines                                                          | ADR-003 |
+| `gitoxide` over `libgit2-sys`                    | Pure Rust, modular, no FFI cross-compile pain                                | Smart-HTTP path is newer; PSRAM profile unproven (spike 7)                      | ADR-004 |
+| HTTPS + PAT over OAuth device-flow or SSH        | First-run UX fits in a captive-portal form                                   | Long-lived secret on device; manual rotation in v0.1                            | ADR-005 |
+| `std::thread` over `embassy` or `tokio`          | Boring, debuggable, real stack traces; no exec to tune                       | ~76 KB total stack across 5 tasks                                               | ADR-006 |
+| FAT-on-SD + LittleFS-on-flash split              | Desktop can read SD; config survives SD reformat                             | Two filesystems to manage; FAT's power-loss weakness mitigated by atomic-rename | ADR-007 |
+| Wall power for v0.1, battery deferred            | Measure real draw before sizing the cell                                     | Tethered MVP; not the final aesthetic                                           | ADR-008 |
+| USB host (TinyUSB) over BLE-HID                  | No radio contention with Wi-Fi during push; keyboard powered from the device | One more USB connector on enclosure                                             | ADR-009 |
 
-### Conflicts left explicitly *unresolved* by v0.1
+### Conflicts left explicitly _unresolved_ by v0.1
 
 These are the live tensions we are watching, not deciding harder:
 
@@ -304,7 +304,7 @@ and is not load-bearing.
 - When a new ADR lands, add its components to §5 and re-score any
   function-row whose dominant component changed.
 - When a spike returns numbers, update §6's "Target" or "Watched on"
-  columns — this is the doc that *should* feel out of date if measured
+  columns — this is the doc that _should_ feel out of date if measured
   reality drifts from estimates.
 - The WHATs change rarely; the HOWs change with each release; the
   matrices are recomputed when either side changes.
