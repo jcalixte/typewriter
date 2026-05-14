@@ -271,7 +271,9 @@ derived key.
   Discouraged but possible.
 - Config survives SD reformatting.
 - Power-loss safety on FAT is weaker than LittleFS — we mitigate with
-  atomic-rename writes (see technical design).
+  atomic-rename writes (see
+  [v0.1 technical → `persistence`](v0.1-mvp-technical.md#module-breakdown)
+  and [file layout](v0.1-mvp-technical.md#file-layout)).
 
 ---
 
@@ -299,9 +301,11 @@ power profile of "boot + type + idle + push" is measured on real hardware.
 Sizing a battery before measuring is guessing.
 
 ### Consequences
-- v0.1 device is tethered. Not the final aesthetic, but the right MVP.
+- v0.1 device is tethered. Not the final aesthetic, but the right MVP —
+  scope is in [v0.1 product → out of scope](v0.1-mvp-product.md#out-of-scope-for-v01).
 - We can decide cell capacity from real numbers in v0.8, not specs sheets.
-- Lid-close detection / deep sleep slips to v0.8 with the battery.
+- Lid-close detection / deep sleep slips to v0.8 with the battery — see
+  [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--).
 
 ---
 
@@ -324,7 +328,8 @@ The ESP32-S3 has USB OTG (host capable) and BLE 5. Either transport works.
 
 ### Decision
 **USB host (TinyUSB) for v0.1.** BLE-HID is kept as a documented fallback
-if TinyUSB host turns out unstable (spike 4 is the gate).
+if TinyUSB host turns out unstable
+([spike 4](v0.1-mvp-technical.md#hardware-bring-up-order) is the gate).
 
 ### Consequences
 - Enclosure design must include a USB-A or USB-C port for the keyboard.
