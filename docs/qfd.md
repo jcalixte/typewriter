@@ -26,19 +26,18 @@ What a user (= me) values about the device, with importance weights on a
 | ID  | Requirement                                             | Weight | Source                                                                                                             |
 | --- | ------------------------------------------------------- | :----: | ------------------------------------------------------------------------------------------------------------------ |
 | W1  | Sub-second visible response to typing                   |   10   | [product → Write](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium)   |
-| W2  | `Ctrl-G` reliably **Publishes** to the remote           |   9    | [product → Publish](v0.1-mvp-product.md#user-stories), [ADR-010], [CONTEXT → Publish](../CONTEXT.md#user-facing-actions) |
+| W2  | **Publishing** is one deliberate action away            |   9    | [product → Publish](v0.1-mvp-product.md#user-stories), [CONTEXT → Publish](../CONTEXT.md#user-facing-actions) |
 | W3  | Pulling power never corrupts the file                   |   10   | [product → Recover](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)       |
-| W4  | One-shot provisioning, never repeated mid-session       |   7    | [product → Provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only), [roadmap → v0.9](roadmap.md#v09--robustness--) |
+| W4  | Provisioning never interrupts a writing session         |   7    | [product → Provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only), [roadmap → v0.9](roadmap.md#v09--robustness--) |
 | W5  | Quick boot to a writing cursor                          |   6    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s)                                            |
 | W6  | Long sessions without crash / lag / drift               |   9    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak)                                         |
-| W7  | Distraction-free, single-purpose surface                |   8    | [README → vision](../README.md#vision)                                                                             |
-| W8  | E-ink-honest UI (no blink, no animation, no flash spam) |   7    | [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                                        |
-| W9  | Refactorable across nine downstream releases            |   8    | [roadmap](roadmap.md)                                                                                              |
-| W10 | Hackable / DIY-shaped BOM and code                      |   5    | [README → vision](../README.md#vision)                                                                             |
+| W7  | Nothing on the device competes with prose               |   8    | [README → vision](../README.md#vision)                                                                             |
+| W8  | The UI never moves except when I move it                |   7    | [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                                        |
+| W9  | Codebase absorbs the planned roadmap without rewrite    |   8    | [roadmap](roadmap.md)                                                                                              |
+| W10 | I can repair or fork it with hobbyist tools             |   5    | [README → vision](../README.md#vision)                                                                             |
 | W11 | Multi-day battery life (v0.8 onward)                    |   4    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--)                                                           |
 | W12 | Local-only file scope coexists with git scope (v0.5+)   |   5    | [README → scopes](../README.md#vision), [roadmap → v0.5](roadmap.md#v05--file-palette--multi-file--)               |
-| W13 | Beautiful monospace font on the writing surface         |   7    | [roadmap → v1.0](roadmap.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium)                          |
-| W14 | Beautiful serif font option for reading / published view |  4    | [roadmap → v1.0](roadmap.md)                                                                                        |
+| W13 | Typography sets a writing-tool tone — typewriter or developer editor, never gadget | 7 | [roadmap → v1.0](roadmap.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium) |
 
 ---
 
@@ -87,30 +86,33 @@ weighted vote on which functions deserve the most engineering attention.
 | W10 (5) |         |         |         |         |         |          |           |         |         |    3    |         |          |   1    |    3    |     1     |
 | W11 (4) |         |         |         |         |         |          |           |         |         |         |         |          | **9**  |         |           |
 | W12 (5) |         |         |         |         |         |    1     |           |    3    |         |         |         |          |        |    3    |           |
-| W13 (7) |    1    |    3    |         |         |         |          |           |         |    3    |         |         |          |        |         |           |
-| W14 (4) |         |         |         |         |         |          |           |         |    3    |         |         |          |        |         |           |
-| **Σ**   | **155** | **198** | **144** | **54**  | **111** | **134**  |  **27**   | **132** | **205** | **41**  | **45**  | **129**  | **65** | **117** |  **29**   |
+| W13 (7) |         |         |         |         |         |          |           |         |    3    |         |         |          |        |         |           |
+| **Σ**   | **148** | **177** | **144** | **54**  | **111** | **134**  |  **27**   | **132** | **193** | **41**  | **45**  | **129**  | **65** | **117** |  **29**   |
 
 ### Top engineering priorities (from importance)
 
-1. **H9 — PSRAM heap during push** (205). gitoxide pack + rope + TLS all
+1. **H9 — PSRAM heap during push** (193). gitoxide pack + rope + TLS all
    share the same arena; [ADR-001] and [ADR-004] trade binary size for ecosystem
-   so this becomes the watched metric. Two embedded fonts (W13, W14) each
-   keep their own glyph cache, adding to the pressure.
-2. **H2 — partial-refresh region area** (198). Bound how many pixels the
+   so this becomes the watched metric. The umbrella typography WHAT (W13)
+   keeps a fixed-size glyph-cache load on top of that arena pressure.
+2. **H2 — partial-refresh region area** (177). Bound how many pixels the
    panel has to flip per keypress; [ADR-003] is the hardware-side answer.
-   A mono writing surface (W13) bounds it predictably; a serif option (W14)
-   widens it.
-3. **H1 — keypress latency** (155). The single most user-visible number;
+3. **H1 — keypress latency** (148). The single most user-visible number;
    [ADR-002] and [ADR-003] are co-conspirators.
 4. **H3 — full-refresh cadence** (144). The ghosting/flash tradeoff; lives
    in the render layer.
 5. **H6 — push success rate** (134). [ADR-004] (gitoxide) and [ADR-005] (PAT
    over HTTPS) own this jointly; spike 7 is the kill-switch.
 6. **H8 — save durability** (132). Atomic-rename + fsync; FAT's weakness is
-   acknowledged in [ADR-007] and mitigated, not designed around. H8 sits
-   below the latency cluster because only three WHATs touch it (W3, W6,
-   W12) — fewer voters, not weaker requirement.
+   acknowledged in [ADR-007] and mitigated, not designed around.
+
+**Why H8 ranks where it does.** HoQ totals reward functions that touch many
+WHATs over functions that absolutely matter for one WHAT. W3 ("Pulling
+power never corrupts the file", weight 10) is the strongest single
+requirement but its only strong link is H8. H9, by contrast, collects from
+W1+W2+W6 to reach 193. The fix isn't to re-weight cells to chase intuition
+— it's to use §6 as a curated rank that lifts narrow-but-critical
+functions explicitly.
 
 The bottom three (H7 push time, H15 build time, H10 binary size) are real
 costs but ones we knowingly took on ([ADR-001]) and are not in the critical
@@ -174,11 +176,10 @@ The roof shows where pushing one function pushes another the wrong way.
   parked.
 - **H14 modularity ↔ H15 build time** (mild). More small crates = more
   link work. Boring vs valuable; we lean toward modularity.
-- **W13/W14 fonts ↔ H9 heap + H10 binary** (mild, future). Embedding both
-  a mono and a serif typeface inflates the binary and adds a second glyph
-  cache. Not load-bearing in v0.1 (one font), but the v1.0 typography goal
-  is the reason H9 and H10 need slack rather than being squeezed to the
-  minimum.
+- **W13 typography ↔ H9 heap + H10 binary** (mild, future). Achieving a
+  writing-tool tone needs room for glyph caches and font assets. Not
+  load-bearing in v0.1 (one mono font), but the v1.0 tone goal is why H9
+  and H10 keep slack rather than being squeezed to the minimum.
 - **Tightened H15 ↔ [ADR-001]** (mild). Pulling v0.1 build time from
   ≤ 10 min to ≤ 7 min eats into [ADR-001]'s accepted "+5–10 min" cost.
   Worth aiming at via cargo profile / vendor LTO / crate-graph trims;
@@ -258,8 +259,11 @@ Function-to-component matrix (9 strong / 3 medium / 1 weak):
 
 ## 6. Critical performance budget
 
-Pulled from §3 importance and §4 conflicts, in priority order. These are
-the numbers spikes 2–7 must validate before integration starts.
+A curated rank, drawing from §3 importance and §4 conflicts but with two
+deliberate overrides: (a) acceptance-criteria critical paths (H4 boot,
+H5 soak) move up regardless of weighted-vote spread, and (b) table-stakes
+correctness (H8 durability) moves up despite a narrow voter base. These
+are the numbers spikes 2–7 must validate before integration starts.
 
 | Rank | Function       | Target                                | Watched on        | If we miss it                                                           |
 | ---- | -------------- | ------------------------------------- | ----------------- | ----------------------------------------------------------------------- |
@@ -310,6 +314,11 @@ These are the live tensions we are watching, not deciding harder:
   the previous saved version. We document this as expected behavior; it
   becomes a real bug only if soak testing shows it triggering on routine
   saves.
+- **W13 typography paths.** v0.1 ships one mono font; v1.0's
+  writing-tool-tone outcome admits two paths (mono = developer comfort,
+  serif = typewriter feel). Not yet decided whether to ship both or one;
+  decision deferred to the v1.0 design pass. Cost preview per added font:
+  +H9 glyph-cache footprint, +H10 binary for embedded assets.
 
 ---
 
@@ -346,10 +355,31 @@ These are the live tensions we are watching, not deciding harder:
 - **House of Quality column sums recomputed.** Earlier Σ row drifted from
   the matrix arithmetic — H1 listed 138 but sums to 148; H8 147 vs 132;
   H9 162 vs 172; H13 74 vs 65; smaller deltas elsewhere. Recomputed all
-  sums from the cells. Folded in W13/W14 at the same pass. The reordering
-  moved H9 to #1 (205), H2 to #2 (198), H1 to #3 (155); H8 dropped from
-  #3 to #6 (132). H8's drop is a "fewer WHAT voters" artifact, not a
-  signal that durability matters less to the design.
+  sums from the cells. H8 dropped from #3 to #6 — a "fewer WHAT voters"
+  artifact, not a signal that durability matters less to the design.
+- **W13 reframed, W14 removed.** Earlier W13/W14 rows named solutions
+  ("beautiful monospace", "beautiful serif") inside the requirements
+  column, conflating *what the user values* with *which asset delivers it*.
+  Replaced with one outcome WHAT — typography sets a writing-tool tone —
+  and moved the mono+serif option to §7 as a v1.0 unresolved tension.
+  Σ shifted (H9 205→193, H2 198→177, H1 155→148) because the prior
+  W13/W14 cells were scoring solution-fit rather than outcome-fit.
+- **WHATs swept for solution-shape phrasing.** Following the W13 reframe,
+  the same drift was found in W2 (named the key `Ctrl-G`), W4 (named the
+  process shape "one-shot"), W7 (named the hardware "surface"), W8 (named
+  the medium "e-ink"), W10 (named the deliverable "BOM"), and W9 ("nine
+  releases" — brittle vs roadmap reshuffles). All rephrased as outcomes;
+  the named solutions remain documented in §7 tradeoffs and the relevant
+  ADRs where they belong. Matrix cell strengths held — each cell scored
+  the function against the underlying outcome, not the surface phrasing —
+  so no Σ recompute.
+- **§3 vs §6 priority lists clarified.** The two were giving different
+  orderings without saying why. §6 now states explicitly that it is a
+  curated rank with two named overrides over §3's pure arithmetic:
+  acceptance-criteria critical paths (H4, H5) and table-stakes correctness
+  (H8) get manual lifts. §3 now names the HoQ structural bias that makes
+  the curation necessary — reward for spread, penalty for narrow-but-
+  critical functions — using H8/W3 as the canonical example.
 
 The minor variance between README's "~12 lines" and product/[ADR-003]'s
 "~11 lines" of edit area is within rounding for a 14 px glyph in a 240 px
