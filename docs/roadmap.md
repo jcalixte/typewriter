@@ -92,7 +92,10 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 ## v1.0 — Polish — [ ]
 
 - [ ] Boot time ≤ 3 s to usable cursor
-- [ ] Font selection (at least one serif + one mono)
+- [ ] Font selection (at least one serif + one mono) with adjustable font
+      size, switchable at runtime and persisted across reboots
+- [ ] Theme: light / dark (inverted e-ink), switchable at runtime and
+      persisted across reboots
 - [ ] Enclosure design files in `hardware/`
 - [ ] User guide
 
@@ -100,7 +103,5 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 
 - 10.3" panel upgrade via IT8951
 - Multiple remotes / repos
-- Spell-check (dictionary in flash, naive)
 - Stats: words today, streak
-- Theme: light / dark (inverted e-ink)
 - BLE-HID fallback for wireless keyboards
