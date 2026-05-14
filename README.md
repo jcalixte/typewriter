@@ -164,6 +164,8 @@ gantt
   sdkconfig.defaults
 /hardware       BOM, schematic, enclosure (later)
 /docs           ADRs, power measurements
+package.json    pnpm + oxfmt — formatting toolchain for docs/JSON
+                (companions: pnpm-lock.yaml, .oxfmtrc.json, .node-version)
 ```
 
 ---
