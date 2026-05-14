@@ -31,15 +31,18 @@ push) is offered.
 | Part | Choice | Why |
 |---|---|---|
 | MCU | **ESP32-S3-N16R8** (16 MB flash, 8 MB octal PSRAM) | USB OTG host (for the keyboard), Wi-Fi, BLE, dual core @ 240 MHz, plenty of PSRAM for git pack data and screen buffer. Best-supported Rust target in the ESP family. |
-| Display | **Waveshare 7.5" V2 SPI (800×480)** for MVP | Partial refresh works, well-supported by `epd-waveshare`, low power, no IT8951 controller board needed. Upgrade path: 10.3" + IT8951 once UX is proven. |
+| Display | **GDEY0579T93 + DESPI-c579 breakout** (5.79", 792×272, 1-bit) | Good Display panel matched with its own FPC breakout. Strip aspect (~2.9:1) — Freewrite-coded: ~12 lines of edit area, ~95 cols. Tiny framebuffer (~27 KB) leaves PSRAM headroom. The DESPI-c579 is a passive level-shifter / FPC-to-header board, not an active controller — driven over plain SPI like any other epd. |
 | Keyboard | **Nuphy Air60/Halo65 wired USB-C** | ESP32-S3 acts as USB host via TinyUSB. BLE-HID is a fallback but contends with Wi-Fi for radio time during push. |
 | Storage | microSD over SPI | Holds both the git working copy (`/sd/repo/`) **and** the local-only scratch space (`/sd/local/`). Internal flash is for firmware + config only. |
 | Power | **USB-C wall power for MVP**, 18650 + IP5306 in Phase 3 | Measure power profile on real hardware before sizing the battery. E-ink + sleep should give multi-day battery life but battery introduces charging, safety, and BMS complexity we don't need on day one. |
 | Enclosure | 3D-printed, hinged lid | Phase 4 concern. |
 
-**Why not the 10.3" parallel screen for MVP:** IT8951 driver is fine but adds
-~$80 BOM and parallel pins eat the GPIO budget we want for SD + status LEDs.
-Start cheap, prove the loop, then upgrade.
+**Why the 5.79" strip aspect:** less screen than a 7.5" page-shaped panel,
+but the long-narrow shape biases toward "current line + recent context" —
+the writing posture we actually want. The smaller framebuffer is cheap on
+RAM, and SPI panels keep the GPIO budget open for SD + future peripherals.
+A larger panel (10.3" via IT8951) stays on the table for v1.x once UX is
+proven.
 
 ---
 
@@ -51,7 +54,7 @@ rejected alternatives below.
 | Layer | Crate / Component | Notes |
 |---|---|---|
 | HAL / runtime | `esp-idf-svc`, `esp-idf-hal` | std build, gives us heap, threads, VFS, mbedtls, Wi-Fi stack. |
-| Display | `embedded-graphics` + `epd-waveshare` | Pixel framebuffer with partial-refresh regions. We track dirty rects ourselves. |
+| Display | `embedded-graphics` + `epd-waveshare` (or custom driver) | Pixel framebuffer with partial-refresh regions. We track dirty rects ourselves. The GDEY0579T93 uses an SSD1683-class controller; if it's not already in `epd-waveshare`, we write a small driver against `embedded-hal` SPI — ~300 LoC, low risk. |
 | Editor core | Custom, in-tree | Rope buffer (`ropey`), mode state machine, Vim keymap table. |
 | TUI-style layout | Custom thin layer (~500 LoC) | API inspired by Ratatui (`Layout`, `Block`, `Paragraph`) but renders directly to `embedded-graphics`. See below. |
 | USB host | `esp-idf` TinyUSB bindings | Boot-protocol HID is enough for the keyboard. |
