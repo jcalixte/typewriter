@@ -1,0 +1,12 @@
+{
+  "fontFamilies": [
+    "Arvo",
+    "Intel One Mono",
+    "Geist Mono",
+    "Space Mono",
+    "PT Serif"
+  ],
+  "fontSize": "15pt",
+  "pageWidth": "480px",
+  "backlink": false
+}
