@@ -9,7 +9,9 @@ Scope: v0.1 MVP — see
 [`v0.1-mvp-product.md`](v0.1-mvp-product.md) for user-facing scope and
 [`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) for implementation —
 with the v0.2–v1.0 trajectory ([README](../README.md),
-[roadmap](roadmap.md)) in mind so we don't paint into a corner.
+[roadmap](roadmap.md)) in mind so we don't paint into a corner. Terminology
+(e.g. **Tracked**, **Local**, **Save**, **Publish**) follows the project
+glossary at [`../CONTEXT.md`](../CONTEXT.md).
 
 Format inspired by the classic House of Quality, kept compact. Strength
 weights: **9** strong, **3** medium, **1** weak, blank none.
@@ -23,10 +25,10 @@ What a user (= me) values about the device, with importance weights on a
 
 | ID  | Requirement                                             | Weight | Source                                                                                                             |
 | --- | ------------------------------------------------------- | :----: | ------------------------------------------------------------------------------------------------------------------ |
-| W1  | Sub-second visible response to typing                   |   10   | [product → story 2](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium) |
-| W2  | `Ctrl-G` reliably lands a commit on GitHub              |   9    | [product → story 4](v0.1-mvp-product.md#user-stories)                                                              |
-| W3  | Pulling power never corrupts the file                   |   10   | [product → story 5](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)       |
-| W4  | One-shot first-run setup, never repeated                |   7    | [product → story 1](v0.1-mvp-product.md#user-stories)                                                              |
+| W1  | Sub-second visible response to typing                   |   10   | [product → Write](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium)   |
+| W2  | `Ctrl-G` reliably **Publishes** to the remote           |   9    | [product → Publish](v0.1-mvp-product.md#user-stories), [ADR-010](adr.md#adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt), [CONTEXT → Publish](../CONTEXT.md#user-facing-actions) |
+| W3  | Pulling power never corrupts the file                   |   10   | [product → Recover](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)       |
+| W4  | One-shot provisioning, never repeated mid-session       |   7    | [product → Provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only), [roadmap → v0.9](roadmap.md#v09--robustness--) |
 | W5  | Quick boot to a writing cursor                          |   6    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s)                                            |
 | W6  | Long sessions without crash / lag / drift               |   9    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak)                                         |
 | W7  | Distraction-free, single-purpose surface                |   8    | [README → vision](../README.md#vision)                                                                             |
@@ -218,6 +220,15 @@ Function-to-component matrix (9 strong / 3 medium / 1 weak):
   touch it. That's why ADR-004 includes a kill-switch (fall back to
   `libgit2-sys` if spike 7 fails). It's also why H9 sits in the top three
   priorities — `gitoxide`'s memory profile is the unknown.
+  [ADR-010](adr.md#adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt)
+  pins the *shape* of the publish sequence (the `gct` flow); C12 is just the
+  library that implements it. Changing ADR-010 doesn't change C12's column,
+  but changing C12 (the kill-switch) does not change ADR-010's user
+  contract.
+- **C11** (LittleFS) is unused in v0.1 — config is build-time. Its non-zero
+  cells in the matrix describe the v0.9+ shape per
+  [ADR-007](adr.md#adr-007-storage-split--fat-on-sd-for-working-copy-littlefs-on-flash-for-config),
+  not v0.1 reality.
 - **C2** (std runtime) sits underneath almost everything, but it's the
   _enabler_ (H4 boot, H10 binary, H12 Wi-Fi) rather than the bottleneck.
   Reversing ADR-001 would force re-deciding ADR-004, ADR-005, ADR-006,
@@ -258,11 +269,12 @@ Plain-language summary of what we accepted in exchange for what.
 | Custom widget layer over Ratatui                 | Dirty-rects aligned to e-ink regions; 200 KB binary back                     | 500 LoC we own and maintain                                                     | ADR-002 |
 | 5.79" strip panel over 7.5" page or 10.3" reader | 27 KB framebuffer, fast partial refresh, "Freewrite" UX                      | Only ~11 visible lines                                                          | ADR-003 |
 | `gitoxide` over `libgit2-sys`                    | Pure Rust, modular, no FFI cross-compile pain                                | Smart-HTTP path is newer; PSRAM profile unproven (spike 7)                      | ADR-004 |
-| HTTPS + PAT over OAuth device-flow or SSH        | First-run UX fits in a captive-portal form                                   | Long-lived secret on device; manual rotation in v0.1                            | ADR-005 |
+| HTTPS + PAT over OAuth device-flow or SSH        | Simplest auth that `gitoxide` smart-HTTP already supports                    | Long-lived secret on device; in v0.1 the PAT is compiled into the binary (dev-only target user makes this acceptable); v0.9 moves it to encrypted NVS | ADR-005 |
 | `std::thread` over `embassy` or `tokio`          | Boring, debuggable, real stack traces; no exec to tune                       | ~76 KB total stack across 5 tasks                                               | ADR-006 |
 | FAT-on-SD + LittleFS-on-flash split              | Desktop can read SD; config survives SD reformat                             | Two filesystems to manage; FAT's power-loss weakness mitigated by atomic-rename | ADR-007 |
 | Wall power for v0.1, battery deferred            | Measure real draw before sizing the cell                                     | Tethered MVP; not the final aesthetic                                           | ADR-008 |
 | USB host (TinyUSB) over BLE-HID                  | No radio contention with Wi-Fi during push; keyboard powered from the device | One more USB connector on enclosure                                             | ADR-009 |
+| Atomic `Ctrl-G` + auto-timestamp commit message  | One key, one outcome; matches the user's existing `gct` workflow; no modal prompt to slow H1 latency | Commit history is timestamp noise; the device may author merge commits the user never sees; reversal would break muscle memory | ADR-010 |
 
 ### Conflicts left explicitly _unresolved_ by v0.1
 
@@ -290,12 +302,31 @@ These are the live tensions we are watching, not deciding harder:
   cross-reference the tech doc. The 76 KB figure still fits comfortably
   in the ESP32-S3's 512 KB internal SRAM, so no design change — just
   documentation accuracy.
+- **Commit-message format triple-mismatch.** README said `git commit -m
+  "wip"`, the v0.1 product doc said `"wip <timestamp>"`, and the user's
+  actual shell alias (`gct` / `git-commit-timestamp`) uses a pure ISO-8601
+  timestamp with no `wip` prefix. Resolved by aligning all docs on `gct`
+  and recording the decision as
+  [ADR-010](adr.md#adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt).
+  Pulled the v0.7 roadmap item "Commit message prompt instead of hard-coded
+  `wip`" — it's now contradicted by ADR-010 and removed.
+- **First-run flow vs. target user.** The v0.1 product doc described a
+  captive-portal first-run, but the same doc names the v0.1 target user as
+  the dev themselves ("Me. Solo."). Provisioning a solo-dev device through
+  a captive portal is ceremony without a user. Resolved by switching v0.1
+  to build-time env-var config (no NVS, no LittleFS, no AP mode); on-device
+  provisioning is the v0.9 release that introduces non-dev users. Touches
+  ADR-005, ADR-007, the v0.1 product + technical docs, and the v0.9
+  roadmap entry.
+- **Vocabulary leak.** Earlier docs used "commit" and "push" as if they
+  were distinct user actions; the gct/ADR-010 model collapses them into a
+  single user-facing **Publish**. Resolved by introducing
+  [`CONTEXT.md`](../CONTEXT.md) as the canonical glossary; user-facing text
+  now uses **Save** and **Publish** only.
 
-No other cross-doc contradictions found between `adr.md`, README, and the
-v0.1 product/technical docs at the time of writing. The minor variance
-between README's "~12 lines" and product/ADR-003's "~11 lines" of edit
-area is within rounding for a 14 px glyph in a 240 px tall edit region
-and is not load-bearing.
+The minor variance between README's "~12 lines" and product/ADR-003's
+"~11 lines" of edit area is within rounding for a 14 px glyph in a 240 px
+tall edit region and is not load-bearing.
 
 ---
 
