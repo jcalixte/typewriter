@@ -1,0 +1,30 @@
+{
+  "languages": {
+    "JavaScript": {
+      "formatter": { "language_server": { "name": "oxc" } },
+      "format_on_save": "on"
+    },
+    "TypeScript": {
+      "formatter": { "language_server": { "name": "oxc" } },
+      "format_on_save": "on"
+    },
+    "TSX": {
+      "formatter": { "language_server": { "name": "oxc" } },
+      "format_on_save": "on"
+    },
+    "JSON": {
+      "formatter": { "language_server": { "name": "oxc" } },
+      "format_on_save": "on"
+    },
+    "Markdown": {
+      "language_servers": ["md-path-lsp"],
+      "formatter": {
+        "external": {
+          "command": "node_modules/.bin/oxfmt",
+          "arguments": ["--stdin-filepath", "{buffer_path}"]
+        }
+      },
+      "format_on_save": "on"
+    }
+  }
+}
