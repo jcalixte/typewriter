@@ -341,7 +341,7 @@ tall edit region and is not load-bearing.
 
 [ADR-001]: adr.md#adr-001-language-and-runtime--rust-on-esp-idf-rs-std
 [ADR-002]: adr.md#adr-002-ui-strategy--custom-widgets-on-embedded-graphics-not-ratatui
-[ADR-003]: adr.md#adr-003-display--gdey0579t93--despi-c579-breakout
+[ADR-003]: adr.md#adr-003-display-medium--e-ink-gdey0579t93-panel
 [ADR-004]: adr.md#adr-004-git-implementation--gitoxide-gix
 [ADR-005]: adr.md#adr-005-auth--https--github-personal-access-token
 [ADR-006]: adr.md#adr-006-concurrency--stdthread--channels-no-async-runtime

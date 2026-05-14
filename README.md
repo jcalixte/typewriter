@@ -40,12 +40,12 @@ the remote) is offered.
 | Power     | **USB-C wall power for MVP**, 18650 + IP5306 in Phase 3       | Measure power profile on real hardware before sizing the battery. E-ink + sleep should give multi-day battery life but battery introduces charging, safety, and BMS complexity we don't need on day one.                                                                                                                |
 | Enclosure | 3D-printed, hinged lid                                        | Phase 4 concern.                                                                                                                                                                                                                                                                                                        |
 
-**Why the 5.79" strip aspect:** less screen than a 7.5" page-shaped panel,
-but the long-narrow shape biases toward "current line + recent context" —
-the writing posture we actually want. The smaller framebuffer is cheap on
-RAM, and SPI panels keep the GPIO budget open for SD + future peripherals.
-A larger panel (10.3" via IT8951) stays on the table for v1.x once UX is
-proven.
+**Why the strip aspect:** the ~2.9:1 long-narrow shape biases the UX
+toward "current line + recent context" rather than "full page" — the
+writing posture we want. The renderer stays resolution-agnostic so a
+10.3" e-ink upgrade (v1.x) is a swap, not a rewrite. Medium choice
+(e-ink over LCD / memory LCD / OLED) and panel rationale:
+[ADR-003](docs/adr.md#adr-003-display-medium--e-ink-gdey0579t93-panel).
 
 ---
 

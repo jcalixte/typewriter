@@ -11,7 +11,7 @@ Format inspired by Michael Nygard's ADR template, kept short on purpose.
 [`../README.md`](../README.md) — project overview, hardware table, macro plan.
 [`../CONTEXT.md`](../CONTEXT.md) — project glossary: **Tracked**, **Local**,
 **Save**, **Publish**, plus the principles ("writing tool, not sync engine")
-that constrain ADR-010 specifically.
+that constrain [ADR-010] specifically.
 [`roadmap.md`](roadmap.md) — per-version scope (v0.1 → v1.x).
 [`v0.1-mvp-product.md`](v0.1-mvp-product.md) — what the v0.1 device must do.
 [`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) — how v0.1 is built.
@@ -55,7 +55,7 @@ and TLS without writing them, and has Espressif as an actual upstream.
 - Binary will be in the 1–2 MB range — comfortable in 16 MB flash.
 - Build times are real (clean build ~5–10 min). Acceptable.
 - Cross-compiling toolchain (`espup`) is one more thing to install.
-- We will not use `tokio` or async runtimes in v0.1 — see ADR-006.
+- We will not use `tokio` or async runtimes in v0.1 — see [ADR-006].
 - Revisit if `esp-idf-rs` upstream stalls or if `gitoxide` doesn't compile
   cleanly against it (spike 7 is the kill-switch — see
   [v0.1 technical: hardware bring-up order](v0.1-mvp-technical.md#hardware-bring-up-order)).
@@ -105,45 +105,85 @@ Owns the two top-ranked functions (H1 latency, H2 region area) in
 
 ---
 
-## ADR-003: Display — GDEY0579T93 + DESPI-c579 breakout
+## ADR-003: Display medium — e-ink (GDEY0579T93 panel)
 
 **Status:** Accepted — 2026-05-14
-**Scope:** v0.1 through v1.0. 10.3" upgrade remains on the v1.x table.
+**Scope:** v0.1 through v1.0. 10.3" e-ink upgrade remains on the v1.x table; a non-e-ink swap would supersede this ADR.
 
 ### Context
 
-The screen is the most user-facing hardware choice. It sets the aspect of
-the writing experience, the BOM cost, the GPIO budget, the framebuffer size,
-and the refresh feel.
+The display has the largest downstream blast radius of any hardware choice.
+The *medium* (e-ink vs. LCD vs. memory LCD vs. OLED) — not the specific
+panel — is the real architectural decision: it sets the render strategy
+([ADR-002]), the per-keystroke latency floor, the idle-power profile (and
+so the v0.8 battery story — [ADR-008]), the UX posture, and the BOM shape.
+The specific panel (GDEY0579T93 + DESPI-c579 breakout) is already on hand
+and documented here as the *instantiation*, not as a freshly weighed option.
+
+This ADR records the medium choice with eyes open. E-ink has well-known
+costs at the typing latencies a writing appliance wants — Astrohaus shipped
+the Freewrite Alpha in 2023 on a reflective LCD specifically to address
+typing-latency complaints from their original e-ink line. We are accepting
+costs the category leader retreated from.
 
 ### Options considered
 
-| Option                         | Size / Res        | Aspect      | Pros                                                                                                        | Cons                                                                                  |
-| ------------------------------ | ----------------- | ----------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| **GDEY0579T93 + DESPI-c579**   | 5.79" / 792×272   | 2.9:1 strip | SPI, partial refresh, small framebuffer (~27 KB), Freewrite-style narrow viewport, low power, low GPIO use. | Only ~11 visible lines of edit area; less context on screen.                          |
-| **Waveshare 7.5" V2**          | 7.5" / 800×480    | 5:3 page    | More lines visible, well-supported by `epd-waveshare` out of the box.                                       | Bigger BOM, bigger framebuffer (~48 KB), more conventional / less typewriter-feeling. |
-| **Waveshare 10.3" + IT8951**   | 10.3" / 1872×1404 | 4:3         | Real "page" experience; great for long-form.                                                                | +$80 BOM; parallel bus eats GPIO; IT8951 adds a controller board; overkill for v0.1.  |
-| **2.9" / 4.2" smaller panels** | varied            | varied      | Cheap, common.                                                                                              | Too cramped for a typewriter; status bars eat the screen.                             |
+| Option                                        | Refresh / persistence                                       | Pros                                                                                                                                                                              | Cons                                                                                                                                                                                                                                                       |
+| --------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **E-ink (reflective, image-persistent)**      | ~100–300 ms partial / ~700–1000 ms full / persists at 0 W   | Paper aesthetic; persists at zero idle power; no backlight (no glare, no eye strain); category convention (Freewrite, reMarkable, Kindle Scribe, Boox); medium enforces writing posture | Slow per-keystroke feedback; ghosting accumulates → periodic full-refresh flash; scroll is the worst-case refresh op (full edit-area redraw); requires waveform / refresh-cadence tuning; Astrohaus retreated from e-ink in Freewrite Alpha (2023) on typing-latency grounds |
+| **FSTN graphical LCD (monochrome)**           | <16 ms, no refresh quirks                                   | Cheap (~$5–15); trivial render code; snappy scroll                                                                                                                                | Backlit (always-on power), unreadable indoors without it; no image persistence; calculator / feature-phone aesthetic; writing-grade resolution (≥600 px wide at ≥6") effectively unavailable as a hobbyist part                                            |
+| **Sharp Memory LCD (monochrome, reflective)** | ~20 ms, persists at near-0 W                                | Persists *and* refreshes fast (best technical combo); sun-readable; ghost-free                                                                                                    | Caps around 4.4" before getting rare and expensive; reflective-only feels like a screen, not paper; niche sourcing; lower DPI than e-ink at writing size                                                                                                   |
+| **TFT / OLED (color, self-lit or backlit)**   | <16 ms, persists only at full power                         | Bright, fast, plentiful                                                                                                                                                           | Backlit / self-lit → screen-feel, not paper; OLED burns in static text (status line, header); defeats the writing-tool posture; not seriously a contender                                                                                                 |
 
 ### Decision
 
-**GDEY0579T93 driven over SPI via the DESPI-c579 breakout.** The strip
-aspect biases UX toward "current line + recent context" — the writing
-posture we actually want. Small framebuffer keeps PSRAM free for git pack
-data. The DESPI-c579 is a passive level-shifter / FPC adapter, not an active
-controller — same SPI driver model as any other e-paper.
+**E-ink as the display medium**, instantiated with the **GDEY0579T93 (5.79",
+792×272, SSD1683-class) driven over SPI through the DESPI-c579 breakout** —
+which is already on hand. The DESPI-c579 is a passive level-shifter / FPC
+adapter, not an active controller — same SPI driver model as any other
+e-paper.
+
+The medium is chosen for: paper aesthetic, zero-idle-power persistence
+(which makes [ADR-008]'s battery deferral structurally cheap to revisit at
+v0.8), the category convention users have a mental model for, and alignment
+with the "writing tool, not screen" posture pinned in
+[`CONTEXT.md`](../CONTEXT.md). The slow refresh and scroll cost are accepted
+as the price of those properties.
 
 ### Consequences
 
-- Visible edit area is ~11 lines. UI design must embrace this (no
-  multi-pane, no large headers). See
+- Visible edit area on this panel is ~11 lines. UI must embrace the
+  constraint — no multi-pane, no large headers. See
   [v0.1 product → screen layout](v0.1-mvp-product.md#screen-layout).
-- Driver: if `epd-waveshare` doesn't already support this panel's
-  controller (SSD1683-class), we write ~300 LoC of `embedded-hal` SPI
-  driver. Validated in spike 2 — see
-  [v0.1 technical → hardware bring-up order](v0.1-mvp-technical.md#hardware-bring-up-order).
-- 10.3" upgrade path is preserved by keeping the renderer resolution-agnostic.
-  See [roadmap → v1.x](roadmap.md#v1x--stretch--nice-to-have).
+- Framebuffer is ~27 KB; keeps PSRAM free for git pack data — a top-3
+  budget item in [qfd.md §6](qfd.md#6-critical-performance-budget).
+- Driver: SSD1683-class. If `epd-waveshare` doesn't already cover this
+  panel's controller, ~300 LoC of `embedded-hal` SPI driver. Validated in
+  [spike 2](v0.1-mvp-technical.md#hardware-bring-up-order).
+- **Per-keystroke latency floor ~100–300 ms** (partial refresh). The render
+  module must buffer the active line and flush on a short timer, not redraw
+  on every keystroke. Owns the top-ranked H1 latency constraint in
+  [qfd.md §3](qfd.md#3-house-of-quality--whats--hows); strategy lives in
+  [ADR-002].
+- **Scroll is the worst-case refresh operation** — every scroll is a full
+  edit-area redraw, either with a visible flash (full refresh) or
+  accumulating ghost trails (partial refresh). The concrete scroll strategy
+  (continuous-scroll-with-periodic-flush vs. page-down vs. hybrid) is a v0.1
+  product decision, not part of this ADR — see
+  [v0.1 product → screen layout](v0.1-mvp-product.md#screen-layout). Tuning
+  is a render-module concern in
+  [v0.1 technical](v0.1-mvp-technical.md#module-breakdown).
+- **Industry calibration:** Astrohaus shipped Freewrite Alpha (2023) on a
+  reflective LCD specifically to fix typing-latency complaints from their
+  e-ink line. The latency cost we're accepting is one the commercial leader
+  couldn't fully tune away after a decade. Set expectations accordingly —
+  do not promise "instant feedback."
+- Idle power on e-ink is structurally ~0, which makes the v0.8 battery
+  sizing exercise straightforward — see [ADR-008] and
+  [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--).
+- 10.3" e-ink upgrade path is preserved by keeping the renderer
+  resolution-agnostic. A *non*-e-ink swap (e.g. Sharp Memory LCD) would
+  invalidate [ADR-002]'s dirty-rect strategy and force a fresh medium ADR.
 
 ---
 
@@ -180,7 +220,7 @@ risk table).
 
 - We become an early-ish embedded user of `gitoxide`; bugs reported back
   upstream.
-- Auth via PAT in an Authorization header — no SSH (see ADR-005).
+- Auth via PAT in an Authorization header — no SSH (see [ADR-005]).
 - Performance on PSRAM during pack operations is a watched metric — top-3
   priority in [qfd.md §6](qfd.md#6-critical-performance-budget).
 
@@ -246,7 +286,7 @@ the scale where async wins. The number of "tasks" is bounded and small (≤ 8).
 | Option                         | Pros                                                                                                        | Cons                                                                                                                                    |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | **`std::thread` + channels**   | Boring, debuggable, stack traces work, no executor to tune; ESP-IDF FreeRTOS underneath is well-understood. | Each thread costs 8–32 KB stack depending on workload; not zero-cost like async.                                                        |
-| **`embassy` async**            | Trendy, ergonomic, low memory per task.                                                                     | `esp-idf-rs` and `embassy` don't mix cleanly; adopting embassy means dropping `std` and rewriting against `esp-hal` (ADR-001 reversed). |
+| **`embassy` async**            | Trendy, ergonomic, low memory per task.                                                                     | `esp-idf-rs` and `embassy` don't mix cleanly; adopting embassy means dropping `std` and rewriting against `esp-hal` ([ADR-001] reversed). |
 | **`tokio` on `esp-idf-rs`**    | Familiar async.                                                                                             | Heavy executor, oversized for ≤ 8 tasks, mbedtls/`gitoxide` integration would need a lot of glue.                                       |
 | **Single-threaded event loop** | Smallest memory.                                                                                            | Long-running ops (git push, full refresh) block input.                                                                                  |
 
@@ -431,3 +471,14 @@ retry). Failure surfaces as a single retry-able outcome in the status line.
    ADR-MMM** to its status line. Never delete.
 5. Cross-reference from the relevant section of the README or design docs
    if the decision is load-bearing for code review.
+
+[ADR-001]: #adr-001-language-and-runtime--rust-on-esp-idf-rs-std
+[ADR-002]: #adr-002-ui-strategy--custom-widgets-on-embedded-graphics-not-ratatui
+[ADR-003]: #adr-003-display-medium--e-ink-gdey0579t93-panel
+[ADR-004]: #adr-004-git-implementation--gitoxide-gix
+[ADR-005]: #adr-005-auth--https--github-personal-access-token
+[ADR-006]: #adr-006-concurrency--stdthread--channels-no-async-runtime
+[ADR-007]: #adr-007-storage-split--fat-on-sd-for-working-copy-littlefs-on-flash-for-config
+[ADR-008]: #adr-008-mvp-power--wall-powered-battery-deferred-to-v08
+[ADR-009]: #adr-009-keyboard-transport--usb-host-tinyusb
+[ADR-010]: #adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
