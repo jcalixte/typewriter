@@ -286,6 +286,9 @@ market"), not as a fair head-to-head buyer's guide.
 \begin{qfdhouse}
 
   % ---------- WHATs (left column) ----------
+  % Box width is 0.2 cm narrower than the column so labels have 0.1 cm
+  % clearance on each side and don't bleed into the Weight column.
+  \pgfmathsetmacro{\qfdWhatTextW}{\qfdWhatW - 0.2}
   \foreach \r/\t in {%
     1/{W1 Sub-second visible response to typing},
     2/{W2 Publishing is one deliberate action away},
@@ -302,7 +305,7 @@ market"), not as a fair head-to-head buyer's guide.
     13/{W13 Typography sets a writing-tool tone}%
   }
     \node[anchor=west, font=\scriptsize,
-          text width={\qfdWhatW - 0.2}cm, align=left]
+          text width=\qfdWhatTextW cm, align=left]
       at ({\qfdLeftEdge + 0.1}, {-\r + 0.5}) {\t};
 
   % ---------- Importance (raw 1-10 weight) ----------
