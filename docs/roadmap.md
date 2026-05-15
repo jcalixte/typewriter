@@ -2,7 +2,8 @@
 
 Frequent releases. Each version is a usable artifact, not a checkpoint.
 The macro-plan (Gantt) lives in the [README](../README.md#roadmap); this file
-holds the per-version scope.
+holds the per-version scope. The user-facing requirements and engineering
+targets each release feeds into are tracked in [`qfd.md`](qfd.md).
 
 ---
 
