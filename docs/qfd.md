@@ -14,9 +14,11 @@ with the v0.2–v1.0 trajectory ([README](../README.md),
 glossary at [`../CONTEXT.md`](../CONTEXT.md).
 
 Format inspired by the classic House of Quality, kept compact. Strength
-weights: **9** strong, **3** medium, **1** weak, blank none. A TikZ
-rendering of §1–§4 (plus a guessed competitor perception zone) lives in
-[`quality-house.md`](quality-house.md).
+weights: **9** strong, **3** medium, **1** weak, blank none. The §3
+matrix and §4 roof — plus a guessed competitor perception zone — live
+in [`quality-house.md`](quality-house.md); this file owns the WHAT/HOW
+catalogues (§1, §2), the narrative reading of the numbers (§3, §4), and
+the downstream sections (§5–§8).
 
 ---
 
@@ -70,26 +72,11 @@ shows what "better" looks like (↑ higher, ↓ lower, → fixed).
 
 ## 3. House of Quality — WHATs × HOWs
 
-Reading: row × column cell is how strongly the function (H) advances the
-requirement (W). Importance at the bottom is `Σ(weight × strength)` — the
-weighted vote on which functions deserve the most engineering attention.
-
-|         | H1 lat  | H2 area | H3 cad  | H4 boot | H5 soak | H6 push% | H7 push s | H8 dura | H9 heap | H10 bin | H11 stk | H12 wifi | H13 mA | H14 mod | H15 build |
-| ------- | :-----: | :-----: | :-----: | :-----: | :-----: | :------: | :-------: | :-----: | :-----: | :-----: | :-----: | :------: | :----: | :-----: | :-------: |
-| W1 (10) |  **9**  |    9    |    3    |         |    3    |          |           |         |    1    |         |    1    |          |        |         |           |
-| W2 (9)  |         |         |         |         |         |  **9**   |     3     |         |    9    |         |         |    9     |        |         |           |
-| W3 (10) |         |         |         |         |         |          |           |  **9**  |         |         |         |          |        |         |           |
-| W4 (7)  |         |         |         |         |         |    3     |           |         |         |         |         |    3     |        |    1    |           |
-| W5 (6)  |         |         |         |  **9**  |         |          |           |         |         |    3    |         |          |        |         |           |
-| W6 (9)  |    3    |         |    3    |         |  **9**  |    3     |           |    3    |    9    |         |    3    |    3     |        |         |           |
-| W7 (8)  |    3    |    3    |    3    |         |         |          |           |         |         |         |         |          |   3    |    1    |           |
-| W8 (7)  |    1    |    9    |  **9**  |         |         |          |           |         |         |         |         |          |        |         |           |
-| W9 (8)  |         |         |         |         |         |          |           |         |         |    1    |    1    |          |        |  **9**  |     3     |
-| W10 (5) |         |         |         |         |         |          |           |         |         |    3    |         |          |   1    |    3    |     1     |
-| W11 (4) |         |         |         |         |         |          |           |         |         |         |         |          | **9**  |         |           |
-| W12 (5) |         |         |         |         |         |    1     |           |    3    |         |         |         |          |        |    3    |           |
-| W13 (7) |         |         |         |         |         |          |           |         |    3    |         |         |          |        |         |           |
-| **Σ**   | **148** | **177** | **144** | **54**  | **111** | **134**  |  **27**   | **132** | **193** | **41**  | **45**  | **129**  | **65** | **117** |  **29**   |
+The matrix (row × column = how strongly function H advances requirement
+W) and its Σ row — the weighted vote `Σ(weight × strength)` on which
+functions deserve the most engineering attention — live in
+[`quality-house.md`](quality-house.md). The Σ totals quoted below are
+from its basement row.
 
 ### Top engineering priorities (from importance)
 
@@ -129,25 +116,10 @@ before the runtime decision does.
 
 The roof shows where pushing one function pushes another the wrong way.
 Classical QFD single-character symbols: **`◎`** strong reinforcement,
-**`○`** mild reinforcement, **`×`** mild conflict, **`⊗`** strong conflict.
-
-|         | H1  | H2  | H3  | H4  | H5  | H6  | H7  | H8  | H9  | H10 | H11 | H12 | H13 | H14 | H15 |
-| ------- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **H1**  | —   | ◎   | ×   |     | ○   |     |     |     |     |     |     |     | ×   |     |     |
-| **H2**  |     | —   | ◎   |     |     |     |     |     |     |     |     |     | ○   |     |     |
-| **H3**  |     |     | —   |     |     |     |     |     |     |     |     |     | ○   |     |     |
-| **H4**  |     |     |     | —   |     |     |     |     |     | ×   |     |     |     |     |     |
-| **H5**  |     |     |     |     | —   | ○   |     | ○   | ⊗   |     |     |     |     |     |     |
-| **H6**  |     |     |     |     |     | —   | ○   |     | ⊗   |     |     | ◎   |     |     |     |
-| **H7**  |     |     |     |     |     |     | —   |     | ×   |     |     | ◎   |     |     |     |
-| **H8**  |     |     |     |     |     |     |     | —   |     |     |     |     |     |     |     |
-| **H9**  |     |     |     |     |     |     |     |     | —   | ⊗   |     |     |     |     |     |
-| **H10** |     |     |     |     |     |     |     |     |     | —   |     |     |     |     | ⊗   |
-| **H11** |     |     |     |     |     |     |     |     |     |     | —   |     | ×   |     |     |
-| **H12** |     |     |     |     |     |     |     |     |     |     |     | —   |     |     |     |
-| **H13** |     |     |     |     |     |     |     |     |     |     |     |     | —   |     |     |
-| **H14** |     |     |     |     |     |     |     |     |     |     |     |     |     | —   | ×   |
-| **H15** |     |     |     |     |     |     |     |     |     |     |     |     |     |     | —   |
+**`○`** mild reinforcement, **`×`** mild conflict, **`⊗`** strong
+conflict. The 15×15 roof matrix lives in
+[`quality-house.md`](quality-house.md); the cells that actually shape
+the design are called out below.
 
 ### Conflicts that actually shape the design
 
@@ -396,8 +368,10 @@ tall edit region and is not load-bearing.
 - When a spike returns numbers, update §6's "Target" or "Watched on"
   columns — this is the doc that _should_ feel out of date if measured
   reality drifts from estimates.
-- The WHATs change rarely; the HOWs change with each release; the
-  matrices are recomputed when either side changes.
+- The WHATs (§1) change rarely; the HOWs (§2) change with each release.
+  When either changes, re-score the matrix and recompute the basement Σ
+  in [`quality-house.md`](quality-house.md); then check the §3 priority
+  list and §4 conflict list here still match the new picture.
 
 [ADR-001]: adr.md#adr-001-language-and-runtime--rust-on-esp-idf-rs-std
 [ADR-002]: adr.md#adr-002-ui-strategy--custom-widgets-on-embedded-graphics-not-ratatui

@@ -1,12 +1,15 @@
 # Quality House
 
-Visual rendering of [`qfd.md`](qfd.md) — the same 13 WHATs × 15 HOWs as a
-classical House of Quality. The roof carries function-vs-function
-correlations from §4; the basement carries v0.1 targets (§2) plus the
-weighted-vote sums and relative weights from §3.
+The 13 WHATs × 15 HOWs House of Quality. The roof carries function-vs-
+function correlations; the basement carries v0.1 targets (mirrored from
+[`qfd.md`](qfd.md) §2) plus the weighted-vote sums
+(`Σ = Σ(W weight × cell strength)`) and rounded relative weights. The
+narrative reading of these numbers lives in `qfd.md` §3 (priority list)
+and §4 (conflict list).
 
-`qfd.md` is authoritative — this file lags it. Regenerate when the matrix
-or roof changes; if numbers diverge, trust `qfd.md`.
+This file is the authoritative source for the matrix cells, the roof
+correlations, and the basement Σ + relative weights. WHATs (§1) and HOWs
+(§2) are mirrored here from `qfd.md`; if those diverge, trust `qfd.md`.
 
 Out of scope here: §5 component mapping (would need a second house),
 §6 critical performance budget (already a curated rank), §7 tradeoffs
@@ -589,17 +592,24 @@ picture.
 
 ## Regenerating
 
-When `qfd.md` §1–§4 change, re-derive:
+The matrix cells (`\node[qfdrel/{S,M,W}]`), roof symbols (`C-i-j` slots),
+and basement Σ + Rel% are native to this file — re-score directly in the
+TikZ source, then update the §3 priority list and §4 conflict list in
+`qfd.md` to match the new picture.
+
+When `qfd.md` §1 or §2 changes:
 
 1. Importance column → §1 weight column.
-2. HOW titles + targets → §2 (v0.1 target column).
-3. Relation cells → §3 matrix strengths (9 → `S`, 3 → `M`, 1 → `W`).
-4. Roof symbols → §4 (◎→`++`, ○→`+`, ×→`−`, ⊗→`−−`).
-5. Basement Σ + Rel% → §3 bottom row, divided by the new total.
-6. Perception scores are **not** derived from `qfd.md` — they live only in
-   this file. Update them when (a) a competitor ships a relevant change,
-   (b) measurement replaces a guess, or (c) a WHAT is added/removed in
-   §1. Each score should keep its one-line rationale in the table above.
+2. HOW titles + v0.1 targets → §2 target column.
+3. Recompute basement Σ for any HOW whose column changed: per-cell
+   contribution = `(W weight) × (cell strength: 9 / 3 / 1 / 0)`.
+4. Recompute relative weight: each Σ ÷ total Σ × 100, rounded to integer
+   percent.
+
+Perception scores are **not** derived from `qfd.md` — they live only in
+this file. Update them when (a) a competitor ships a relevant change,
+(b) measurement replaces a guess, or (c) a WHAT is added/removed in §1.
+Each score keeps its one-line rationale in the table above.
 
 If a renderer rejects the `tikz` fence, the file is still readable as
 source — the placement comments name each WHAT, HOW, and cell. The
