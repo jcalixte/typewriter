@@ -246,7 +246,7 @@ market"), not as a fair head-to-head buyer's guide.
 \def\qfdNH{15}
 \def\qfdWhatW{4.6}
 \def\qfdImpW{0.7}
-\def\qfdHdrH{4.2}
+\def\qfdHdrH{5.0}
 \def\qfdBasementN{3}
 \def\qfdCmpW{3.4}
 \qfdshowlegendfalse                 % we draw a 4-alternative legend manually
