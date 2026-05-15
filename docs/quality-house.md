@@ -131,7 +131,8 @@ market"), not as a fair head-to-head buyer's guide.
       \pgfmathsetmacro{\tx}{\qfdNH + (\tk+0.5)*\qfdCmpW/6}
       \node[anchor=south, font=\scriptsize] at (\tx, 0.02) {\tk};
     }%
-    \node[anchor=south, font=\scriptsize\bfseries, align=center]
+    \node[anchor=south, font=\scriptsize\bfseries, align=center,
+          text width=\qfdCmpW cm]
          at ({\qfdNH + \qfdCmpW/2}, 0.7) {\qfdPerceptionTitle};
     \node[anchor=north, font=\scriptsize\itshape]
          at ({\qfdNH + 0.45}, -\qfdNW) {\qfdPoorLabel};
@@ -245,14 +246,14 @@ market"), not as a fair head-to-head buyer's guide.
 \def\qfdNH{15}
 \def\qfdWhatW{4.6}
 \def\qfdImpW{0.7}
-\def\qfdHdrH{3.2}
+\def\qfdHdrH{4.2}
 \def\qfdBasementN{3}
 \def\qfdCmpW{3.4}
 \qfdshowlegendfalse                 % we draw a 4-alternative legend manually
 
 \def\qfdWhatsTitle{User-facing requirements (W)}
 \def\qfdImpTitle{Weight}
-\def\qfdPerceptionTitle{Competitive perception (0–5, guessed)}
+\def\qfdPerceptionTitle{Competitive perception\\(0–5, guessed)}
 \def\qfdPoorLabel{poor}
 \def\qfdExcellentLabel{excellent}
 
