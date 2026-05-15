@@ -33,7 +33,8 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 - [ ] Movement: `h j k l`, `w b e`, `0 $`, `gg G`, `Ctrl-d Ctrl-u`
 - [ ] `i a o O A` to enter Insert
 - [ ] `Esc` returns to Normal
-- [ ] Line numbers (absolute) in the left gutter
+- [ ] Line numbers in the left gutter: relative in Normal mode (current line
+      shown as its absolute number), absolute in Insert mode
 
 ## v0.3 — Vim editing — [ ]
 
