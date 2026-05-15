@@ -301,8 +301,8 @@ market"), not as a fair head-to-head buyer's guide.
     12/{W12 Local-only files coexist with git scope (v0.5+)},
     13/{W13 Typography sets a writing-tool tone}%
   }
-    \node[anchor=west, font=\scriptsize, text width=\qfdWhatW cm,
-          align=left]
+    \node[anchor=west, font=\scriptsize,
+          text width={\qfdWhatW - 0.2}cm, align=left]
       at ({\qfdLeftEdge + 0.1}, {-\r + 0.5}) {\t};
 
   % ---------- Importance (raw 1-10 weight) ----------
