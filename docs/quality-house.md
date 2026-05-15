@@ -457,6 +457,8 @@ market"), not as a fair head-to-head buyer's guide.
   % ---------- Perception zone: 4 products x 13 WHATs (0-5 scores) ----------
   % Columns: \so=Ours target, \st=reMarkable 2 + Type Folio,
   %          \sf=Freewrite Traveler, \sg=Pomera DM250.
+  % Pass 1: stash each score as a named coordinate so the profile lines
+  % below can reuse it without recomputing.
   \foreach \r/\so/\st/\sf/\sg in {%
     1/4/3/3/5,
     2/5/4/4/2,
@@ -476,10 +478,25 @@ market"), not as a fair head-to-head buyer's guide.
     \pgfmathsetmacro{\xt}{\qfdNH + (\st + 0.5)*\qfdCmpW/6}
     \pgfmathsetmacro{\xf}{\qfdNH + (\sf + 0.5)*\qfdCmpW/6}
     \pgfmathsetmacro{\xg}{\qfdNH + (\sg + 0.5)*\qfdCmpW/6}
-    \node[qfdalt1mk] at (\xo, {-\r + 0.5}) {};
-    \node[qfdalt2mk] at (\xt, {-\r + 0.5}) {};
-    \node[qfdalt3mk] at (\xf, {-\r + 0.5}) {};
-    \node[qfdalt4mk] at (\xg, {-\r + 0.5}) {};
+    \coordinate (po-\r) at (\xo, {-\r + 0.5});
+    \coordinate (pr-\r) at (\xt, {-\r + 0.5});
+    \coordinate (pf-\r) at (\xf, {-\r + 0.5});
+    \coordinate (pp-\r) at (\xg, {-\r + 0.5});
+  }
+
+  % Pass 2: profile lines per alternative. Drawn before markers so the
+  % dots sit on top of (not under) the line endpoints.
+  \draw[qfdalt1ln] (po-1) \foreach \r in {2,...,\qfdNW} { -- (po-\r) };
+  \draw[qfdalt2ln] (pr-1) \foreach \r in {2,...,\qfdNW} { -- (pr-\r) };
+  \draw[qfdalt3ln] (pf-1) \foreach \r in {2,...,\qfdNW} { -- (pf-\r) };
+  \draw[qfdalt4ln] (pp-1) \foreach \r in {2,...,\qfdNW} { -- (pp-\r) };
+
+  % Pass 3: markers on top of the lines.
+  \foreach \r in {1,...,\qfdNW} {
+    \node[qfdalt1mk] at (po-\r) {};
+    \node[qfdalt2mk] at (pr-\r) {};
+    \node[qfdalt3mk] at (pf-\r) {};
+    \node[qfdalt4mk] at (pp-\r) {};
   }
 
   % ---------- Manual legend (4 alternatives, placed right of zones) ----------
