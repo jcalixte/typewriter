@@ -14,7 +14,9 @@ with the v0.2–v1.0 trajectory ([README](../README.md),
 glossary at [`../CONTEXT.md`](../CONTEXT.md).
 
 Format inspired by the classic House of Quality, kept compact. Strength
-weights: **9** strong, **3** medium, **1** weak, blank none.
+weights: **9** strong, **3** medium, **1** weak, blank none. A TikZ
+rendering of §1–§4 (plus a guessed competitor perception zone) lives in
+[`quality-house.md`](quality-house.md).
 
 ---
 
