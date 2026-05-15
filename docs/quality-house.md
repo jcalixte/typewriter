@@ -253,11 +253,29 @@ market"), not as a fair head-to-head buyer's guide.
 \def\qfdPoorLabel{poor}
 \def\qfdExcellentLabel{excellent}
 
-% 4th alternative style for the perception zone (Pomera).
+% Perception-zone markers: shape + colour-blind-safe colour per product.
+% Palette is Okabe-Ito (blue, vermillion, bluish green, reddish purple).
+% Light fills + saturated outlines keep stacked markers legible.
+\definecolor{qfdcOurs}{RGB}{0,114,178}
+\definecolor{qfdcRem}{RGB}{213,94,0}
+\definecolor{qfdcFrw}{RGB}{0,158,115}
+\definecolor{qfdcPom}{RGB}{204,121,167}
+
 \tikzset{
-  qfdalt4mk/.style={diamond, aspect=1, draw, fill=white,
-                    minimum size=6pt, inner sep=0pt, line width=0.9pt},
-  qfdalt4ln/.style={line width=0.7pt, dash dot},
+  qfdalt1mk/.style={circle, draw=qfdcOurs, fill=qfdcOurs!55!white,
+                    minimum size=6.5pt, inner sep=0pt, line width=1.1pt},
+  qfdalt1ln/.style={line width=1.2pt, qfdcOurs},
+  qfdalt2mk/.style={regular polygon, regular polygon sides=3,
+                    draw=qfdcRem, fill=qfdcRem!55!white,
+                    minimum size=7pt, inner sep=0pt, line width=0.9pt},
+  qfdalt2ln/.style={line width=0.8pt, dashed, qfdcRem},
+  qfdalt3mk/.style={rectangle, draw=qfdcFrw, fill=qfdcFrw!55!white,
+                    minimum size=5.5pt, inner sep=0pt, line width=0.9pt},
+  qfdalt3ln/.style={line width=0.8pt, dotted, qfdcFrw},
+  qfdalt4mk/.style={diamond, aspect=1, draw=qfdcPom,
+                    fill=qfdcPom!50!white,
+                    minimum size=7pt, inner sep=0pt, line width=1.0pt},
+  qfdalt4ln/.style={line width=0.8pt, dash dot, qfdcPom},
 }
 
 \begin{document}
