@@ -469,15 +469,15 @@ market"), not as a fair head-to-head buyer's guide.
   % Pass 1: stash each score as a named coordinate so the profile lines
   % below can reuse it without recomputing.
   \foreach \r/\so/\st/\sf/\sg/\sh in {%
-    1/4/3/4/5/2,
+    1/4/3/4/5/3,
     2/5/4/4/2/4,
     3/4/4/2/2/2,
     4/5/2/2/5/2,
-    5/4/3/4/5/3,
+    5/4/3/4/5/4,
     6/3/3/4/5/4,
     7/5/2/5/5/5,
     8/4/3/4/5/4,
-    9/4/3/2/1/1,
+    9/4/3/2/1/2,
     10/5/4/2/1/2,
     11/1/5/5/4/5,
     12/3/1/2/3/2,
@@ -575,25 +575,24 @@ Freewrite Traveler scores assume the
 [Sailfish firmware](https://getfreewrite.com/blogs/writing-success/freewrite-sailfish-firmware)
 (released 2025-11-19), which rewrote the OS in Rust, cut keystroke latency
 40–100 %, and trimmed power draw −30 % typing / −50 % idle on both
-Traveler and Smart Typewriter Gen 3. Three Traveler rows were rescored
-upward as a result: W1 3→4 (latency now plausibly inside 200 ms), W5 3→4
-(boot accelerated, no published number), W9 1→2 (Rust rewrite explicitly
-unblocked features that JS could not carry; still closed so it can't
-reach reMarkable's hackable-Linux 3). The Smart Typewriter rows could be
-bumped on the same basis but are left at pre-Sailfish values pending a
-separate decision.
+Traveler and Smart Typewriter Gen 3. Three rows rescored upward as a
+result: W1 Traveler 3→4 / Smart 2→3 (Smart's larger panel still trails
+Traveler by one notch), W5 both 3→4 (boot accelerated, no published
+number), W9 both 1→2 (Rust rewrite explicitly unblocked features that
+JS could not carry; still closed so neither reaches reMarkable's
+hackable-Linux 3).
 
 | ID  | WHAT (truncated)                                | Typoena | reM. | Frw.T | Frw.S | Pom. | Rationale (shortest defensible)                                                                                              |
 | --- | ----------------------------------------------- | :--: | :--: | :---: | :---: | :--: | ---------------------------------------------------------------------------------------------------------------------------- |
-| W1  | Sub-second response to typing                   |  4   |  3   |   4   |   2   |  5   | Typoena targets ≤200 ms; reMarkable e-ink laggy; Frw.S still slow (larger panel); Frw.T post-Sailfish trimmed latency 40–100 % (plausibly inside 200 ms); Pomera LCD ~zero. |
+| W1  | Sub-second response to typing                   |  4   |  3   |   4   |   3   |  5   | Typoena targets ≤200 ms; reMarkable e-ink laggy; both Freewrites post-Sailfish trimmed latency 40–100 % (Frw.T plausibly inside 200 ms; Frw.S still trails by one notch on larger panel); Pomera LCD ~zero. |
 | W2  | Publishing is one deliberate action away        |  5   |  4   |   4   |   4   |  2   | Ctrl-G atomic; reMarkable + Freewrite cloud-sync is one-tap but not git; Pomera = USB/SD copy or QR transfer.                |
 | W3  | Pulling power never corrupts the file           |  4   |  4   |   2   |   2   |  2   | Typoena: atomic-rename + fsync. reMarkable journals. Freewrite + Pomera: forum reports of corruption on yank.                   |
 | W4  | Provisioning never interrupts writing           |  5   |  2   |   2   |   2   |  5   | Typoena v0.1: build-time config (dev-only). reM/Frw need Wi-Fi + account. Pomera: literally none.                               |
-| W5  | Quick boot to a writing cursor                  |  4   |  3   |   4   |   3   |  5   | Typoena target ≤5 s. reMarkable cold-boots ~20 s (great from sleep). Frw.T accelerated post-Sailfish (no published number); Frw.S still ~10–15 s e-ink wake. Pomera ~3 s. |
+| W5  | Quick boot to a writing cursor                  |  4   |  3   |   4   |   4   |  5   | Typoena target ≤5 s. reMarkable cold-boots ~20 s (great from sleep). Both Freewrites accelerated post-Sailfish (no published number; were ~10–15 s e-ink wake). Pomera ~3 s. |
 | W6  | Long sessions without crash / lag / drift       |  3   |  3   |   4   |   4   |  5   | Typoena unproven (1 h target). Freewrite famously stable (both variants). Pomera firmware is decades-mature.                    |
 | W7  | Nothing on the device competes with prose       |  5   |  2   |   5   |   5   |  5   | reMarkable has apps, menus, drawing, PDFs. Freewrite + Pomera are single-purpose; Typoena by design.                            |
 | W8  | The UI never moves except when I move it        |  4   |  3   |   4   |   4   |  5   | reMarkable animates more; Typoena uses dirty-rects; Freewrites minimal motion; Pomera near-static LCD.                          |
-| W9  | Codebase absorbs the planned roadmap            |  4   |  3   |   2   |   1   |  1   | Modular Rust Typoena; reMarkable is hackable Linux; Frw.T Sailfish is Rust-rewritten (vendor explicitly unblocked features JS could not carry) but closed; Frw.S + Pomera closed firmware. |
+| W9  | Codebase absorbs the planned roadmap            |  4   |  3   |   2   |   2   |  1   | Modular Rust Typoena; reMarkable is hackable Linux; both Freewrites carry Sailfish (Rust rewrite explicitly unblocked features JS could not carry) but closed; Pomera closed firmware. |
 | W10 | I can repair or fork it with hobbyist tools     |  5   |  4   |   2   |   2   |  1   | Typoena: open BOM + ESP32. reMarkable: rooted Linux + community ROMs. Freewrite + Pomera: closed.                               |
 | W11 | Multi-day battery life (v0.8 onward)            |  1   |  5   |   5   |   5   |  4   | Typoena v0.1 = wall-powered (battery deferred). reMarkable + both Freewrites legendary (~4 weeks; Sailfish trimmed −30 % typing / −50 % idle). Pomera ~24 h. |
 | W12 | Local-only files coexist with git scope         |  3   |  1   |   2   |   2   |  3   | Typoena v0.5+ design. reMarkable cloud-only. Freewrites have local + Postbox but no VCS. Pomera = pure local.                   |
@@ -601,9 +600,9 @@ separate decision.
 
 **Totals** (sum across 13 WHATs, no weighting): Typoena 50, Pomera 45,
 Freewrite Traveler 42, reMarkable 42 (tied after Sailfish — pre-Sailfish
-Traveler totalled 39), Freewrite Smart Typewriter 38. Pomera still
-ranking second is the useful signal — we're effectively building
-"Pomera + Wi-Fi + git + hackable BOM", which re-confirms the
+Traveler totalled 39), Freewrite Smart Typewriter 41 (pre-Sailfish 38).
+Pomera still ranking second is the useful signal — we're effectively
+building "Pomera + Wi-Fi + git + hackable BOM", which re-confirms the
 differentiation thesis from `README.md`.
 
 Weighted totals (Σ score × W weight) tell the same story with more
