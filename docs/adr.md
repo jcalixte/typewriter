@@ -34,15 +34,15 @@ up across nine downstream releases.
 
 ### Options considered
 
-| Option                          | Pros                                                                                                                                                                     | Cons                                                                                                                            |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Option                          | Pros                                                                                                                                                                     | Cons                                                                                                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | **C on ESP-IDF (no Arduino)**   | Reference platform on the bare native SDK; every peripheral has a driver; smallest binary of the C-family options; no C++ runtime / exceptions / RTTI to reason about.   | All memory safety on you; no RAII for resource cleanup; no generics so widget / state code gets repetitive; refactoring at scale is painful. |
-| **C++ on ESP-IDF**              | Same peripheral coverage as C; RAII, templates, and `std::` containers ease widget / state code; mature in the ESP-IDF examples.                                         | Exception / RTTI story on embedded is messy; ABI / linker surprises; memory safety still on you; binary larger than plain C.    |
-| **Rust on `esp-idf-rs` (std)**  | First-class Espressif-sponsored Rust support; `std` gives heap / threads / VFS / mbedtls; can use the broader Rust ecosystem (`gitoxide`, `ropey`, `embedded-graphics`). | Larger binary than `no_std`; longer build times; some `unsafe` at FFI seams.                                                    |
-| **Rust on `esp-hal` (no_std)**  | Smallest binary, most "pure" embedded experience.                                                                                                                        | No `std` = no off-the-shelf git, no easy TLS, would re-implement a lot of plumbing.                                             |
-| **Gleam + Shore on AtomVM**     | Beautiful language, the user's stated preference.                                                                                                                        | BEAM on ESP32 is memory-hungry; no bindings for USB host, e-ink, SD, TLS, git in that ecosystem. Two research projects stacked. |
-| **MicroPython / CircuitPython** | Fastest to prototype.                                                                                                                                                    | Too slow for responsive editing at the latencies e-ink already imposes; GC pauses would surface as dropped keys.                |
-| **TinyGo**                      | Modern, ergonomic.                                                                                                                                                       | ESP32-S3 support is thinner than Rust's; smaller ecosystem of embedded crates equivalents.                                      |
+| **C++ on ESP-IDF**              | Same peripheral coverage as C; RAII, templates, and `std::` containers ease widget / state code; mature in the ESP-IDF examples.                                         | Exception / RTTI story on embedded is messy; ABI / linker surprises; memory safety still on you; binary larger than plain C.                 |
+| **Rust on `esp-idf-rs` (std)**  | First-class Espressif-sponsored Rust support; `std` gives heap / threads / VFS / mbedtls; can use the broader Rust ecosystem (`gitoxide`, `ropey`, `embedded-graphics`). | Larger binary than `no_std`; longer build times; some `unsafe` at FFI seams.                                                                 |
+| **Rust on `esp-hal` (no_std)**  | Smallest binary, most "pure" embedded experience.                                                                                                                        | No `std` = no off-the-shelf git, no easy TLS, would re-implement a lot of plumbing.                                                          |
+| **Gleam + Shore on AtomVM**     | Beautiful language, the user's stated preference.                                                                                                                        | BEAM on ESP32 is memory-hungry; no bindings for USB host, e-ink, SD, TLS, git in that ecosystem. Two research projects stacked.              |
+| **MicroPython / CircuitPython** | Fastest to prototype.                                                                                                                                                    | Too slow for responsive editing at the latencies e-ink already imposes; GC pauses would surface as dropped keys.                             |
+| **TinyGo**                      | Modern, ergonomic.                                                                                                                                                       | ESP32-S3 support is thinner than Rust's; smaller ecosystem of embedded crates equivalents.                                                   |
 
 ### Decision
 
@@ -113,12 +113,12 @@ Owns the two top-ranked functions (H1 latency, H2 region area) in
 ### Context
 
 The display has the largest downstream blast radius of any hardware choice.
-The *medium* (e-ink vs. LCD vs. memory LCD vs. OLED) — not the specific
+The _medium_ (e-ink vs. LCD vs. memory LCD vs. OLED) — not the specific
 panel — is the real architectural decision: it sets the render strategy
 ([ADR-002]), the per-keystroke latency floor, the idle-power profile (and
 so the v0.8 battery story — [ADR-008]), the UX posture, and the BOM shape.
 The specific panel (GDEY0579T93 + DESPI-c579 breakout) is already on hand
-and documented here as the *instantiation*, not as a freshly weighed option.
+and documented here as the _instantiation_, not as a freshly weighed option.
 
 This ADR records the medium choice with eyes open. E-ink has well-known
 costs at the typing latencies a writing appliance wants — Astrohaus shipped
@@ -128,12 +128,12 @@ costs the category leader retreated from.
 
 ### Options considered
 
-| Option                                        | Refresh / persistence                                       | Pros                                                                                                                                                                              | Cons                                                                                                                                                                                                                                                       |
-| --------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **E-ink (reflective, image-persistent)**      | ~100–300 ms partial / ~700–1000 ms full / persists at 0 W   | Paper aesthetic; persists at zero idle power; no backlight (no glare, no eye strain); category convention (Freewrite, reMarkable, Kindle Scribe, Boox); medium enforces writing posture | Slow per-keystroke feedback; ghosting accumulates → periodic full-refresh flash; scroll is the worst-case refresh op (full edit-area redraw); requires waveform / refresh-cadence tuning; Astrohaus retreated from e-ink in Freewrite Alpha (2023) on typing-latency grounds |
-| **FSTN graphical LCD (monochrome)**           | <16 ms, no refresh quirks                                   | Cheap (~$5–15); trivial render code; snappy scroll                                                                                                                                | Backlit (always-on power), unreadable indoors without it; no image persistence; calculator / feature-phone aesthetic; writing-grade resolution (≥600 px wide at ≥6") effectively unavailable as a hobbyist part                                            |
-| **Sharp Memory LCD (monochrome, reflective)** | ~20 ms, persists at near-0 W                                | Persists *and* refreshes fast (best technical combo); sun-readable; ghost-free                                                                                                    | Caps around 4.4" before getting rare and expensive; reflective-only feels like a screen, not paper; niche sourcing; lower DPI than e-ink at writing size                                                                                                   |
-| **TFT / OLED (color, self-lit or backlit)**   | <16 ms, persists only at full power                         | Bright, fast, plentiful                                                                                                                                                           | Backlit / self-lit → screen-feel, not paper; OLED burns in static text (status line, header); defeats the writing-tool posture; not seriously a contender                                                                                                 |
+| Option                                        | Refresh / persistence                                     | Pros                                                                                                                                                                                    | Cons                                                                                                                                                                                                                                                                         |
+| --------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **E-ink (reflective, image-persistent)**      | ~100–300 ms partial / ~700–1000 ms full / persists at 0 W | Paper aesthetic; persists at zero idle power; no backlight (no glare, no eye strain); category convention (Freewrite, reMarkable, Kindle Scribe, Boox); medium enforces writing posture | Slow per-keystroke feedback; ghosting accumulates → periodic full-refresh flash; scroll is the worst-case refresh op (full edit-area redraw); requires waveform / refresh-cadence tuning; Astrohaus retreated from e-ink in Freewrite Alpha (2023) on typing-latency grounds |
+| **FSTN graphical LCD (monochrome)**           | <16 ms, no refresh quirks                                 | Cheap (~$5–15); trivial render code; snappy scroll                                                                                                                                      | Backlit (always-on power), unreadable indoors without it; no image persistence; calculator / feature-phone aesthetic; writing-grade resolution (≥600 px wide at ≥6") effectively unavailable as a hobbyist part                                                              |
+| **Sharp Memory LCD (monochrome, reflective)** | ~20 ms, persists at near-0 W                              | Persists _and_ refreshes fast (best technical combo); sun-readable; ghost-free                                                                                                          | Caps around 4.4" before getting rare and expensive; reflective-only feels like a screen, not paper; niche sourcing; lower DPI than e-ink at writing size                                                                                                                     |
+| **TFT / OLED (color, self-lit or backlit)**   | <16 ms, persists only at full power                       | Bright, fast, plentiful                                                                                                                                                                 | Backlit / self-lit → screen-feel, not paper; OLED burns in static text (status line, header); defeats the writing-tool posture; not seriously a contender                                                                                                                    |
 
 ### Decision
 
@@ -182,7 +182,7 @@ as the price of those properties.
   sizing exercise straightforward — see [ADR-008] and
   [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--).
 - 10.3" e-ink upgrade path is preserved by keeping the renderer
-  resolution-agnostic. A *non*-e-ink swap (e.g. Sharp Memory LCD) would
+  resolution-agnostic. A _non_-e-ink swap (e.g. Sharp Memory LCD) would
   invalidate [ADR-002]'s dirty-rect strategy and force a fresh medium ADR.
 
 ---
@@ -283,12 +283,12 @@ the scale where async wins. The number of "tasks" is bounded and small (≤ 8).
 
 ### Options considered
 
-| Option                         | Pros                                                                                                        | Cons                                                                                                                                    |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **`std::thread` + channels**   | Boring, debuggable, stack traces work, no executor to tune; ESP-IDF FreeRTOS underneath is well-understood. | Each thread costs 8–32 KB stack depending on workload; not zero-cost like async.                                                        |
+| Option                         | Pros                                                                                                        | Cons                                                                                                                                      |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **`std::thread` + channels**   | Boring, debuggable, stack traces work, no executor to tune; ESP-IDF FreeRTOS underneath is well-understood. | Each thread costs 8–32 KB stack depending on workload; not zero-cost like async.                                                          |
 | **`embassy` async**            | Trendy, ergonomic, low memory per task.                                                                     | `esp-idf-rs` and `embassy` don't mix cleanly; adopting embassy means dropping `std` and rewriting against `esp-hal` ([ADR-001] reversed). |
-| **`tokio` on `esp-idf-rs`**    | Familiar async.                                                                                             | Heavy executor, oversized for ≤ 8 tasks, mbedtls/`gitoxide` integration would need a lot of glue.                                       |
-| **Single-threaded event loop** | Smallest memory.                                                                                            | Long-running ops (git push, full refresh) block input.                                                                                  |
+| **`tokio` on `esp-idf-rs`**    | Familiar async.                                                                                             | Heavy executor, oversized for ≤ 8 tasks, mbedtls/`gitoxide` integration would need a lot of glue.                                         |
+| **Single-threaded event loop** | Smallest memory.                                                                                            | Long-running ops (git push, full refresh) block input.                                                                                    |
 
 ### Decision
 
@@ -431,11 +431,11 @@ with a `git pull --no-edit` fallback when the push fails non-fast-forward.
 
 ### Options considered
 
-| Option                                                | Pros                                                                                                  | Cons                                                                                                                                              |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Three separate gestures** (save / commit / push)    | Maximally git-native; user has fine control.                                                          | Three keys to remember, three failure modes to surface, three concepts in the user's head. Wrong shape for an appliance whose job is to remove ceremony. |
-| **One gesture, prompt for message** (`Ctrl-G` → modal asking for message → commit → push) | Conventional "publish" pattern; each commit is named.                                                 | A modal prompt on e-ink is hostile (latency, full refresh); the user's actual workflow (`gct`) explicitly avoids authoring messages; messages would be noise (`"updated notes"` × 1000). |
-| **One gesture, auto-timestamp message** (`Ctrl-G` mirrors `gct`) | Matches the user's real workflow; one key, one outcome; no prompts, no modes, no decisions in the writing path. | Commit history is timestamp-noise (useless for code archaeology); a future reader will wonder where the commit messages went; locks in a UX assumption that's hard to undo without breaking muscle memory. |
+| Option                                                                                    | Pros                                                                                                            | Cons                                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Three separate gestures** (save / commit / push)                                        | Maximally git-native; user has fine control.                                                                    | Three keys to remember, three failure modes to surface, three concepts in the user's head. Wrong shape for an appliance whose job is to remove ceremony.                                                   |
+| **One gesture, prompt for message** (`Ctrl-G` → modal asking for message → commit → push) | Conventional "publish" pattern; each commit is named.                                                           | A modal prompt on e-ink is hostile (latency, full refresh); the user's actual workflow (`gct`) explicitly avoids authoring messages; messages would be noise (`"updated notes"` × 1000).                   |
+| **One gesture, auto-timestamp message** (`Ctrl-G` mirrors `gct`)                          | Matches the user's real workflow; one key, one outcome; no prompts, no modes, no decisions in the writing path. | Commit history is timestamp-noise (useless for code archaeology); a future reader will wonder where the commit messages went; locks in a UX assumption that's hard to undo without breaking muscle memory. |
 
 ### Decision
 
@@ -447,7 +447,7 @@ retry). Failure surfaces as a single retry-able outcome in the status line.
 ### Consequences
 
 - The user's vocabulary collapses to **Save** and **Publish**;
-  [`CONTEXT.md`](../CONTEXT.md#user-facing-actions) pins this — *commit* is
+  [`CONTEXT.md`](../CONTEXT.md#user-facing-actions) pins this — _commit_ is
   not a user-facing term.
 - Commit history is a stream of timestamps. The device is a writing tool, not
   a code repository — the history is here for recoverability, not narrative.

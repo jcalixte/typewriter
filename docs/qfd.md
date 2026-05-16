@@ -27,22 +27,22 @@ the downstream sections (§5–§8).
 What a user (= me) values about the device, with importance weights on a
 1–10 scale. Source columns point at the doc the requirement comes from.
 
-| ID  | Requirement                                             | Weight | Source                                                                                                             |
-| --- | ------------------------------------------------------- | :----: | ------------------------------------------------------------------------------------------------------------------ |
-| W1  | Sub-second visible response to typing                   |   10   | [product → Write](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium)   |
-| W2  | **Publishing** is one deliberate action away            |   9    | [product → Publish](v0.1-mvp-product.md#user-stories), [CONTEXT → Publish](../CONTEXT.md#user-facing-actions) |
-| W3  | Pulling power never corrupts the file                   |   10   | [product → Recover](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)       |
-| W4  | Provisioning never interrupts a writing session         |   7    | [product → Provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only), [roadmap → v0.9](roadmap.md#v09--robustness--) |
-| W5  | Quick boot to a writing cursor                          |   6    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s)                                            |
-| W6  | Long sessions without crash / lag / drift               |   9    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak)                                         |
-| W7  | Nothing on the device competes with prose               |   8    | [README → vision](../README.md#vision)                                                                             |
-| W8  | The UI never moves except when I move it                |   7    | [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                                        |
-| W9  | Codebase absorbs the planned roadmap without rewrite    |   8    | [roadmap](roadmap.md)                                                                                              |
-| W10 | I can repair or fork it with hobbyist tools             |   5    | [README → vision](../README.md#vision)                                                                             |
-| W11 | Multi-day battery life (v0.8 onward)                    |   4    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--)                                                           |
-| W12 | Local-only file scope coexists with git scope (v0.5+)   |   5    | [README → scopes](../README.md#vision), [roadmap → v0.5](roadmap.md#v05--file-palette--multi-file--)               |
-| W13 | Typography sets a writing-tool tone — typewriter or developer editor, never gadget | 7 | [roadmap → v1.0](roadmap.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium) |
-| W14 | I can carry the device and write away from a desk       |   8    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--), [README → hardware](../README.md#hardware)               |
+| ID  | Requirement                                                                        | Weight | Source                                                                                                                         |
+| --- | ---------------------------------------------------------------------------------- | :----: | ------------------------------------------------------------------------------------------------------------------------------ |
+| W1  | Sub-second visible response to typing                                              |   10   | [product → Write](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium)               |
+| W2  | **Publishing** is one deliberate action away                                       |   9    | [product → Publish](v0.1-mvp-product.md#user-stories), [CONTEXT → Publish](../CONTEXT.md#user-facing-actions)                  |
+| W3  | Pulling power never corrupts the file                                              |   10   | [product → Recover](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)                   |
+| W4  | Provisioning never interrupts a writing session                                    |   7    | [product → Provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only), [roadmap → v0.9](roadmap.md#v09--robustness--) |
+| W5  | Quick boot to a writing cursor                                                     |   6    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s)                                                        |
+| W6  | Long sessions without crash / lag / drift                                          |   9    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak)                                                     |
+| W7  | Nothing on the device competes with prose                                          |   8    | [README → vision](../README.md#vision)                                                                                         |
+| W8  | The UI never moves except when I move it                                           |   7    | [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                                                    |
+| W9  | Codebase absorbs the planned roadmap without rewrite                               |   8    | [roadmap](roadmap.md)                                                                                                          |
+| W10 | I can repair or fork it with hobbyist tools                                        |   5    | [README → vision](../README.md#vision)                                                                                         |
+| W11 | Multi-day battery life (v0.8 onward)                                               |   4    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--)                                                                       |
+| W12 | Local-only file scope coexists with git scope (v0.5+)                              |   5    | [README → scopes](../README.md#vision), [roadmap → v0.5](roadmap.md#v05--file-palette--multi-file--)                           |
+| W13 | Typography sets a writing-tool tone — typewriter or developer editor, never gadget |   7    | [roadmap → v1.0](roadmap.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                      |
+| W14 | I can carry the device and write away from a desk                                  |   8    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--), [README → hardware](../README.md#hardware)                           |
 
 ---
 
@@ -189,24 +189,24 @@ constrains the choice.
 
 Components (with anchoring ADR):
 
-| ID  | Component                            | ADR                    |
-| --- | ------------------------------------ | ---------------------- |
-| C1  | ESP32-S3-N16R8 SoC                   | [ADR-001], [ADR-008]   |
-| C2  | `esp-idf-rs` (std) + ESP-IDF         | [ADR-001]              |
-| C3  | `std::thread` + `crossbeam-channel`  | [ADR-006]              |
-| C4  | PSRAM allocator wrapper              | [ADR-001]              |
-| C5  | GDEY0579T93 + DESPI-c579 panel       | [ADR-003]              |
-| C6  | `embedded-graphics` + e-paper driver | [ADR-002], [ADR-003]   |
-| C7  | Custom widget / dirty-rect layer     | [ADR-002]              |
-| C8  | `ropey` rope buffer                  | [ADR-001] (ecosystem)  |
-| C9  | TinyUSB host (`esp-idf` bindings)    | [ADR-009]              |
-| C10 | FAT on microSD                       | [ADR-007]              |
-| C11 | LittleFS on internal flash           | [ADR-007]              |
-| C12 | `gitoxide` (`gix-*`)                 | [ADR-004]              |
-| C13 | mbedtls TLS (via ESP-IDF)            | [ADR-005]              |
-| C14 | HTTPS + GitHub PAT auth              | [ADR-005]              |
-| C15 | eFuse-derived encryption key         | [ADR-005], [ADR-007]   |
-| C16 | USB-C wall PSU                       | [ADR-008]              |
+| ID  | Component                            | ADR                   |
+| --- | ------------------------------------ | --------------------- |
+| C1  | ESP32-S3-N16R8 SoC                   | [ADR-001], [ADR-008]  |
+| C2  | `esp-idf-rs` (std) + ESP-IDF         | [ADR-001]             |
+| C3  | `std::thread` + `crossbeam-channel`  | [ADR-006]             |
+| C4  | PSRAM allocator wrapper              | [ADR-001]             |
+| C5  | GDEY0579T93 + DESPI-c579 panel       | [ADR-003]             |
+| C6  | `embedded-graphics` + e-paper driver | [ADR-002], [ADR-003]  |
+| C7  | Custom widget / dirty-rect layer     | [ADR-002]             |
+| C8  | `ropey` rope buffer                  | [ADR-001] (ecosystem) |
+| C9  | TinyUSB host (`esp-idf` bindings)    | [ADR-009]             |
+| C10 | FAT on microSD                       | [ADR-007]             |
+| C11 | LittleFS on internal flash           | [ADR-007]             |
+| C12 | `gitoxide` (`gix-*`)                 | [ADR-004]             |
+| C13 | mbedtls TLS (via ESP-IDF)            | [ADR-005]             |
+| C14 | HTTPS + GitHub PAT auth              | [ADR-005]             |
+| C15 | eFuse-derived encryption key         | [ADR-005], [ADR-007]  |
+| C16 | USB-C wall PSU                       | [ADR-008]             |
 
 Function-to-component matrix (9 strong / 3 medium / 1 weak):
 
@@ -237,7 +237,7 @@ Function-to-component matrix (9 strong / 3 medium / 1 weak):
   touch it. That's why [ADR-004] includes a kill-switch (fall back to
   `libgit2-sys` if spike 7 fails). It's also why H9 sits in the top three
   priorities — `gitoxide`'s memory profile is the unknown.
-  [ADR-010] pins the *shape* of the publish sequence (the `gct` flow); C12
+  [ADR-010] pins the _shape_ of the publish sequence (the `gct` flow); C12
   is just the library that implements it. Changing [ADR-010] doesn't change
   C12's column, but changing C12 (the kill-switch) does not change
   [ADR-010]'s user contract.
@@ -261,16 +261,16 @@ also lifted H8 durability over its narrow voter base; W14 has widened
 that base, so H8's #3 spot is now arithmetic — see §3.) These are the
 numbers spikes 2–7 must validate before integration starts.
 
-| Rank | Function       | Target                                | Watched on        | If we miss it                                                           |
-| ---- | -------------- | ------------------------------------- | ----------------- | ----------------------------------------------------------------------- |
+| Rank | Function       | Target                                | Watched on        | If we miss it                                                             |
+| ---- | -------------- | ------------------------------------- | ----------------- | ------------------------------------------------------------------------- |
 | 1    | H2 region area | ≤ 1 line per keypress                 | spike 2 + spike 5 | Increase font size to shrink per-glyph dirty rect ([ADR-003] consequence) |
 | 2    | H9 PSRAM heap  | ≥ 1 MB free at push peak              | spike 7           | [ADR-004] kill-switch → `libgit2-sys`; cap rope at 128 KB                 |
 | 3    | H8 durability  | 100 % survive power yank after status | bench HIL         | Re-evaluate [ADR-007] (move config to internal NVS only)                  |
-| 4    | H1 latency     | ≤ 200 ms keypress→glyph               | spike 5           | Larger partial-refresh region; render multi-char bursts                 |
-| 5    | H6 push %      | ≥ 95 % on healthy Wi-Fi               | spike 6 + spike 7 | TLS cipher trim; reconnect backoff tuning                               |
-| 6    | H3 cadence     | full every ~20 partials               | spike 2           | Adjust per panel temperature; defer flash to idle ≥ 1 s                 |
-| 7    | H4 boot        | ≤ 5 s to cursor                       | integration smoke | Trim startup logging; lazy-mount SD after splash                        |
-| 8    | H5 soak        | 1 h no leak / no drop                 | 1 h bench soak    | Glyph-cache eviction; PSRAM heap-fragmentation review                   |
+| 4    | H1 latency     | ≤ 200 ms keypress→glyph               | spike 5           | Larger partial-refresh region; render multi-char bursts                   |
+| 5    | H6 push %      | ≥ 95 % on healthy Wi-Fi               | spike 6 + spike 7 | TLS cipher trim; reconnect backoff tuning                                 |
+| 6    | H3 cadence     | full every ~20 partials               | spike 2           | Adjust per panel temperature; defer flash to idle ≥ 1 s                   |
+| 7    | H4 boot        | ≤ 5 s to cursor                       | integration smoke | Trim startup logging; lazy-mount SD after splash                          |
+| 8    | H5 soak        | 1 h no leak / no drop                 | 1 h bench soak    | Glyph-cache eviction; PSRAM heap-fragmentation review                     |
 
 The two not-in-MVP rows but already-shaped-by-design:
 
@@ -283,18 +283,18 @@ The two not-in-MVP rows but already-shaped-by-design:
 
 Plain-language summary of what we accepted in exchange for what.
 
-| Tradeoff                                         | Got                                                                          | Paid                                                                            | ADR       |
-| ------------------------------------------------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------- |
-| std (esp-idf-rs) over no_std (esp-hal)           | Heap, threads, VFS, mbedtls, gitoxide-compatible                             | +1 MB binary, +5–10 min builds                                                  | [ADR-001] |
-| Custom widget layer over Ratatui                 | Dirty-rects aligned to e-ink regions; 200 KB binary back                     | 500 LoC we own and maintain                                                     | [ADR-002] |
-| e-ink medium over FSTN / memory LCD / OLED       | Paper aesthetic; 0 W idle persistence; medium enforces writing posture       | ~200–300 ms typing latency; periodic full-refresh flash (scroll worst-case)     | [ADR-003] |
-| `gitoxide` over `libgit2-sys`                    | Pure Rust, modular, no FFI cross-compile pain                                | Smart-HTTP path is newer; PSRAM profile unproven (spike 7)                      | [ADR-004] |
-| HTTPS + PAT over OAuth device-flow or SSH        | Simplest auth that `gitoxide` smart-HTTP already supports                    | Long-lived secret on device; in v0.1 the PAT is compiled into the binary (dev-only target user makes this acceptable); v0.9 moves it to encrypted NVS | [ADR-005] |
-| `std::thread` over `embassy` or `tokio`          | Boring, debuggable, real stack traces; no exec to tune                       | ~76 KB total stack across 5 tasks                                               | [ADR-006] |
-| FAT-on-SD + LittleFS-on-flash split              | Desktop can read SD; config survives SD reformat                             | Two filesystems to manage; FAT's power-loss weakness mitigated by atomic-rename | [ADR-007] |
-| Wall power for v0.1, battery deferred            | Measure real draw before sizing the cell                                     | Tethered MVP; not the final aesthetic                                           | [ADR-008] |
-| USB host (TinyUSB) over BLE-HID                  | No radio contention with Wi-Fi during push; keyboard powered from the device | One more USB connector on enclosure                                             | [ADR-009] |
-| Atomic `Ctrl-G` + auto-timestamp commit message  | One key, one outcome; matches the user's existing `gct` workflow; no modal prompt to slow H1 latency | Commit history is timestamp noise; the device may author merge commits the user never sees; reversal would break muscle memory | [ADR-010] |
+| Tradeoff                                        | Got                                                                                                  | Paid                                                                                                                                                  | ADR       |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| std (esp-idf-rs) over no_std (esp-hal)          | Heap, threads, VFS, mbedtls, gitoxide-compatible                                                     | +1 MB binary, +5–10 min builds                                                                                                                        | [ADR-001] |
+| Custom widget layer over Ratatui                | Dirty-rects aligned to e-ink regions; 200 KB binary back                                             | 500 LoC we own and maintain                                                                                                                           | [ADR-002] |
+| e-ink medium over FSTN / memory LCD / OLED      | Paper aesthetic; 0 W idle persistence; medium enforces writing posture                               | ~200–300 ms typing latency; periodic full-refresh flash (scroll worst-case)                                                                           | [ADR-003] |
+| `gitoxide` over `libgit2-sys`                   | Pure Rust, modular, no FFI cross-compile pain                                                        | Smart-HTTP path is newer; PSRAM profile unproven (spike 7)                                                                                            | [ADR-004] |
+| HTTPS + PAT over OAuth device-flow or SSH       | Simplest auth that `gitoxide` smart-HTTP already supports                                            | Long-lived secret on device; in v0.1 the PAT is compiled into the binary (dev-only target user makes this acceptable); v0.9 moves it to encrypted NVS | [ADR-005] |
+| `std::thread` over `embassy` or `tokio`         | Boring, debuggable, real stack traces; no exec to tune                                               | ~76 KB total stack across 5 tasks                                                                                                                     | [ADR-006] |
+| FAT-on-SD + LittleFS-on-flash split             | Desktop can read SD; config survives SD reformat                                                     | Two filesystems to manage; FAT's power-loss weakness mitigated by atomic-rename                                                                       | [ADR-007] |
+| Wall power for v0.1, battery deferred           | Measure real draw before sizing the cell                                                             | Tethered MVP; not the final aesthetic                                                                                                                 | [ADR-008] |
+| USB host (TinyUSB) over BLE-HID                 | No radio contention with Wi-Fi during push; keyboard powered from the device                         | One more USB connector on enclosure                                                                                                                   | [ADR-009] |
+| Atomic `Ctrl-G` + auto-timestamp commit message | One key, one outcome; matches the user's existing `gct` workflow; no modal prompt to slow H1 latency | Commit history is timestamp noise; the device may author merge commits the user never sees; reversal would break muscle memory                        | [ADR-010] |
 
 ### Conflicts left explicitly _unresolved_ by v0.1
 
@@ -336,7 +336,7 @@ These are the live tensions we are watching, not deciding harder:
   comfortably in the ESP32-S3's 512 KB internal SRAM, so no design
   change — just documentation accuracy.
 - **Commit-message format triple-mismatch.** README said `git commit -m
-  "wip"`, the v0.1 product doc said `"wip <timestamp>"`, and the user's
+"wip"`, the v0.1 product doc said `"wip <timestamp>"`, and the user's
   actual shell alias (`gct` / `git-commit-timestamp`) uses a pure ISO-8601
   timestamp with no `wip` prefix. Resolved by aligning all docs on `gct`
   and recording the decision as
@@ -363,7 +363,7 @@ These are the live tensions we are watching, not deciding harder:
   artifact, not a signal that durability matters less to the design.
 - **W13 reframed, W14 removed.** Earlier W13/W14 rows named solutions
   ("beautiful monospace", "beautiful serif") inside the requirements
-  column, conflating *what the user values* with *which asset delivers it*.
+  column, conflating _what the user values_ with _which asset delivers it_.
   Replaced with one outcome WHAT — typography sets a writing-tool tone —
   and moved the mono+serif option to §7 as a v1.0 unresolved tension.
   Σ shifted (H9 205→193, H2 198→177, H1 155→148) because the prior

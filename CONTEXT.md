@@ -50,7 +50,7 @@ again. Unavailable in **Local**.
 _Avoid_: push, commit, sync, upload, git-push (these leak transport details
 into user-facing language).
 
-> **Commit** is deliberately *not* a user-facing term. The device authors all
+> **Commit** is deliberately _not_ a user-facing term. The device authors all
 > commit messages itself (ISO-8601 timestamp); the user never sees a commit
 > prompt. A **Publish** is the only user-observable unit of "shipping work";
 > internal commits are an implementation detail of that.
@@ -88,7 +88,7 @@ into user-facing language).
   **Publish** picks it up; until then, the device is silent about it.
 - **No state the user didn't ask for.** No banners about pending work, no
   prompts about divergence, no "did you mean to publish" warnings. The status
-  line reflects the *current* action's outcome, nothing else.
+  line reflects the _current_ action's outcome, nothing else.
 
 ## Flagged ambiguities
 
