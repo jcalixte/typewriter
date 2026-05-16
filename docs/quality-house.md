@@ -281,10 +281,10 @@ market"), not as a fair head-to-head buyer's guide.
                     fill=qfdcPom!50!white,
                     minimum size=7pt, inner sep=0pt, line width=1.0pt},
   qfdalt4ln/.style={line width=0.8pt, dash dot, qfdcPom},
-  qfdalt5mk/.style={star, star points=5, star point ratio=0.55,
-                    draw=qfdcFrwS, fill=qfdcFrwS!55!white,
-                    minimum size=7.5pt, inner sep=0pt, line width=0.9pt},
-  qfdalt5ln/.style={line width=0.8pt, dash dot dot, qfdcFrwS},
+  qfdalt5mk/.style={regular polygon, regular polygon sides=5,
+                    draw=qfdcFrwS, fill=qfdcFrwS!40!white,
+                    minimum size=5.5pt, inner sep=0pt, line width=0.8pt},
+  qfdalt5ln/.style={line width=0.7pt, dash dot dot, qfdcFrwS},
 }
 
 \begin{document}
