@@ -42,6 +42,7 @@ What a user (= me) values about the device, with importance weights on a
 | W11 | Multi-day battery life (v0.8 onward)                    |   4    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--)                                                           |
 | W12 | Local-only file scope coexists with git scope (v0.5+)   |   5    | [README → scopes](../README.md#vision), [roadmap → v0.5](roadmap.md#v05--file-palette--multi-file--)               |
 | W13 | Typography sets a writing-tool tone — typewriter or developer editor, never gadget | 7 | [roadmap → v1.0](roadmap.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium) |
+| W14 | I can carry the device and write away from a desk       |   8    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--), [README → hardware](../README.md#hardware)               |
 
 ---
 
@@ -86,22 +87,40 @@ from its basement row.
    keeps a fixed-size glyph-cache load on top of that arena pressure.
 2. **H2 — partial-refresh region area** (177). Bound how many pixels the
    panel has to flip per keypress; [ADR-003] is the hardware-side answer.
-3. **H1 — keypress latency** (148). The single most user-visible number;
+3. **H8 — save durability** (156). Atomic-rename + fsync; FAT's weakness
+   is acknowledged in [ADR-007] and mitigated, not designed around. H8's
+   voter base spans W3 (power-loss correctness), W6 (long sessions),
+   W12 (file scopes), and W14 (carrying = unclean shutdowns) — the
+   fourth voter is what lifts H8 into the top three by arithmetic alone.
+4. **H12 — Wi-Fi reconnect** (153). Mobile use is the chief driver
+   (W14 + W2 + W4 + W6); [ADR-005] PAT auth and reconnect backoff own
+   this. Previously below the top six on a stationary v0.1 reading;
+   W14 promotes it.
+5. **H1 — keypress latency** (148). The single most user-visible number;
    [ADR-002] and [ADR-003] are co-conspirators.
-4. **H3 — full-refresh cadence** (144). The ghosting/flash tradeoff; lives
+6. **H3 — full-refresh cadence** (144). The ghosting/flash tradeoff; lives
    in the render layer.
-5. **H6 — push success rate** (134). [ADR-004] (gitoxide) and [ADR-005] (PAT
-   over HTTPS) own this jointly; spike 7 is the kill-switch.
-6. **H8 — save durability** (132). Atomic-rename + fsync; FAT's weakness is
-   acknowledged in [ADR-007] and mitigated, not designed around.
 
-**Why H8 ranks where it does.** HoQ totals reward functions that touch many
-WHATs over functions that absolutely matter for one WHAT. W3 ("Pulling
-power never corrupts the file", weight 10) is the strongest single
-requirement but its only strong link is H8. H9, by contrast, collects from
-W1+W2+W6 to reach 193. The fix isn't to re-weight cells to chase intuition
-— it's to use §6 as a curated rank that lifts narrow-but-critical
-functions explicitly.
+H13 (current draw, 137) sits at #7 — close to the top-six cutoff because
+W14 promotes the "wall-power for v0.1, measure first" stance from
+acknowledged tradeoff to watched metric. The v0.1 "measured only" target
+(§2) is still right; what changes is that bench multimeter readings (§6)
+gain a second audience — sizing the v0.8 cell against a real portability
+target, not just informing ADR-008's deferral.
+
+H6 (push success, 134) drops out of the top six. Its ADR ownership
+([ADR-004] gitoxide + [ADR-005] PAT) and spike 7 kill-switch are unchanged
+— the matrix simply reads W14's mobile-use voter as a louder signal for
+reconnect (H12) than for the push transport itself.
+
+**Why H8 ranks where it does.** Pre-W14, HoQ totals rewarded functions
+that touch many WHATs over functions that absolutely matter for one WHAT.
+W3 ("Pulling power never corrupts the file", weight 10) was H8's
+strongest single voter, but H8 still sat at #6 because its base was
+narrow. W14's "carrying = bumps = unclean shutdowns" widens H8's voter
+base and pushes it to #3 by arithmetic. §6's "table-stakes correctness"
+override is no longer the load-bearing argument for H8's prominence —
+its acceptance-criteria override for H4/H5 still is. See §6.
 
 The bottom three (H7 push time, H15 build time, H10 binary size) are real
 costs but ones we knowingly took on ([ADR-001]) and are not in the critical
@@ -147,7 +166,9 @@ the design are called out below.
   Affordable at our size class but worth watching as features land.
 - **H11 stacks ↔ H13 current draw** (mild, future). Idle threads draw
   little but never zero; a future light-sleep policy (v0.8) wants them
-  parked.
+  parked. W14's portability outcome raises the value of that policy
+  from "battery hygiene" to "the thing that lets the device leave the
+  desk."
 - **H14 modularity ↔ H15 build time** (mild). More small crates = more
   link work. Boring vs valuable; we lean toward modularity.
 - **W13 typography ↔ H9 heap + H10 binary** (mild, future). Achieving a
@@ -233,11 +254,12 @@ Function-to-component matrix (9 strong / 3 medium / 1 weak):
 
 ## 6. Critical performance budget
 
-A curated rank, drawing from §3 importance and §4 conflicts but with two
-deliberate overrides: (a) acceptance-criteria critical paths (H4 boot,
-H5 soak) move up regardless of weighted-vote spread, and (b) table-stakes
-correctness (H8 durability) moves up despite a narrow voter base. These
-are the numbers spikes 2–7 must validate before integration starts.
+A curated rank, drawing from §3 importance and §4 conflicts, with one
+deliberate override: acceptance-criteria critical paths (H4 boot,
+H5 soak) move up regardless of weighted-vote spread. (Pre-W14 this list
+also lifted H8 durability over its narrow voter base; W14 has widened
+that base, so H8's #3 spot is now arithmetic — see §3.) These are the
+numbers spikes 2–7 must validate before integration starts.
 
 | Rank | Function       | Target                                | Watched on        | If we miss it                                                           |
 | ---- | -------------- | ------------------------------------- | ----------------- | ----------------------------------------------------------------------- |
@@ -293,6 +315,14 @@ These are the live tensions we are watching, not deciding harder:
   serif = typewriter feel). Not yet decided whether to ship both or one;
   decision deferred to the v1.0 design pass. Cost preview per added font:
   +H9 glyph-cache footprint, +H10 binary for embedded assets.
+- **[ADR-008] vs W11+W14.** Wall power in v0.1 is now an explicit
+  disappointment of two WHATs, not one (battery W11 + portability W14).
+  The disappointment is bounded by [ADR-008]'s commitment to measure
+  current draw on real hardware before sizing v0.8's cell — spec the
+  cell against measured numbers, not against the spec sheet. The §3
+  promotion of H13 (current draw) from #11 to #7 is the matrix
+  registering this: bench multimeter readings now serve portability
+  sizing as well as power profiling.
 
 ---
 
@@ -354,6 +384,15 @@ These are the live tensions we are watching, not deciding harder:
   (H8) get manual lifts. §3 now names the HoQ structural bias that makes
   the curation necessary — reward for spread, penalty for narrow-but-
   critical functions — using H8/W3 as the canonical example.
+- **W14 added — portability outcome.** Captures "I can carry the device
+  and write away from a desk" as a distinct WHAT from W11 (multi-day
+  battery), weight 8. Recomputed basement Σ; H8 lifted from #6 to #3 in
+  the §3 priority list as its voter base widened from W3+W6+W12 to also
+  include W14, and H12 entered the top six at #4; H6 dropped out. The
+  ID "W14" was previously held by a deprecated typography row (see the
+  "W13 reframed, W14 removed" bullet above); the slot is now repurposed.
+  §6's "(b) narrow voter base" override for H8 no longer applies and
+  has been retired in the §6 preamble.
 
 The minor variance between README's "~12 lines" and product/[ADR-003]'s
 "~11 lines" of edit area is within rounding for a 14 px glyph in a 240 px

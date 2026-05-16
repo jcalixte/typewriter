@@ -1,6 +1,6 @@
 # Quality House
 
-The 13 WHATs × 15 HOWs House of Quality. The roof carries function-vs-
+The 14 WHATs × 15 HOWs House of Quality. The roof carries function-vs-
 function correlations; the basement carries v0.1 targets (mirrored from
 [`qfd.md`](qfd.md) §2) plus the weighted-vote sums
 (`Σ = Σ(W weight × cell strength)`) and rounded relative weights. The
@@ -241,8 +241,8 @@ market"), not as a fair head-to-head buyer's guide.
   \end{tikzpicture}%
 }
 
-% --- Dimensions tuned for the typewriter QFD (13 W x 15 H) ---
-\def\qfdNW{13}
+% --- Dimensions tuned for the typewriter QFD (14 W x 15 H) ---
+\def\qfdNW{14}
 \def\qfdNH{15}
 \def\qfdWhatW{4.6}
 \def\qfdImpW{0.7}
@@ -307,7 +307,8 @@ market"), not as a fair head-to-head buyer's guide.
     10/{W10 I can repair or fork it with hobbyist tools},
     11/{W11 Multi-day battery life (v0.8 onward)},
     12/{W12 Local-only files coexist with git scope (v0.5+)},
-    13/{W13 Typography sets a writing-tool tone}%
+    13/{W13 Typography sets a writing-tool tone},
+    14/{W14 I can carry the device and write away from a desk}%
   }
     \node[anchor=west, font=\scriptsize,
           text width=\qfdWhatTextW cm, align=left]
@@ -315,7 +316,7 @@ market"), not as a fair head-to-head buyer's guide.
 
   % ---------- Importance (raw 1-10 weight) ----------
   \foreach \r/\w in {1/10, 2/9, 3/10, 4/7, 5/6, 6/9, 7/8, 8/7,
-                     9/8, 10/5, 11/4, 12/5, 13/7}
+                     9/8, 10/5, 11/4, 12/5, 13/7, 14/8}
     \node[font=\scriptsize] at ({-\qfdImpW/2}, {-\r + 0.5}) {\w};
 
   % ---------- HOWs (rotated column titles) ----------
@@ -411,6 +412,12 @@ market"), not as a fair head-to-head buyer's guide.
   % W13 row 13: H9M
   \node[qfdrel/M] at ({9 - 0.5},  {-13 + 0.5}) {};
 
+  % W14 row 14: H4W H8M H12M H13S
+  \node[qfdrel/W] at ({4 - 0.5},  {-14 + 0.5}) {};
+  \node[qfdrel/M] at ({8 - 0.5},  {-14 + 0.5}) {};
+  \node[qfdrel/M] at ({12 - 0.5}, {-14 + 0.5}) {};
+  \node[qfdrel/S] at ({13 - 0.5}, {-14 + 0.5}) {};
+
   % ---------- Roof correlations ----------
   \node[font=\scriptsize] at (C-1-2)   {$+\!+$};   % H1-H2 strong reinforce
   \node[font=\scriptsize] at (C-1-3)   {$-$};      % H1-H3 mild conflict
@@ -435,20 +442,20 @@ market"), not as a fair head-to-head buyer's guide.
 
   % ---------- Basement: target / abs weight / rel weight % ----------
   \foreach \c/\tgt/\abs/\rel in {%
-    1/{$\leq$200\,ms}/148/10,
+    1/{$\leq$200\,ms}/148/9,
     2/{$\leq$1 line}/177/11,
     3/{1 : 20}/144/9,
-    4/{$\leq$5\,s}/54/3,
+    4/{$\leq$5\,s}/62/4,
     5/{$\geq$1\,h}/111/7,
-    6/{$\geq$95\,\%}/134/9,
+    6/{$\geq$95\,\%}/134/8,
     7/{$\leq$30\,s}/27/2,
-    8/{100\,\%}/132/9,
+    8/{100\,\%}/156/9,
     9/{$\geq$1\,MB}/193/12,
-    10/{$\leq$2\,MB}/41/3,
+    10/{$\leq$2\,MB}/41/2,
     11/{$\leq$80\,KB}/45/3,
-    12/{$\leq$30\,s}/129/8,
-    13/{obs.}/65/4,
-    14/{$\leq$8}/117/8,
+    12/{$\leq$30\,s}/153/9,
+    13/{obs.}/137/8,
+    14/{$\leq$8}/117/7,
     15/{$\leq$7\,min}/29/2%
   } {
     \node[font=\scriptsize] at ({\c - 0.5}, {-\qfdNW - 0.5}) {\tgt};
@@ -462,7 +469,7 @@ market"), not as a fair head-to-head buyer's guide.
     \node[anchor=east, font=\scriptsize\itshape]
       at ({-0.1}, {-\qfdNW - \k + 0.5}) {\lbl};
 
-  % ---------- Perception zone: 5 products x 13 WHATs (0-5 scores) ----------
+  % ---------- Perception zone: 5 products x 14 WHATs (0-5 scores) ----------
   % Columns: \so=Typoena target, \st=reMarkable 2 + Type Folio,
   %          \sf=Freewrite Traveler, \sg=Pomera DM250,
   %          \sh=Freewrite Smart Typewriter.
@@ -481,7 +488,8 @@ market"), not as a fair head-to-head buyer's guide.
     10/5/4/2/1/2,
     11/1/5/5/4/5,
     12/3/1/2/3/2,
-    13/3/5/2/2/2%
+    13/3/5/2/2/2,
+    14/2/4/5/2/5%
   } {
     \pgfmathsetmacro{\xo}{\qfdNH + (\so + 0.5)*\qfdCmpW/6}
     \pgfmathsetmacro{\xt}{\qfdNH + (\st + 0.5)*\qfdCmpW/6}
@@ -597,14 +605,16 @@ hackable-Linux 3).
 | W11 | Multi-day battery life (v0.8 onward)            |  1   |  5   |   5   |   5   |  4   | Typoena v0.1 = wall-powered (battery deferred). reMarkable + both Freewrites legendary (~4 weeks; Sailfish trimmed −30 % typing / −50 % idle). Pomera ~24 h. |
 | W12 | Local-only files coexist with git scope         |  3   |  1   |   2   |   2   |  3   | Typoena v0.5+ design. reMarkable cloud-only. Freewrites have local + Postbox but no VCS. Pomera = pure local.                   |
 | W13 | Typography sets a writing-tool tone             |  3   |  5   |   2   |   2   |  2   | Typoena v0.1: single mono (serif option in v1.0). reMarkable: rich type rendering. Freewrite + Pomera: utilitarian.             |
+| W14 | I can carry the device and write away from a desk |  2   |  4   |   5   |   1   |  5   | Typoena v0.1 wall-powered (ADR-008), no enclosure spec yet — desk-bound by design. reMarkable + Type Folio bag-friendly with bulk. Freewrite Traveler is the form-factor reference (~1.6 lb, folds). Smart Typewriter ~5 lb, desk-bound. Pomera DM250 pocketable foldable. |
 
-**Totals** (sum across 13 WHATs, no weighting): Typoena 50, Pomera 45,
-Freewrite Traveler 42, reMarkable 41, Freewrite Smart Typewriter 41
-(Traveler pre-Sailfish 39; Smart pre-Sailfish 38; reMarkable W1 dropped
-3→2 after author's firsthand test). Pomera still ranking second is the
-useful signal — we're effectively building "Pomera + Wi-Fi + git +
-hackable BOM", which re-confirms the differentiation thesis from
-`README.md`.
+**Totals** (sum across 14 WHATs, no weighting): Typoena 52, Pomera 50,
+Freewrite Traveler 47, reMarkable 45, Freewrite Smart Typewriter 42
+(Traveler pre-Sailfish 44; Smart pre-Sailfish 39; reMarkable W1 dropped
+3→2 after author's firsthand test). Pomera closing to within 2 of
+Typoena is W14 doing what W14 should — surfacing the dimension on
+which v0.1's tethered MVP loses ground that v0.8 is expected to
+recover. The "Pomera + Wi-Fi + git + hackable BOM" framing from
+`README.md` still holds and reads stronger.
 
 Weighted totals (Σ score × W weight) tell the same story with more
 contrast — left as exercise; the unweighted view is enough to read the
@@ -629,12 +639,12 @@ picture.
 
 - **Importance (left column)** is the raw 1–10 weight from `qfd.md` §1, not
   a normalised %, so adding stays cheap when a WHAT shifts. Sum of weights
-  is 95; treat each unit as ~1.05 % if you want a percentage view.
+  is 103; treat each unit as ~0.97 % if you want a percentage view.
 - **Roof** carries the §4 symbols translated into classical QFD glyphs:
   `++` strong reinforcement (`◎`), `+` mild reinforcement (`○`), `−` mild
   conflict (`×`), `−−` strong conflict (`⊗`).
 - **Basement rows** are: v0.1 target → §3 column sum (`Σ` of
-  `weight × strength`) → relative weight as integer % of total (1546).
+  `weight × strength`) → relative weight as integer % of total (1674).
   Relative weights round to 100.
 - **H7, H10, H15** (push time, binary size, build time) sit at the bottom
   of the basement — knowingly-paid costs per `qfd.md` §7, not signals to
