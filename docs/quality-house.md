@@ -469,7 +469,7 @@ market"), not as a fair head-to-head buyer's guide.
   % Pass 1: stash each score as a named coordinate so the profile lines
   % below can reuse it without recomputing.
   \foreach \r/\so/\st/\sf/\sg/\sh in {%
-    1/4/3/4/5/3,
+    1/4/2/4/5/3,
     2/5/4/4/2/4,
     3/4/4/2/2/2,
     4/5/2/2/5/2,
@@ -584,7 +584,7 @@ hackable-Linux 3).
 
 | ID  | WHAT (truncated)                                | Typoena | reM. | Frw.T | Frw.S | Pom. | Rationale (shortest defensible)                                                                                              |
 | --- | ----------------------------------------------- | :--: | :--: | :---: | :---: | :--: | ---------------------------------------------------------------------------------------------------------------------------- |
-| W1  | Sub-second response to typing                   |  4   |  3   |   4   |   3   |  5   | Typoena targets ≤200 ms; reMarkable e-ink laggy; both Freewrites post-Sailfish trimmed latency 40–100 % (Frw.T plausibly inside 200 ms; Frw.S still trails by one notch on larger panel); Pomera LCD ~zero. |
+| W1  | Sub-second response to typing                   |  4   |  2   |   4   |   3   |  5   | Typoena targets ≤200 ms; reMarkable e-ink visibly laggy — tested less responsive than Smart Typewriter; both Freewrites post-Sailfish trimmed latency 40–100 % (Frw.T plausibly inside 200 ms; Frw.S still trails by one notch on larger panel); Pomera LCD ~zero. |
 | W2  | Publishing is one deliberate action away        |  5   |  4   |   4   |   4   |  2   | Ctrl-G atomic; reMarkable + Freewrite cloud-sync is one-tap but not git; Pomera = USB/SD copy or QR transfer.                |
 | W3  | Pulling power never corrupts the file           |  4   |  4   |   2   |   2   |  2   | Typoena: atomic-rename + fsync. reMarkable journals. Freewrite + Pomera: forum reports of corruption on yank.                   |
 | W4  | Provisioning never interrupts writing           |  5   |  2   |   2   |   2   |  5   | Typoena v0.1: build-time config (dev-only). reM/Frw need Wi-Fi + account. Pomera: literally none.                               |
@@ -599,11 +599,12 @@ hackable-Linux 3).
 | W13 | Typography sets a writing-tool tone             |  3   |  5   |   2   |   2   |  2   | Typoena v0.1: single mono (serif option in v1.0). reMarkable: rich type rendering. Freewrite + Pomera: utilitarian.             |
 
 **Totals** (sum across 13 WHATs, no weighting): Typoena 50, Pomera 45,
-Freewrite Traveler 42, reMarkable 42 (tied after Sailfish — pre-Sailfish
-Traveler totalled 39), Freewrite Smart Typewriter 41 (pre-Sailfish 38).
-Pomera still ranking second is the useful signal — we're effectively
-building "Pomera + Wi-Fi + git + hackable BOM", which re-confirms the
-differentiation thesis from `README.md`.
+Freewrite Traveler 42, reMarkable 41, Freewrite Smart Typewriter 41
+(Traveler pre-Sailfish 39; Smart pre-Sailfish 38; reMarkable W1 dropped
+3→2 after author's firsthand test). Pomera still ranking second is the
+useful signal — we're effectively building "Pomera + Wi-Fi + git +
+hackable BOM", which re-confirms the differentiation thesis from
+`README.md`.
 
 Weighted totals (Σ score × W weight) tell the same story with more
 contrast — left as exercise; the unweighted view is enough to read the
