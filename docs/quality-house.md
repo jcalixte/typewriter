@@ -48,7 +48,7 @@ market"), not as a fair head-to-head buyer's guide.
 \def\qfdPerceptionTitle{Comparative evaluation}
 \def\qfdPoorLabel{poor}
 \def\qfdExcellentLabel{excellent}
-\def\qfdAltOneLabel{Our product}
+\def\qfdAltOneLabel{Typoena}
 \def\qfdAltTwoLabel{Competitor A}
 \def\qfdAltThreeLabel{Competitor B}
 \def\qfdRelTitle{Relation}
@@ -260,16 +260,16 @@ market"), not as a fair head-to-head buyer's guide.
 % Perception-zone markers: shape + colour-blind-safe colour per product.
 % Palette is Okabe-Ito (blue, vermillion, bluish green, reddish purple).
 % Light fills + saturated outlines keep stacked markers legible.
-\definecolor{qfdcOurs}{RGB}{0,114,178}
+\definecolor{qfdcTypoena}{RGB}{0,114,178}
 \definecolor{qfdcRem}{RGB}{213,94,0}
 \definecolor{qfdcFrw}{RGB}{0,158,115}
 \definecolor{qfdcPom}{RGB}{204,121,167}
 \definecolor{qfdcFrwS}{RGB}{86,180,233}
 
 \tikzset{
-  qfdalt1mk/.style={circle, draw=qfdcOurs, fill=qfdcOurs!55!white,
+  qfdalt1mk/.style={circle, draw=qfdcTypoena, fill=qfdcTypoena!55!white,
                     minimum size=6.5pt, inner sep=0pt, line width=1.1pt},
-  qfdalt1ln/.style={line width=1.2pt, qfdcOurs},
+  qfdalt1ln/.style={line width=1.2pt, qfdcTypoena},
   qfdalt2mk/.style={regular polygon, regular polygon sides=3,
                     draw=qfdcRem, fill=qfdcRem!55!white,
                     minimum size=7pt, inner sep=0pt, line width=0.9pt},
@@ -463,7 +463,7 @@ market"), not as a fair head-to-head buyer's guide.
       at ({-0.1}, {-\qfdNW - \k + 0.5}) {\lbl};
 
   % ---------- Perception zone: 5 products x 13 WHATs (0-5 scores) ----------
-  % Columns: \so=Ours target, \st=reMarkable 2 + Type Folio,
+  % Columns: \so=Typoena target, \st=reMarkable 2 + Type Folio,
   %          \sf=Freewrite Traveler, \sg=Pomera DM250,
   %          \sh=Freewrite Smart Typewriter.
   % Pass 1: stash each score as a named coordinate so the profile lines
@@ -542,7 +542,7 @@ market"), not as a fair head-to-head buyer's guide.
     \draw[qfdalt1ln] (0.05, -4.80) -- (0.45, -4.80);
       \node[qfdalt1mk] at (0.25, -4.80) {};
       \node[anchor=west, font=\bfseries] at (0.55, -4.80)
-        {Ours (v0.1 target)};
+        {Typoena (v0.1 target)};
     \draw[qfdalt2ln] (0.05, -5.25) -- (0.45, -5.25);
       \node[qfdalt2mk] at (0.25, -5.25) {};
       \node[anchor=west] at (0.55, -5.25) {reMarkable 2 + Type Folio};
@@ -568,7 +568,7 @@ market"), not as a fair head-to-head buyer's guide.
 Five products on the 0–5 scale, scored against each WHAT. Reference
 configurations: **reMarkable 2 + Type Folio**, **Freewrite Traveler**,
 **Freewrite Smart Typewriter**, **Pomera DM250** (DM250 has a reflective
-monochrome LCD, not e-ink — flagged in W1 / W8). "Ours" is the v0.1
+monochrome LCD, not e-ink — flagged in W1 / W8). "Typoena" is the v0.1
 target from `qfd.md` §2, not measured yet.
 
 Freewrite Traveler scores assume the
@@ -583,23 +583,23 @@ reach reMarkable's hackable-Linux 3). The Smart Typewriter rows could be
 bumped on the same basis but are left at pre-Sailfish values pending a
 separate decision.
 
-| ID  | WHAT (truncated)                                | Ours | reM. | Frw.T | Frw.S | Pom. | Rationale (shortest defensible)                                                                                              |
+| ID  | WHAT (truncated)                                | Typoena | reM. | Frw.T | Frw.S | Pom. | Rationale (shortest defensible)                                                                                              |
 | --- | ----------------------------------------------- | :--: | :--: | :---: | :---: | :--: | ---------------------------------------------------------------------------------------------------------------------------- |
-| W1  | Sub-second response to typing                   |  4   |  3   |   4   |   2   |  5   | Ours targets ≤200 ms; reMarkable e-ink laggy; Frw.S still slow (larger panel); Frw.T post-Sailfish trimmed latency 40–100 % (plausibly inside 200 ms); Pomera LCD ~zero. |
+| W1  | Sub-second response to typing                   |  4   |  3   |   4   |   2   |  5   | Typoena targets ≤200 ms; reMarkable e-ink laggy; Frw.S still slow (larger panel); Frw.T post-Sailfish trimmed latency 40–100 % (plausibly inside 200 ms); Pomera LCD ~zero. |
 | W2  | Publishing is one deliberate action away        |  5   |  4   |   4   |   4   |  2   | Ctrl-G atomic; reMarkable + Freewrite cloud-sync is one-tap but not git; Pomera = USB/SD copy or QR transfer.                |
-| W3  | Pulling power never corrupts the file           |  4   |  4   |   2   |   2   |  2   | Ours: atomic-rename + fsync. reMarkable journals. Freewrite + Pomera: forum reports of corruption on yank.                   |
-| W4  | Provisioning never interrupts writing           |  5   |  2   |   2   |   2   |  5   | Ours v0.1: build-time config (dev-only). reM/Frw need Wi-Fi + account. Pomera: literally none.                               |
-| W5  | Quick boot to a writing cursor                  |  4   |  3   |   4   |   3   |  5   | Ours target ≤5 s. reMarkable cold-boots ~20 s (great from sleep). Frw.T accelerated post-Sailfish (no published number); Frw.S still ~10–15 s e-ink wake. Pomera ~3 s. |
-| W6  | Long sessions without crash / lag / drift       |  3   |  3   |   4   |   4   |  5   | Ours unproven (1 h target). Freewrite famously stable (both variants). Pomera firmware is decades-mature.                    |
-| W7  | Nothing on the device competes with prose       |  5   |  2   |   5   |   5   |  5   | reMarkable has apps, menus, drawing, PDFs. Freewrite + Pomera are single-purpose; ours by design.                            |
-| W8  | The UI never moves except when I move it        |  4   |  3   |   4   |   4   |  5   | reMarkable animates more; ours uses dirty-rects; Freewrites minimal motion; Pomera near-static LCD.                          |
-| W9  | Codebase absorbs the planned roadmap            |  4   |  3   |   2   |   1   |  1   | Modular Rust ours; reMarkable is hackable Linux; Frw.T Sailfish is Rust-rewritten (vendor explicitly unblocked features JS could not carry) but closed; Frw.S + Pomera closed firmware. |
-| W10 | I can repair or fork it with hobbyist tools     |  5   |  4   |   2   |   2   |  1   | Ours: open BOM + ESP32. reMarkable: rooted Linux + community ROMs. Freewrite + Pomera: closed.                               |
-| W11 | Multi-day battery life (v0.8 onward)            |  1   |  5   |   5   |   5   |  4   | Ours v0.1 = wall-powered (battery deferred). reMarkable + both Freewrites legendary (~4 weeks; Sailfish trimmed −30 % typing / −50 % idle). Pomera ~24 h. |
-| W12 | Local-only files coexist with git scope         |  3   |  1   |   2   |   2   |  3   | Ours v0.5+ design. reMarkable cloud-only. Freewrites have local + Postbox but no VCS. Pomera = pure local.                   |
-| W13 | Typography sets a writing-tool tone             |  3   |  5   |   2   |   2   |  2   | Ours v0.1: single mono (serif option in v1.0). reMarkable: rich type rendering. Freewrite + Pomera: utilitarian.             |
+| W3  | Pulling power never corrupts the file           |  4   |  4   |   2   |   2   |  2   | Typoena: atomic-rename + fsync. reMarkable journals. Freewrite + Pomera: forum reports of corruption on yank.                   |
+| W4  | Provisioning never interrupts writing           |  5   |  2   |   2   |   2   |  5   | Typoena v0.1: build-time config (dev-only). reM/Frw need Wi-Fi + account. Pomera: literally none.                               |
+| W5  | Quick boot to a writing cursor                  |  4   |  3   |   4   |   3   |  5   | Typoena target ≤5 s. reMarkable cold-boots ~20 s (great from sleep). Frw.T accelerated post-Sailfish (no published number); Frw.S still ~10–15 s e-ink wake. Pomera ~3 s. |
+| W6  | Long sessions without crash / lag / drift       |  3   |  3   |   4   |   4   |  5   | Typoena unproven (1 h target). Freewrite famously stable (both variants). Pomera firmware is decades-mature.                    |
+| W7  | Nothing on the device competes with prose       |  5   |  2   |   5   |   5   |  5   | reMarkable has apps, menus, drawing, PDFs. Freewrite + Pomera are single-purpose; Typoena by design.                            |
+| W8  | The UI never moves except when I move it        |  4   |  3   |   4   |   4   |  5   | reMarkable animates more; Typoena uses dirty-rects; Freewrites minimal motion; Pomera near-static LCD.                          |
+| W9  | Codebase absorbs the planned roadmap            |  4   |  3   |   2   |   1   |  1   | Modular Rust Typoena; reMarkable is hackable Linux; Frw.T Sailfish is Rust-rewritten (vendor explicitly unblocked features JS could not carry) but closed; Frw.S + Pomera closed firmware. |
+| W10 | I can repair or fork it with hobbyist tools     |  5   |  4   |   2   |   2   |  1   | Typoena: open BOM + ESP32. reMarkable: rooted Linux + community ROMs. Freewrite + Pomera: closed.                               |
+| W11 | Multi-day battery life (v0.8 onward)            |  1   |  5   |   5   |   5   |  4   | Typoena v0.1 = wall-powered (battery deferred). reMarkable + both Freewrites legendary (~4 weeks; Sailfish trimmed −30 % typing / −50 % idle). Pomera ~24 h. |
+| W12 | Local-only files coexist with git scope         |  3   |  1   |   2   |   2   |  3   | Typoena v0.5+ design. reMarkable cloud-only. Freewrites have local + Postbox but no VCS. Pomera = pure local.                   |
+| W13 | Typography sets a writing-tool tone             |  3   |  5   |   2   |   2   |  2   | Typoena v0.1: single mono (serif option in v1.0). reMarkable: rich type rendering. Freewrite + Pomera: utilitarian.             |
 
-**Totals** (sum across 13 WHATs, no weighting): Ours 50, Pomera 45,
+**Totals** (sum across 13 WHATs, no weighting): Typoena 50, Pomera 45,
 Freewrite Traveler 42, reMarkable 42 (tied after Sailfish — pre-Sailfish
 Traveler totalled 39), Freewrite Smart Typewriter 38. Pomera still
 ranking second is the useful signal — we're effectively building
@@ -621,7 +621,7 @@ picture.
   more direct competitor on form factor.
 - **W3 / W6 Freewrite scores are anecdotal.** Forum reports, not bench
   data. Treat the 2 / 4 as "we'd need to test this" rather than fact.
-- **No price column.** Ours-as-BOM is materially cheaper than the
+- **No price column.** Typoena-as-BOM is materially cheaper than the
   competitors but cost is not a WHAT in `qfd.md` §1, so it's absent here.
   Worth a row if a v0.x WHAT ever calls it out.
 

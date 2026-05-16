@@ -1,4 +1,4 @@
-# typewriter
+# Typoena
 
 A distraction-free, hackable, DIY writing machine. ESP32-S3 + e-ink + a real
 mechanical keyboard. You write Markdown, you commit, you push. Nothing else
@@ -119,7 +119,7 @@ Macro-plan below; per-version scope lives in [`docs/roadmap.md`](docs/roadmap.md
 
 ```mermaid
 gantt
-    title Typewriter — macro plan
+    title Typoena — macro plan
     dateFormat YYYY-MM-DD
     axisFormat %b %Y
     section MVP

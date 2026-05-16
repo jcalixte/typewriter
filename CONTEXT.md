@@ -1,4 +1,4 @@
-# Typewriter
+# Typoena
 
 A single-purpose writing appliance: e-ink + mechanical keyboard + ESP32-S3. The
 user opens the lid, writes Markdown, and (when they choose) publishes to a git
