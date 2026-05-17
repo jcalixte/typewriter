@@ -6,6 +6,8 @@ runs on it.
 
 > Status: pre-MVP. Hardware not yet on bench. Bring-up in progress.
 
+How each decision is weighted against the user-facing requirements — and the critical performance budget that falls out — lives in [`docs/qfd.md`](docs/qfd.md).
+
 ---
 
 ## Vision
