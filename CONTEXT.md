@@ -92,6 +92,12 @@ into user-facing language).
   detail the device authors itself. Branches are out of scope for the same
   reason — the device tracks one linear stream of work on whichever branch
   the remote was cloned on, and never switches.
+- **Durability before delivery.** A **Publish**'s user-meaningful moment is
+  when the local commit lands (~0.2 s), not when the push completes
+  (~5–10 s). The status line surfaces the commit-landed state as soon as
+  it exists; the remaining push time is the transport of an already-safe
+  thing. Long-form rationale:
+  [`docs/notes/ctrl-g-perceived-latency.md`](docs/notes/ctrl-g-perceived-latency.md).
 - **No state the user didn't ask for.** No banners about pending work, no
   prompts about divergence, no "did you mean to publish" warnings. The status
   line reflects the _current_ action's outcome, nothing else.
