@@ -71,7 +71,6 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 
 - [ ] `/` forward search, `n N`
 - [ ] `:Gpull` (fetch + fast-forward only; refuse on conflict and surface it)
-- [ ] `:Gbranch` to switch branches; refuse with dirty tree
 
 ## v0.8 — Power: battery + sleep — [ ]
 

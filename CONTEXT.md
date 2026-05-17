@@ -86,6 +86,12 @@ into user-facing language).
   reconcile remote state in the background. If a previous **Publish** ended
   mid-flight and left a local commit unpushed, the next user-initiated
   **Publish** picks it up; until then, the device is silent about it.
+- **Publish is sync, not history.** The user's mental model is a Google Doc
+  that happens to be backed by git: the point is "I want to read this on my
+  phone later," not "I want a curated commit log." Commits are a transport
+  detail the device authors itself. Branches are out of scope for the same
+  reason — the device tracks one linear stream of work on whichever branch
+  the remote was cloned on, and never switches.
 - **No state the user didn't ask for.** No banners about pending work, no
   prompts about divergence, no "did you mean to publish" warnings. The status
   line reflects the _current_ action's outcome, nothing else.
