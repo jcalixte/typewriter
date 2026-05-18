@@ -15,6 +15,10 @@ Out of scope here: §5 component mapping (would need a second house),
 §6 critical performance budget (already a curated rank), §7 tradeoffs
 (narrative), §8 inconsistencies (history).
 
+For a blank version of the same chassis (WHATs, HOWs, importance, and
+v0.1 targets kept; relations + roof + Σ basement left empty for practice),
+see [`quality-house-empty.md`](quality-house-empty.md).
+
 The perception zone scores five products against the WHATs on a 0–5 scale.
 **These are educated guesses, not measurements** — see the
 [scoring rationale](#perception-scores-guessed) below for what each cell
