@@ -353,14 +353,14 @@ Blank (training surface):
 
 1. **Relations (centre).** For each WHAT × HOW cell where the HOW
    contributes to the WHAT, drop a marker:
-   ```tex
+   ```
    \node[qfdrel/S] at ({COL - 0.5}, {-ROW + 0.5}) {};   % strong = 9
    \node[qfdrel/M] at ({COL - 0.5}, {-ROW + 0.5}) {};   % medium = 3
    \node[qfdrel/W] at ({COL - 0.5}, {-ROW + 0.5}) {};   % weak   = 1
    ```
    Leave a cell empty for "no relation."
 2. **Roof.** For each pair of HOWs that reinforce or conflict:
-   ```tex
+   ```
    \node[font=\scriptsize] at (C-i-j) {$+\!+$};   % i < j
    ```
    Symbols: `$+\!+$` very positive, `$+$` positive, `$-$` negative,
