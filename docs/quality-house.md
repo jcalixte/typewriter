@@ -434,7 +434,7 @@ market"), not as a fair head-to-head buyer's guide.
   \node[font=\scriptsize] at (C-7-9)   {$-$};      % H7-H9
   \node[font=\scriptsize] at (C-7-12)  {$+\!+$};   % H7-H12
   \node[font=\scriptsize] at (C-9-10)  {$-\!-$};   % H9-H10 heap vs binary
-  \node[font=\scriptsize] at (C-10-15) {$-\!-$};   % H10-H15 binary vs build
+  \node[font=\scriptsize] at (C-10-14) {$-\!-$};   % H10-H15 binary vs build
   \node[font=\scriptsize] at (C-11-13) {$-$};      % H11-H13
 
   % ---------- Basement: target / abs weight / rel weight % ----------
