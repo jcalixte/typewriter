@@ -1,6 +1,6 @@
 # Quality House — empty (training)
 
-Same 14 WHATs × 15 HOWs chassis as [`quality-house.md`](quality-house.md),
+Same 14 WHATs × 14 HOWs chassis as [`quality-house.md`](quality-house.md),
 with the **relations**, **roof correlations**, and basement Σ / Rel %
 **deliberately blank**. Fill them in yourself, then compare against the
 populated house to check your reading.
@@ -237,9 +237,9 @@ Blank (training surface):
   \end{tikzpicture}%
 }
 
-% --- Dimensions tuned for the typewriter QFD (14 W x 15 H) ---
+% --- Dimensions tuned for the typewriter QFD (14 W x 14 H) ---
 \def\qfdNW{14}
-\def\qfdNH{15}
+\def\qfdNH{14}
 \def\qfdWhatW{4.6}
 \def\qfdImpW{0.7}
 \def\qfdHdrH{5.0}
@@ -284,21 +284,20 @@ Blank (training surface):
 
   % ---------- HOWs (rotated column titles) ----------
   \foreach \c/\t in {%
-    1/{H1 Keypress$\to$glyph latency},
+    1/{H1 Type latency},
     2/{H2 Refresh area per keystroke},
     3/{H3 Full-refresh cadence},
-    4/{H4 Cold boot to cursor},
+    4/{H4 Boot latency (cold)},
     5/{H5 Continuous-typing endurance},
-    6/{H6 Push success rate},
-    7/{H7 Push end-to-end time},
-    8/{H8 Save durability vs power loss},
+    6/{H6 Publish reliability},
+    7/{H7 Publish latency},
+    8/{H8 Save durability},
     9/{H9 PSRAM heap headroom},
     10/{H10 Firmware binary size},
     11/{H11 Total stack budget},
-    12/{H12 Wi-Fi reconnect time},
+    12/{H12 Network reconnect time},
     13/{H13 Idle / typing / push current},
-    14/{H14 Module / API surface count},
-    15/{H15 Clean release build time}%
+    14/{H15 Clean release build time}%
   }
     \node[rotate=90, anchor=west, font=\scriptsize]
       at ({\c - 0.5}, 0.15) {\t};
@@ -335,8 +334,7 @@ Blank (training surface):
     11/{$\leq$80\,KB},
     12/{$\leq$30\,s},
     13/{obs.},
-    14/{$\leq$8},
-    15/{$\leq$7\,min}%
+    14/{$\leq$7\,min}%
   }
     \node[font=\scriptsize] at ({\c - 0.5}, {-\qfdNW - 0.5}) {\tgt};
 
