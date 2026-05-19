@@ -6,7 +6,7 @@ runs on it.
 
 > Status: pre-MVP. Hardware not yet on bench. Bring-up in progress.
 
-How each decision is weighted against the user-facing requirements — and the critical performance budget that falls out — lives in [`docs/qfd.md`](docs/qfd.md).
+How each decision is weighted against the user-facing requirements — and the critical performance budget that falls out — lives in [`docs/qfd.md`](docs/qfd.md). The ontology layers those docs use (WHAT / Function / Characteristic / Metric / Target) are defined in [`GLOSSARY.md`](GLOSSARY.md).
 
 ---
 
@@ -58,7 +58,9 @@ rejected alternatives below, and [`docs/adr.md`](docs/adr.md) for the full
 decision log covering language, UI strategy, display, git lib, auth,
 concurrency, storage, power, and keyboard transport. How each decision is
 weighted against the user-facing requirements — and the critical performance
-budget that falls out — lives in [`docs/qfd.md`](docs/qfd.md).
+budget that falls out — lives in [`docs/qfd.md`](docs/qfd.md). The ontology
+layers those docs use (WHAT / Function / Characteristic / Metric / Target)
+are defined in [`GLOSSARY.md`](GLOSSARY.md).
 
 | Layer            | Crate / Component                                        | Notes                                                                                                                                                                                                                                              |
 | ---------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -173,6 +175,8 @@ gantt
 /docs           ADRs, QFD, roadmap, per-version product + technical specs
 CONTEXT.md      project glossary — Tracked / Local / Save / Publish, and the
                 principles that fall out of them
+GLOSSARY.md     methodology glossary — the WHAT / Function / Characteristic /
+                Metric / Target ontology layers used across docs
 package.json    pnpm + oxfmt — formatting toolchain for docs/JSON
                 (companions: pnpm-lock.yaml, .oxfmtrc.json, .node-version)
 ```
