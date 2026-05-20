@@ -12,7 +12,7 @@ targets each release feeds into are tracked in [`qfd.md`](qfd.md).
 The minimum thing that justifies the hardware existing. Full design:
 [product](v0.1-mvp-product.md) · [technical](v0.1-mvp-technical.md).
 
-- [ ] ESP32-S3 boots, e-ink shows splash + boot log
+- [ ] ESP32-S3 boots, e-ink shows Typoena splash + boot log
 - [ ] USB host enumerates the Nuphy, key events reach the editor
 - [ ] One hard-coded file (`/sd/repo/notes.md`) opens on boot
 - [ ] Insert-only editing (no modes yet), backspace, enter, arrow keys
