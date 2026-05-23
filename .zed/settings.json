@@ -1,4 +1,21 @@
 {
+  "lsp": {
+    "rust-analyzer": {
+      "binary": {
+        "path": "/Users/julien/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rust-analyzer",
+        "arguments": []
+      },
+      "initialization_options": {
+        "cargo": {
+          "target": "xtensa-esp32s3-espidf",
+          "allTargets": false
+        },
+        "check": {
+          "allTargets": false
+        }
+      }
+    }
+  },
   "languages": {
     "JavaScript": {
       "formatter": { "language_server": { "name": "oxc" } },
