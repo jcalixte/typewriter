@@ -38,12 +38,21 @@ use esp_idf_svc::sys::{
     usb_transfer_t, EspError, ESP_INTR_FLAG_LEVEL1,
 };
 
-/// A decoded key-down event.
+/// A decoded key-down event. Beyond plain characters, the decoder recognises a
+/// few editing combos (resolved here so the main loop only sees intents) and a
+/// dual-role Caps Lock: held it acts as Ctrl, tapped it emits `Escape`.
 #[derive(Debug, Clone, Copy)]
 pub enum Key {
     Char(char),
     Enter,
     Backspace,
+    /// Ctrl+Backspace or Ctrl+W — delete the word before the caret.
+    DeleteWord,
+    /// Cmd/GUI+Backspace — delete back to the start of the current line.
+    DeleteLine,
+    /// Caps Lock tapped on its own. A no-op for now; groundwork for a future
+    /// vim-style normal mode.
+    Escape,
 }
 
 /// Boot-keyboard parameters, confirmed by Spike 4's enumeration.
@@ -73,6 +82,10 @@ static KEY_QUEUE: OnceLock<Mutex<VecDeque<Key>>> = OnceLock::new();
 /// Keycodes held in the previous report, for key-down edge detection. Only
 /// ever touched from the single client thread's `report_cb`.
 static PREV_KEYS: Mutex<[u8; 6]> = Mutex::new([0; 6]);
+/// Caps Lock dual-role tracking: set while Caps is held once any other key is
+/// pressed, so releasing Caps only emits `Escape` on a clean tap. Only touched
+/// from the client thread's `report_cb`.
+static CAPS_USED: AtomicBool = AtomicBool::new(false);
 
 /// Pop the next decoded key-down event, if any.
 pub fn next_key() -> Option<Key> {
@@ -205,26 +218,59 @@ unsafe extern "C" fn report_cb(transfer: *mut usb_transfer_t) {
     }
 }
 
+/// Log and enqueue a decoded key event for the main thread to drain.
+fn enqueue(key: Key) {
+    log::info!("key: {key:?}");
+    if let Some(q) = KEY_QUEUE.get() {
+        q.lock().unwrap().push_back(key);
+    }
+}
+
+/// Caps Lock usage ID — repurposed as a dual-role Ctrl/Escape key.
+const CAPS: u8 = 0x39;
+
 /// Edge-detect key-downs in an 8-byte boot report and enqueue translated keys.
 /// Layout: [modifiers, reserved, key1..key6]; 0 means "no key".
 fn handle_report(report: &[u8]) {
     if report.len() < 3 {
         return;
     }
-    let shift = report[0] & 0x22 != 0; // LShift (0x02) | RShift (0x20)
+    let mods = report[0];
+    let shift = mods & 0x22 != 0; // LShift 0x02 | RShift 0x20
+    let cmd = mods & 0x88 != 0; // LGUI 0x08 | RGUI 0x80
     let current = &report[2..];
 
     let mut prev = PREV_KEYS.lock().unwrap();
+
+    // Caps Lock is a normal key in the boot report (not a modifier bit), so we
+    // track its down/up edges here. Held, it acts as Ctrl; tapped alone, it
+    // emits Escape.
+    let caps_now = current.contains(&CAPS);
+    let caps_before = prev.contains(&CAPS);
+    let ctrl = mods & 0x11 != 0 || caps_now; // LCtrl 0x01 | RCtrl 0x10, or Caps
+    // Any other key down while Caps is held means it was used as Ctrl — so its
+    // release must not fire Escape.
+    if caps_now && current.iter().any(|&k| k != 0 && k != CAPS) {
+        CAPS_USED.store(true, Ordering::SeqCst);
+    }
+
     for &k in current {
-        if k == 0 || prev.contains(&k) {
-            continue; // not pressed, or already held last report
+        if k == 0 || k == CAPS || prev.contains(&k) {
+            continue; // empty slot, the Caps key itself, or already held
         }
-        if let Some(key) = translate(k, shift) {
-            log::info!("key: {key:?}");
-            if let Some(q) = KEY_QUEUE.get() {
-                q.lock().unwrap().push_back(key);
-            }
+        if let Some(key) = translate(k, shift, ctrl, cmd) {
+            enqueue(key);
         }
+    }
+
+    // Caps released as a clean tap (nothing else pressed while it was down) →
+    // Escape. Reset the used-flag on both the press and release edges.
+    if caps_before && !caps_now {
+        if !CAPS_USED.swap(false, Ordering::SeqCst) {
+            enqueue(Key::Escape);
+        }
+    } else if caps_now && !caps_before {
+        CAPS_USED.store(false, Ordering::SeqCst);
     }
 
     let mut next = [0u8; 6];
@@ -235,7 +281,30 @@ fn handle_report(report: &[u8]) {
 }
 
 /// Translate a HID keyboard usage ID to a key event using a US QWERTY layout.
-fn translate(usage: u8, shift: bool) -> Option<Key> {
+/// Editing combos (Ctrl/Cmd chords) resolve to intents here and take priority
+/// over character insertion; other keys with Ctrl or Cmd held are swallowed.
+fn translate(usage: u8, shift: bool, ctrl: bool, cmd: bool) -> Option<Key> {
+    match usage {
+        0x2a => {
+            // Backspace: Cmd = delete line, Ctrl = delete word, else one char.
+            return Some(if cmd {
+                Key::DeleteLine
+            } else if ctrl {
+                Key::DeleteWord
+            } else {
+                Key::Backspace
+            });
+        }
+        0x1a if ctrl => return Some(Key::DeleteWord), // Ctrl+W, readline-style
+        _ => {}
+    }
+
+    // With Ctrl or Cmd held and no combo matched above, insert nothing — so
+    // Caps+J or Cmd+S don't type a stray character.
+    if ctrl || cmd {
+        return None;
+    }
+
     let key = match usage {
         0x04..=0x1d => {
             let base = b'a' + (usage - 0x04);

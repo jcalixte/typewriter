@@ -1,14 +1,9 @@
+mod editor;
 mod epd;
 mod usb_kbd;
 
 use std::time::Instant;
 
-use embedded_graphics::mono_font::ascii::FONT_10X20;
-use embedded_graphics::mono_font::MonoTextStyle;
-use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
-use embedded_graphics::text::{Baseline, Text};
 use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::hal::gpio::{AnyIOPin, PinDriver, Pull};
 use esp_idf_svc::hal::peripherals::Peripherals;
@@ -16,20 +11,20 @@ use esp_idf_svc::hal::spi::config::{Config, DriverConfig};
 use esp_idf_svc::hal::spi::{Dma, SpiBusDriver, SpiDriver};
 use esp_idf_svc::hal::units::FromValueType;
 
+use editor::{Editor, Mode, CH};
 use epd::Epd;
 
 /// Injected by build.rs so serial output identifies the exact build.
 const BUILD_TAG: &str = concat!("build ", env!("BUILD_TIME"), " @", env!("BUILD_GIT"));
 
-/// FONT_10X20 laid out on the 792×272 panel: 10 px wide, 20 px tall.
-const CW: i32 = 10;
-const CH: i32 = 20;
-const COLS: usize = (epd::WIDTH / 10) as usize; // 79 characters per line
-const ROWS: usize = (epd::HEIGHT / 20) as usize; // 13 lines
-
 /// Occasional full refresh, mainly for panel longevity — partial updates on
 /// this panel stay visually clean far longer, so this is deliberately rare.
 const FULL_REFRESH_EVERY: u32 = 64;
+
+/// How long typing must pause before the Insert-mode caret is shown. There is no
+/// caret while actively typing (it would ghost under windowed refresh); it
+/// reappears once you settle. Normal/View draw their own caret every action.
+const CURSOR_DEBOUNCE_MS: u128 = 750;
 
 fn main() -> anyhow::Result<()> {
     // Required once before any esp-idf-svc call; some runtime patches
@@ -37,7 +32,7 @@ fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    log::info!("Typoena Spike 5 — partial refresh + keyboard, {BUILD_TAG}");
+    log::info!("Typoena — modal editor (vim modes), {BUILD_TAG}");
 
     let peripherals = Peripherals::take()?;
     let pins = peripherals.pins;
@@ -66,48 +61,91 @@ fn main() -> anyhow::Result<()> {
     // Bring up the USB keyboard in the background; keys arrive via next_key().
     usb_kbd::start()?;
 
+    let mut ed = Editor::new();
+    let mut updates: u32 = 0;
+    let mut cursor_shown = true; // the initial render includes the caret
+    let mut last_activity = Instant::now();
+
     // First render is full (establishes the on-screen baseline for partials).
-    let mut text = String::new();
-    let mut shown = render_frame(&text);
+    let mut shown = ed.draw(true);
     epd.display_frame(shown.bytes())?;
 
-    let mut updates: u32 = 0;
     loop {
         // Drain all queued keystrokes (type-ahead absorbed during a refresh),
         // apply them, then do a single refresh for the batch.
         let mut keys = 0;
         while let Some(k) = usb_kbd::next_key() {
-            apply_key(&mut text, k);
+            ed.handle(k);
             keys += 1;
         }
+
         if keys == 0 {
-            FreeRtos::delay_ms(8);
+            // Debounced caret, Insert mode only: once typing pauses, bring the
+            // bar caret back with a silent full-area partial (no flash).
+            // Normal/View already draw their caret on every action.
+            if ed.mode() == Mode::Insert
+                && !cursor_shown
+                && last_activity.elapsed().as_millis() >= CURSOR_DEBOUNCE_MS
+            {
+                let f = ed.draw(true);
+                epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT)?;
+                shown = f;
+                cursor_shown = true;
+                log::info!("caret shown");
+            } else {
+                FreeRtos::delay_ms(8);
+            }
             continue;
         }
 
-        let frame = render_frame(&text);
-        // Only the rows that changed since the last shown frame need updating —
-        // usually just the edited line, which the partial refresh windows to.
+        last_activity = Instant::now();
+        // Suppress the Insert bar caret while typing (fast, no ghost); Normal
+        // and View render their caret regardless of this flag.
+        let insert_cursor_on = ed.mode() != Mode::Insert;
+        let prev_scroll = ed.scroll_top();
+        let frame = ed.draw(insert_cursor_on);
+        let scrolled = ed.scroll_top() != prev_scroll;
+
+        // Only the rows that changed since the last shown frame need updating.
         let Some((y0, y1)) = changed_rows(shown.bytes(), frame.bytes()) else {
             shown = frame;
-            continue; // no visible change (e.g. backspace at start of buffer)
+            cursor_shown = ed.mode() != Mode::Insert;
+            continue; // no visible change
         };
+        // Snap the band to whole text lines so a partial-window boundary never
+        // lands mid-glyph — otherwise the boundary gate crops tall characters.
+        let ch = CH as u16;
+        let y0 = y0 / ch * ch;
+        let y1 = (y1 / ch * ch + ch - 1).min(epd::HEIGHT - 1);
 
         updates += 1;
-        let full = updates % FULL_REFRESH_EVERY == 0;
+        // A purely additive Insert edit (no cursor, no scroll) uses the fast
+        // windowed partial; anything else — deletes, caret moves, scrolling,
+        // mode switches — uses a clean full-area partial, with a periodic full
+        // refresh for panel longevity.
+        let periodic = updates % FULL_REFRESH_EVERY == 0;
+        let additive = ed.mode() == Mode::Insert
+            && !scrolled
+            && only_adds_ink(shown.bytes(), frame.bytes(), y0, y1);
+
         let t0 = Instant::now();
-        if full {
+        let refresh = if periodic {
             epd.display_frame(frame.bytes())?;
-        } else {
+            "FULL"
+        } else if additive {
             epd.display_frame_partial_window(frame.bytes(), y0, y1 - y0 + 1)?;
-        }
+            "windowed"
+        } else {
+            epd.display_frame_partial_window(frame.bytes(), 0, epd::HEIGHT)?;
+            "full-area"
+        };
         let ms = t0.elapsed().as_millis();
         log::info!(
-            "{} refresh #{updates}: {ms} ms (rows {y0}..={y1}, {keys} key(s), {} chars)",
-            if full { "FULL" } else { "partial" },
-            text.chars().count(),
+            "{refresh} refresh #{updates} [{:?}]: {ms} ms (rows {y0}..={y1}, {keys} key(s))",
+            ed.mode()
         );
         shown = frame;
+        cursor_shown = ed.mode() != Mode::Insert;
     }
 }
 
@@ -127,61 +165,17 @@ fn changed_rows(a: &[u8], b: &[u8]) -> Option<(u16, u16)> {
     first.map(|f| (f, last))
 }
 
-/// Apply a key event to the text buffer.
-fn apply_key(text: &mut String, key: usb_kbd::Key) {
-    match key {
-        usb_kbd::Key::Char(c) => text.push(c),
-        usb_kbd::Key::Enter => text.push('\n'),
-        usb_kbd::Key::Backspace => {
-            text.pop();
+/// True if going from frame `a` to `b` only *adds* ink within rows `y0..=y1`
+/// (no black pixel becomes white). Windowed partial refresh renders added ink
+/// cleanly but leaves ghosts where ink is erased, so erasing edits fall back to
+/// a clean full-area partial. Bit convention: 1 = white, 0 = black ink.
+fn only_adds_ink(a: &[u8], b: &[u8], y0: u16, y1: u16) -> bool {
+    let w = epd::FB_BYTES_W;
+    for i in y0 as usize * w..(y1 as usize + 1) * w {
+        // A bit set in b but clear in a went black→white — an erase.
+        if b[i] & !a[i] != 0 {
+            return false;
         }
     }
-}
-
-/// Render the text buffer into a frame: word-wrapped at the panel width,
-/// scrolled to the last `ROWS` lines, with an underline caret at the end.
-fn render_frame(text: &str) -> epd::Frame {
-    let mut frame = epd::Frame::new_white();
-    let style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On); // black ink
-
-    // Break into display lines on '\n' and at the column limit; tabs expand
-    // to 4 spaces.
-    let mut lines: Vec<String> = vec![String::new()];
-    for ch in text.chars() {
-        if ch == '\n' {
-            lines.push(String::new());
-            continue;
-        }
-        let (glyph, count) = if ch == '\t' { (' ', 4) } else { (ch, 1) };
-        for _ in 0..count {
-            if lines.last().unwrap().chars().count() >= COLS {
-                lines.push(String::new());
-            }
-            lines.last_mut().unwrap().push(glyph);
-        }
-    }
-
-    // Scroll: show only the last ROWS lines.
-    let start = lines.len().saturating_sub(ROWS);
-    let shown = &lines[start..];
-    for (row, line) in shown.iter().enumerate() {
-        Text::with_baseline(line, Point::new(0, row as i32 * CH), style, Baseline::Top)
-            .draw(&mut frame)
-            .unwrap();
-    }
-
-    // Underline caret at the end of the last visible line.
-    if let Some(last) = shown.last() {
-        let col = last.chars().count().min(COLS - 1) as i32;
-        let row = shown.len() as i32 - 1;
-        Rectangle::new(
-            Point::new(col * CW, row * CH + CH - 2),
-            Size::new(CW as u32, 2),
-        )
-        .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
-        .draw(&mut frame)
-        .unwrap();
-    }
-
-    frame
+    true
 }
