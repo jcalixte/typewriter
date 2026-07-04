@@ -7,13 +7,24 @@ context.
 
 ## Current state
 
-**Spike 4 — USB host keyboard: verified 2026-07-04.** `main.rs` runs the USB
-host bring-up: [`src/usb_kbd.rs`](src/usb_kbd.rs) drives the ESP-IDF USB Host
-Library directly through the raw `esp-idf-sys` bindings (no managed HID class
-driver), enumerates an attached keyboard, claims the boot-keyboard interface,
-switches it to boot protocol, and polls the interrupt-IN endpoint — decoding
-each 8-byte report into modifiers + keycodes logged over UART. Verified with a
-`19f5:3255` keyboard: keystrokes, modifiers, and rollover all decode correctly.
+**Spike 5 — partial refresh + typing: verified 2026-07-04.** `main.rs` wires
+the keyboard to the panel: [`src/usb_kbd.rs`](src/usb_kbd.rs) feeds decoded
+key-downs (US layout, edge-detected) into a queue, and the main loop keeps a
+wrapped, scrolling text buffer that it draws with a **partial refresh**
+(`Epd::display_frame_partial`) per keystroke batch, plus a periodic full
+refresh to clear ghosting. First spike where input and output run together.
+Measured on the bench at 4 MHz SPI: partial refresh ~630 ms, full ~1870 ms —
+the partial waveform (~490 ms, all 272 rows) dominates. Follow-up: windowed-Y
+partial refresh (drive only the edited line's rows) to cut per-keystroke
+latency.
+
+**Spike 4 — USB host keyboard: verified 2026-07-04.**
+[`src/usb_kbd.rs`](src/usb_kbd.rs) drives the ESP-IDF USB Host Library directly
+through the raw `esp-idf-sys` bindings (no managed HID class driver), enumerates
+an attached keyboard, claims the boot-keyboard interface, switches it to boot
+protocol, and polls the interrupt-IN endpoint — decoding each 8-byte report into
+modifiers + keycodes. Verified with a `19f5:3255` keyboard: keystrokes,
+modifiers, and rollover all decode correctly.
 
 Hardware: flash + serial over the CP2102 "UART" port (console = UART0,
 independent of the USB PHY), keyboard on the native "USB" port. The keyboard
@@ -23,8 +34,8 @@ higher-power/RGB devices).
 
 **Spike 2 — EPD: verified 2026-07-04.** The GDEY0579T93 e-paper panel is
 driven through the thin dual-SSD1683 driver in [`src/epd.rs`](src/epd.rs)
-(ported from GxEPD2's `GxEPD2_579_GDEY0579T93`; kept compiled but unused while
-Spike 4 owns `main.rs`). Verified on the bench rig over 4 MHz SPI:
+(ported from GxEPD2's `GxEPD2_579_GDEY0579T93`). Verified on the bench rig over
+4 MHz SPI:
 
 - **2a — uniform fill:** clean full-panel white ↔ black refreshes, proving
   the wiring, both cascaded controllers, RAM addressing, and the full
@@ -48,7 +59,7 @@ reseat the jumpers (CS first) before debugging code.
 
 Next up per
 [`docs/v0.1-mvp-technical.md`](../docs/v0.1-mvp-technical.md#hardware-bring-up-order):
-partial refresh, Wi-Fi/TLS, gitoxide push; SD is deferred.
+Wi-Fi/TLS, gitoxide push; SD is deferred.
 
 **Spike 1 — Blink: verified 2026-07-04.** GPIO 2 + on-board WS2812 toggled
 at 1 Hz with `blink N` on USB-serial, proving toolchain, esp-idf link, and
