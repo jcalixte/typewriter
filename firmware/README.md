@@ -20,6 +20,12 @@ Everything past that — EPD, SD, USB host, partial refresh, Wi-Fi/TLS,
 gitoxide push — is its own follow-up spike per
 [`docs/v0.1-mvp-technical.md`](../docs/v0.1-mvp-technical.md#hardware-bring-up-order).
 
+## Quick commands
+
+A [`justfile`](https://github.com/casey/just) wraps the common commands and
+sources the espup env itself — run `just` in this directory for the list
+(`build`, `flash`, `monitor`, `info`, `ports`).
+
 ## Build
 
 Once per shell session, source the espup env (sets `LIBCLANG_PATH` and adds

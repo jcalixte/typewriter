@@ -1,0 +1,30 @@
+# Typoena firmware — common commands.
+# Recipes source ~/export-esp.sh themselves (LIBCLANG_PATH + Xtensa GCC),
+# so no per-shell setup is needed before calling just.
+
+esp_env := ". ~/export-esp.sh &&"
+elf := "target/xtensa-esp32s3-espidf/release/firmware"
+
+# list recipes
+default:
+    @just --list
+
+# compile (release)
+build:
+    {{esp_env}} cargo build --release
+
+# build + flash + open serial monitor
+flash:
+    {{esp_env}} cargo run --release
+
+# serial monitor only, with decoded backtraces
+monitor:
+    espflash monitor --elf {{elf}}
+
+# detect board, print chip/MAC/flash size
+info:
+    espflash board-info
+
+# list USB serial devices
+ports:
+    @ls /dev/cu.usb* 2>/dev/null || echo "no USB serial device found"
