@@ -7,19 +7,40 @@ context.
 
 ## Current state
 
-**Spike 1 — Blink.** Toggles GPIO 2 every 500 ms and logs `blink N` to the
-USB-serial console. This proves three things only:
+**Spike 2 — EPD: verified 2026-07-04.** `main.rs` drives the GDEY0579T93
+e-paper panel through the thin dual-SSD1683 driver in
+[`src/epd.rs`](src/epd.rs) (ported from GxEPD2's `GxEPD2_579_GDEY0579T93`).
+Verified on the bench rig over 4 MHz SPI:
 
-1. The Espressif Rust toolchain (Xtensa) is installed and on PATH.
-2. The crate links against `esp-idf-svc` and compiles for
-   `xtensa-esp32s3-espidf`.
-3. Basic GPIO output works on real silicon — verified 2026-07-04 on an
-   ESP32-S3 (rev v0.2, 16 MB flash): `blink N` streams at 1 Hz over
-   USB-serial (115200) and GPIO 2 + the on-board WS2812 toggle in lockstep.
+- **2a — uniform fill:** clean full-panel white ↔ black refreshes, proving
+  the wiring, both cascaded controllers, RAM addressing, and the full
+  refresh waveform.
+- **2b — graphics/text:** `epd::Frame` implements `embedded-graphics`'
+  `DrawTarget`; a stroked circle straddling the master/slave seam (x = 396)
+  renders round and continuous, and `FONT_10X20` text is legible — proving
+  the split-and-mirror full-frame blit (`Epd::display_frame`).
 
-Everything past that — EPD, SD, USB host, partial refresh, Wi-Fi/TLS,
-gitoxide push — is its own follow-up spike per
-[`docs/v0.1-mvp-technical.md`](../docs/v0.1-mvp-technical.md#hardware-bring-up-order).
+Wiring: SCK 12 · DIN/MOSI 11 · CS 7 · DC 6 · RST 5 · BUSY 4, via the
+DESPI-C579 breakout.
+
+Every build is stamped by [`build.rs`](build.rs) with UTC time and
+`git describe --always --dirty`; the tag is logged on serial at boot and
+drawn on the panel, so the running build is always identifiable during
+diagnosis.
+
+Bring-up note: the initial symptom was per-pixel noise on the panel — a
+half-seated CS jumper, not firmware. If the panel shows speckle/banding,
+reseat the jumpers (CS first) before debugging code.
+
+Next up per
+[`docs/v0.1-mvp-technical.md`](../docs/v0.1-mvp-technical.md#hardware-bring-up-order):
+USB host (keyboard), partial refresh, Wi-Fi/TLS, gitoxide push; SD is
+deferred.
+
+**Spike 1 — Blink: verified 2026-07-04.** GPIO 2 + on-board WS2812 toggled
+at 1 Hz with `blink N` on USB-serial, proving toolchain, esp-idf link, and
+GPIO on real silicon. The blink code was replaced by Spike 2 in `main.rs`
+(see git history: `e040a8d`).
 
 ## Quick commands
 
