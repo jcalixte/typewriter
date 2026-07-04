@@ -36,6 +36,13 @@ pub enum Mode {
     View,
 }
 
+/// A pending operator awaiting a motion or text object (`d`elete / `c`hange).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Op {
+    Delete,
+    Change,
+}
+
 /// The editor state: buffer, caret, mode, viewport, and pending command state.
 pub struct Editor {
     text: String,
@@ -47,8 +54,11 @@ pub struct Editor {
     scroll_top: usize,
     /// Pending numeric count prefix (`0` = none), e.g. the `3` in `3j`.
     count: usize,
-    /// `d` operator awaiting a motion (`dd`, `dw`).
-    pending_d: bool,
+    /// Operator awaiting a motion/text object (`dd`, `dw`, `ciw`, `di(`, …).
+    pending_op: Option<Op>,
+    /// After an operator, an `i`/`a` text-object prefix awaiting the object
+    /// char. `Some(false)` = inner (`i`), `Some(true)` = around (`a`).
+    pending_obj: Option<bool>,
     /// First `g` of a `gg` awaiting the second.
     pending_g: bool,
 }
@@ -67,7 +77,8 @@ impl Editor {
             mode: Mode::Insert, // writing appliance: power-on = ready to type
             scroll_top: 0,
             count: 0,
-            pending_d: false,
+            pending_op: None,
+            pending_obj: None,
             pending_g: false,
         }
     }
@@ -121,23 +132,61 @@ impl Editor {
             }
         };
 
-        // Count prefix: a leading `0` is the line-start motion, not a digit.
-        if c.is_ascii_digit() && !(c == '0' && self.count == 0) {
-            self.count = self.count.saturating_mul(10) + (c as usize - '0' as usize);
-            return;
-        }
-        let n = self.count.max(1);
-
-        if self.pending_d {
-            self.pending_d = false;
+        // Operator pending (d/c): expect a text object, motion, or doubled op.
+        if let Some(op) = self.pending_op {
+            // After an i/a prefix, `c` is the text-object selector.
+            if let Some(around) = self.pending_obj {
+                self.pending_obj = None;
+                self.pending_op = None;
+                if let Some((s, e)) = self.text_object(c, around) {
+                    self.apply_op(op, s, e);
+                }
+                self.count = 0;
+                return;
+            }
+            // A count between the operator and its motion (e.g. `d2w`).
+            if c.is_ascii_digit() && !(c == '0' && self.count == 0) {
+                self.count = self.count.saturating_mul(10) + (c as usize - '0' as usize);
+                return;
+            }
+            let n = self.count.max(1);
             match c {
-                'd' => (0..n).for_each(|_| self.delete_current_line()),
-                'w' => (0..n).for_each(|_| self.delete_word_forward()),
+                'i' => {
+                    self.pending_obj = Some(false);
+                    self.count = 0;
+                    return;
+                }
+                'a' => {
+                    self.pending_obj = Some(true);
+                    self.count = 0;
+                    return;
+                }
+                'd' if op == Op::Delete => (0..n).for_each(|_| self.delete_current_line()),
+                'c' if op == Op::Change => self.change_current_line(),
+                'w' => {
+                    let mut t = self.caret;
+                    (0..n).for_each(|_| t = self.word_forward_pos(t));
+                    self.apply_op(op, self.caret, t);
+                }
+                'b' => {
+                    let mut t = self.caret;
+                    (0..n).for_each(|_| t = self.word_back_pos(t));
+                    self.apply_op(op, self.caret, t);
+                }
+                'e' => {
+                    let mut t = self.caret;
+                    (0..n).for_each(|_| t = self.word_end_pos(t));
+                    self.apply_op(op, self.caret, t + 1);
+                }
+                '0' => self.apply_op(op, self.line_start(self.caret), self.caret),
+                '$' => self.apply_op(op, self.caret, self.line_end(self.caret)),
                 _ => {}
             }
+            self.pending_op = None;
             self.count = 0;
             return;
         }
+
         if self.pending_g {
             self.pending_g = false;
             if c == 'g' {
@@ -146,6 +195,13 @@ impl Editor {
             self.count = 0;
             return;
         }
+
+        // Count prefix: a leading `0` is the line-start motion, not a digit.
+        if c.is_ascii_digit() && !(c == '0' && self.count == 0) {
+            self.count = self.count.saturating_mul(10) + (c as usize - '0' as usize);
+            return;
+        }
+        let n = self.count.max(1);
 
         match c {
             'h' => (0..n).for_each(|_| self.move_left()),
@@ -164,7 +220,11 @@ impl Editor {
             }
             'x' => (0..n).for_each(|_| self.delete_at_caret()),
             'd' => {
-                self.pending_d = true;
+                self.pending_op = Some(Op::Delete);
+                return;
+            }
+            'c' => {
+                self.pending_op = Some(Op::Change);
                 return;
             }
             'i' => self.mode = Mode::Insert,
@@ -199,7 +259,8 @@ impl Editor {
 
     fn reset_pending(&mut self) {
         self.count = 0;
-        self.pending_d = false;
+        self.pending_op = None;
+        self.pending_obj = None;
         self.pending_g = false;
     }
 
@@ -384,10 +445,152 @@ impl Editor {
         self.caret = self.line_start(start.min(self.text.len()));
     }
 
-    /// `dw` — delete from the caret to the start of the next word.
-    fn delete_word_forward(&mut self) {
-        let target = self.word_forward_pos(self.caret);
-        self.text.replace_range(self.caret..target, "");
+    /// `cc` — clear the current line's text and drop into insert.
+    fn change_current_line(&mut self) {
+        let ls = self.line_start(self.caret);
+        let le = self.line_end(self.caret);
+        self.text.replace_range(ls..le, "");
+        self.caret = ls;
+        self.mode = Mode::Insert;
+    }
+
+    /// Apply a pending operator over the buffer range `[start, end)` (order
+    /// independent). Delete removes it; Change removes it and enters insert.
+    fn apply_op(&mut self, op: Op, start: usize, end: usize) {
+        let s = start.min(end);
+        let e = start.max(end).min(self.text.len());
+        self.text.replace_range(s..e, "");
+        self.caret = s.min(self.text.len());
+        if op == Op::Change {
+            self.mode = Mode::Insert;
+        }
+    }
+
+    /// Resolve a text object to a buffer range. `around` selects `a` (include
+    /// delimiters / trailing space) vs `i` (inner). Returns `None` if there's
+    /// no matching object under the caret.
+    fn text_object(&self, obj: char, around: bool) -> Option<(usize, usize)> {
+        match obj {
+            'w' => Some(self.word_object(around)),
+            '(' | ')' | 'b' => self.pair_object(b'(', b')', around),
+            '{' | '}' | 'B' => self.pair_object(b'{', b'}', around),
+            '[' | ']' => self.pair_object(b'[', b']', around),
+            '<' | '>' => self.pair_object(b'<', b'>', around),
+            '"' => self.quote_object(b'"', around),
+            '\'' => self.quote_object(b'\'', around),
+            '`' => self.quote_object(b'`', around),
+            _ => None,
+        }
+    }
+
+    /// `iw`/`aw`: the run of same-class chars (word vs space, never crossing a
+    /// newline) under the caret. `aw` also takes the trailing run of spaces, or
+    /// the leading one if there is no trailing space. Word class is
+    /// whitespace-delimited (so this behaves like vim's `iW`/`aW`).
+    fn word_object(&self, around: bool) -> (usize, usize) {
+        let b = self.text.as_bytes();
+        let n = b.len();
+        if n == 0 {
+            return (0, 0);
+        }
+        let pos = self.caret.min(n - 1);
+        let ws = |c: u8| c == b' ' || c == b'\t';
+        let target_ws = ws(b[pos]);
+        let same = |c: u8| ws(c) == target_ws && c != b'\n';
+        let mut s = pos;
+        while s > 0 && same(b[s - 1]) {
+            s -= 1;
+        }
+        let mut e = pos + 1;
+        while e < n && same(b[e]) {
+            e += 1;
+        }
+        if around && !target_ws {
+            let mut a = e;
+            while a < n && ws(b[a]) {
+                a += 1;
+            }
+            if a > e {
+                return (s, a);
+            }
+            let mut ls = s;
+            while ls > 0 && ws(b[ls - 1]) {
+                ls -= 1;
+            }
+            return (ls, e);
+        }
+        (s, e)
+    }
+
+    /// `i(`/`a(` and friends: the range between the bracket pair enclosing the
+    /// caret, nesting-aware. `around` includes the brackets themselves.
+    fn pair_object(&self, open: u8, close: u8, around: bool) -> Option<(usize, usize)> {
+        let b = self.text.as_bytes();
+        let n = b.len();
+        if n == 0 {
+            return None;
+        }
+        let start = self.caret.min(n - 1);
+        // Scan left for the enclosing open bracket.
+        let mut depth = 0i32;
+        let mut i = start;
+        let open_idx = loop {
+            let ch = b[i];
+            if ch == close && i != start {
+                depth += 1;
+            } else if ch == open {
+                if depth == 0 {
+                    break Some(i);
+                }
+                depth -= 1;
+            }
+            if i == 0 {
+                break None;
+            }
+            i -= 1;
+        }?;
+        // Scan right for its matching close.
+        let mut depth = 0i32;
+        let mut j = open_idx + 1;
+        let close_idx = loop {
+            if j >= n {
+                break None;
+            }
+            let ch = b[j];
+            if ch == open {
+                depth += 1;
+            } else if ch == close {
+                if depth == 0 {
+                    break Some(j);
+                }
+                depth -= 1;
+            }
+            j += 1;
+        }?;
+        Some(if around {
+            (open_idx, close_idx + 1)
+        } else {
+            (open_idx + 1, close_idx)
+        })
+    }
+
+    /// `i"`/`a"` and friends: the range between a matching quote pair on the
+    /// current line. `around` includes the quotes.
+    fn quote_object(&self, q: u8, around: bool) -> Option<(usize, usize)> {
+        let b = self.text.as_bytes();
+        let ls = self.line_start(self.caret);
+        let le = self.line_end(self.caret);
+        let quotes: Vec<usize> = (ls..le).filter(|&i| b[i] == q).collect();
+        // Pair them left-to-right; take the first pair closing at/after the caret.
+        let mut k = 0;
+        while k + 1 < quotes.len() {
+            let (a, z) = (quotes[k], quotes[k + 1]);
+            if self.caret <= z {
+                return Some(if around { (a, z + 1) } else { (a + 1, z) });
+            }
+            k += 2;
+        }
+        None
     }
 
     /// Insert-mode Ctrl+W / Ctrl+Backspace: delete the word before the caret.
@@ -554,8 +757,15 @@ impl Editor {
         if self.count > 0 {
             s.push_str(&format!("  {}", self.count));
         }
-        if self.pending_d {
-            s.push('d');
+        match self.pending_op {
+            Some(Op::Delete) => s.push('d'),
+            Some(Op::Change) => s.push('c'),
+            None => {}
+        }
+        match self.pending_obj {
+            Some(false) => s.push('i'),
+            Some(true) => s.push('a'),
+            None => {}
         }
         if self.pending_g {
             s.push('g');
