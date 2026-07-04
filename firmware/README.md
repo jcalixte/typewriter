@@ -13,8 +13,9 @@ USB-serial console. This proves three things only:
 1. The Espressif Rust toolchain (Xtensa) is installed and on PATH.
 2. The crate links against `esp-idf-svc` and compiles for
    `xtensa-esp32s3-espidf`.
-3. Basic GPIO output works on real silicon (verified post-flash, once the
-   board is on the bench).
+3. Basic GPIO output works on real silicon — verified 2026-07-04 on an
+   ESP32-S3 (rev v0.2, 16 MB flash): `blink N` streams at 1 Hz over
+   USB-serial (115200) and GPIO 2 + the on-board WS2812 toggle in lockstep.
 
 Everything past that — EPD, SD, USB host, partial refresh, Wi-Fi/TLS,
 gitoxide push — is its own follow-up spike per
@@ -64,9 +65,23 @@ at 1 Hz on the serial monitor, and — if an LED is wired from GPIO 2 → 330 Ω
 
 GPIO 2 is a safe general-purpose pin on the ESP32-S3-DevKitC-1: it's not
 tied to a strapping function at boot and not muxed to the USB or PSRAM
-peripherals. If you want to drive the on-board addressable LED instead,
-that's WS2812 on GPIO 48 and needs a different driver — out of scope for
-Spike 1.
+peripherals. The blink loop also drives the on-board addressable LED —
+WS2812 on GPIO 48 (GPIO 38 on DevKitC-1 v1.1 boards) — via the RMT
+peripheral, so both a plain GPIO and the RMT path are exercised.
+
+## Board pinout
+
+The bench board follows the **ESP32-S3-DevKitC-1 v1.0** pinout — an
+ESP32-S3-WROOM-1 **N16R8** module (16 MB flash, 8 MB octal PSRAM). The v1.0
+revision wires the on-board WS2812 RGB LED to **GPIO 48**; v1.1 moved it to
+GPIO 38, so match assignments against this diagram, not the v1.1 one.
+
+![ESP32-S3-DevKitC-1 v1.0 pinout](docs/esp32-s3-devkitc-1-v1.0-pinout.jpg)
+
+Source: [Espressif ESP32-S3-DevKitC-1 v1.0 user guide][devkitc-1-v1.0]. The
+octal PSRAM consumes **GPIO 26–37**, so those are unavailable for peripherals.
+
+[devkitc-1-v1.0]: https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.0.html
 
 ## Editor / rust-analyzer
 
