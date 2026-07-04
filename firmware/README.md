@@ -7,10 +7,24 @@ context.
 
 ## Current state
 
-**Spike 2 — EPD: verified 2026-07-04.** `main.rs` drives the GDEY0579T93
-e-paper panel through the thin dual-SSD1683 driver in
-[`src/epd.rs`](src/epd.rs) (ported from GxEPD2's `GxEPD2_579_GDEY0579T93`).
-Verified on the bench rig over 4 MHz SPI:
+**Spike 4 — USB host keyboard: verified 2026-07-04.** `main.rs` runs the USB
+host bring-up: [`src/usb_kbd.rs`](src/usb_kbd.rs) drives the ESP-IDF USB Host
+Library directly through the raw `esp-idf-sys` bindings (no managed HID class
+driver), enumerates an attached keyboard, claims the boot-keyboard interface,
+switches it to boot protocol, and polls the interrupt-IN endpoint — decoding
+each 8-byte report into modifiers + keycodes logged over UART. Verified with a
+`19f5:3255` keyboard: keystrokes, modifiers, and rollover all decode correctly.
+
+Hardware: flash + serial over the CP2102 "UART" port (console = UART0,
+independent of the USB PHY), keyboard on the native "USB" port. The keyboard
+enumerated **bus-powered** — no external VBUS injection needed on this
+DevKitC-1 v1.0 (keep a 5 V power cable only as a brownout fallback for
+higher-power/RGB devices).
+
+**Spike 2 — EPD: verified 2026-07-04.** The GDEY0579T93 e-paper panel is
+driven through the thin dual-SSD1683 driver in [`src/epd.rs`](src/epd.rs)
+(ported from GxEPD2's `GxEPD2_579_GDEY0579T93`; kept compiled but unused while
+Spike 4 owns `main.rs`). Verified on the bench rig over 4 MHz SPI:
 
 - **2a — uniform fill:** clean full-panel white ↔ black refreshes, proving
   the wiring, both cascaded controllers, RAM addressing, and the full
@@ -34,8 +48,7 @@ reseat the jumpers (CS first) before debugging code.
 
 Next up per
 [`docs/v0.1-mvp-technical.md`](../docs/v0.1-mvp-technical.md#hardware-bring-up-order):
-USB host (keyboard), partial refresh, Wi-Fi/TLS, gitoxide push; SD is
-deferred.
+partial refresh, Wi-Fi/TLS, gitoxide push; SD is deferred.
 
 **Spike 1 — Blink: verified 2026-07-04.** GPIO 2 + on-board WS2812 toggled
 at 1 Hz with `blink N` on USB-serial, proving toolchain, esp-idf link, and
