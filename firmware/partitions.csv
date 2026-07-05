@@ -1,0 +1,19 @@
+# Typoena partition table — 16 MB flash (ESP32-S3-WROOM-1-N16R8).
+#
+# Adds a `storage` data partition of subtype `fat` so the on-device git working
+# copy (Spike 7) lives on flash-FAT: `esp_vfs_fat_spiflash_mount_rw_wl` finds it
+# by the label below and mounts it at /spiflash.
+#
+# esp-idf-rs does NOT compile this table (it builds `libespidf` as a static lib,
+# not a full app project) — espflash applies it at flash time via
+# `--partition-table partitions.csv`. Only `just flash-git-push` passes that flag,
+# so the editor flash is unaffected and keeps its default single-app layout.
+#
+# factory is 3 MB — generous headroom for the libgit2-linked binary (the editor
+# is ~1 MB; git_push adds Wi-Fi + FAT + libgit2). storage is 4 MB. Total ~7.4 MB.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x6000,
+phy_init,   data, phy,      0xf000,   0x1000,
+factory,    app,  factory,  0x10000,  0x300000,
+storage,    data, fat,      0x310000, 0x400000,
