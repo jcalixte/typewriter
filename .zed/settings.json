@@ -6,6 +6,7 @@
         "arguments": []
       },
       "initialization_options": {
+        "linkedProjects": ["firmware/Cargo.toml"],
         "cargo": {
           "target": "xtensa-esp32s3-espidf",
           "allTargets": false
