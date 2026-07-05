@@ -148,25 +148,54 @@ Candidate paths, roughly in order of effort:
 3. **Patch/fork `libgit2-sys`** to be esp-idf-aware (read `DEP_ESP_IDF_*` and add
    the include paths). Upstreamable but the most work.
 
-TLS is a *separate* later step regardless: `libgit2-sys` has no mbedtls backend
-(https → openssl only), so the plan remains libgit2 with networking off + a
-**custom Rust smart-subtransport** reusing the Spike 6 esp-idf HTTPS client. But
-the util-layer `arpa/inet.h` include is unconditional (not gated on the transport
+The util-layer `arpa/inet.h` include is unconditional (not gated on the transport
 backend), so path 1/2/3 is needed before even a transport-less build links.
+
+### Path 1 attempted — 2026-07-05: confirmed a dead end
+
+Injected esp-idf's lwIP + generated-config include dirs via
+`CFLAGS_xtensa_esp32s3_espidf` and rebuilt the probe. `arpa/inet.h` **resolved**
+— then the build immediately hit the next wall: `lwipopts.h → sys/ioctl.h: No
+such file`, a header from a *different* esp-idf component (vfs/newlib), not lwIP.
+That is the whole problem in one line: **path 1 peels the esp-idf component
+include graph one component at a time**, with fragile absolute `-I` paths into
+build-output dirs (the config-dir hash even changed between two builds). It does
+not converge without effectively reconstructing esp-idf's entire per-component
+include environment by hand.
+
+### Decision: go straight to path 2 (libgit2 as an esp-idf component)
+
+Path 2 isn't just the robust include fix — it **solves the TLS backend at the
+same time**. libgit2 the C library *does* support mbedTLS (`USE_HTTPS=mbedTLS`);
+only the `libgit2-sys` Rust wrapper lacks it. Building libgit2 as an esp-idf
+CMake component lets us (a) inherit every component's includes + link (kills the
+cascade) and (b) set `USE_HTTPS=mbedTLS` against esp-idf's own mbedtls — which
+would make a **custom Rust subtransport unnecessary**. Two birds. Sketch:
+
+- Add libgit2 via esp-idf-sys's extra-components mechanism (a `components/`
+  dir + `CMakeLists.txt` declaring `REQUIRES lwip mbedtls pthread newlib vfs`,
+  wrapping libgit2's own CMake with `USE_HTTPS=mbedTLS`, `USE_SSH=OFF`).
+- Bind to it from Rust — either `libgit2-sys` in *system* mode pointing at the
+  component-built lib, or hand-rolled bindings for the handful of calls the
+  `git` module needs.
+
+This is a real, multi-step chunk (component CMake + bindings + link), not a
+flag-flip — scoped as the next work item, gated behind nothing now that PSRAM is
+up.
 
 ## Follow-ups
 
 - [x] Enable PSRAM (`CONFIG_SPIRAM`) — **done + hardware-verified 2026-07-05**
       (octal, USE_MALLOC): 8 MB detected, memory-tested, added to heap; editor
       still runs.
-- [~] On-device Spike 7 libgit2 build — **probed 2026-07-05**: the C
-      cross-compiles for xtensa; blocker is esp-idf networking includes
-      (`arpa/inet.h`) missing from the standalone `cc` build (see "On-device
-      probe" above). Next: inject esp-idf lwIP include paths (path 1), expect a
-      header/symbol cascade, escalate to an esp-idf component (path 2) if it
-      sprawls.
-- [ ] Custom mbedtls-backed smart-subtransport (reuse Spike 6 HTTPS) once the
-      library links.
+- [x] On-device Spike 7 libgit2 build — **probed + path 1 attempted 2026-07-05**:
+      the C cross-compiles; the include cascade does not converge via CFLAGS
+      injection (path 1 dead end). Decision: **path 2** (libgit2 as an esp-idf
+      component with `USE_HTTPS=mbedTLS`).
+- [ ] Path 2: add libgit2 as an esp-idf component (component CMake +
+      `REQUIRES lwip mbedtls pthread newlib vfs`, `USE_HTTPS=mbedTLS`), then bind
+      from Rust. Solves the include cascade *and* TLS; likely removes the need
+      for a custom subtransport.
 - [x] Flash the PSRAM build and confirm the SPIRAM heap region — **done
       2026-07-05**: 8192K pool added to heap, memory test OK.
 - [x] Run the desktop spike against a real GitHub test repo — **done 2026-07-05**
