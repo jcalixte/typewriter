@@ -192,10 +192,12 @@ up.
       the C cross-compiles; the include cascade does not converge via CFLAGS
       injection (path 1 dead end). Decision: **path 2** (libgit2 as an esp-idf
       component with `USE_HTTPS=mbedTLS`).
-- [ ] Path 2: add libgit2 as an esp-idf component (component CMake +
-      `REQUIRES lwip mbedtls pthread newlib vfs`, `USE_HTTPS=mbedTLS`), then bind
-      from Rust. Solves the include cascade *and* TLS; likely removes the need
-      for a custom subtransport.
+- [x] Path 2: add libgit2 as an esp-idf component — **compiles AND links
+      2026-07-05** (Gate A + Gate B). libgit2 1.9.4 built as a component with
+      `REQUIRES mbedtls lwip pthread vfs newlib`; the include cascade vanished as
+      predicted. mbedTLS wired directly (`GIT_MBEDTLS` + `GIT_SHA1/256_MBEDTLS`).
+      A `git_smoke` bin calling `git_libgit2_init/version/shutdown` links clean:
+      538 `git_*` functions in the ELF, +514 KB text. See "Path 2 result" below.
 - [x] Flash the PSRAM build and confirm the SPIRAM heap region — **done
       2026-07-05**: 8192K pool added to heap, memory test OK.
 - [x] Run the desktop spike against a real GitHub test repo — **done 2026-07-05**
@@ -205,9 +207,112 @@ up.
 - [ ] Revise the `git` module section of the technical doc (it still describes
       gix crates/transport) once the device path is confirmed.
 
+## Path 2 result — libgit2 compiles and links on xtensa (Gate A + Gate B)
+
+The bet paid off. libgit2 **1.9.4** (the exact version `libgit2-sys 0.18.5`
+vendors, chosen so `git2`'s safe Rust API can bind it in system mode later)
+builds as an esp-idf component and links into a real image.
+
+**Why a component beat Path 1.** Registering libgit2 with
+`REQUIRES mbedtls lwip pthread vfs newlib` makes it inherit those components'
+include + link graph. Path 1's manual CFLAGS injection died because resolving
+one component's headers exposes the next (`arpa/inet.h` → `sys/ioctl.h` → …).
+The component model walks that graph for us — the cascade never appeared.
+
+**mbedTLS, not OpenSSL.** The libgit2-sys wrapper only offers
+openssl/securetransport/winhttp, but the C library has an mbedTLS backend
+(`streams/mbedtls.c`, `hash/mbedtls.c`). A hand-written `git2_features.h` selects
+`GIT_HTTPS` + `GIT_MBEDTLS` + `GIT_SHA1_MBEDTLS` + `GIT_SHA256_MBEDTLS`, so TLS
+and hashing reuse the mbedtls esp-idf already ships (and Spike 6 validated).
+
+**The port surface was small** — four shims, libgit2 sources untouched (so we
+never fork 1.9.4):
+
+| Gap on esp-idf (picolibc + VFS) | Shim |
+|---|---|
+| no top-level `<poll.h>` (only `<sys/poll.h>`) | forwarding `poll.h` on the include path |
+| `lstat` absent (no symlinks) | `#define lstat stat`, force-included via `esp_port.h` |
+| `<sys/mman.h>` absent | `esp_map.c` — `p_mmap` via `git__malloc` + `read` (pack pages land in PSRAM) |
+| `getuid`/`geteuid`/`getgid`/`getppid`/`getpgid`/`getsid`/`getpwuid_r`/`readlink`/`utimes` declared but not implemented | `esp_stubs.c` — single-root-user, no-user-db, no-symlink answers |
+
+Also: gcc 14 promoted `-Wimplicit-function-declaration` /
+`-Wincompatible-pointer-types` to hard errors; this pre-gcc14 C trips them
+benignly, so the component downgrades them to warnings. `unix/process.c`
+(fork/`sys/wait.h`) is excluded — only the SSH-exec transport we don't enable
+uses it.
+
+**Verification.** A throwaway `git_smoke` bin (`git_libgit2_init` /
+`_version` / `_shutdown` via three hand externs) links with **zero undefined
+references**: `nm` shows **538 `git_*` text symbols** in the ELF (`git_index_*`,
+`git_repository_*`, `git_commit_*`, `git_remote_*`), the four shims present,
++514 KB `.text` (negligible against 16 MB flash).
+
+**Gate C — RAN ON HARDWARE 2026-07-05.** Flashed `git_smoke` to the S3; the
+linked library reports `1.9.4`, `git_libgit2_init() -> 1` (global init ran —
+registers the mbedTLS stream + HTTP transport + hash backends),
+`git_libgit2_shutdown() -> 0`, clean. No crash/assert/hang. So libgit2 +
+mbedTLS **compiles, links, and executes** on the ESP32-S3 — the full Path 2
+de-risk. Still unproven: an actual `repository_init` → `commit` → `push` over
+mbedTLS HTTPS (needs Wi-Fi/SNTP from Spike 6 + a working-copy location).
+
+**Build mechanics learned.** The component is wired via
+`[[package.metadata.esp-idf-sys.extra_components]]` `component_dirs`, pointed at
+on-disk source through a `LIBGIT2_SRC` env var (probe stage — not yet vendored).
+esp-idf-sys emits no `rerun-if-*`, so editing the *root* Cargo.toml or the
+component doesn't retrigger its build script once it has succeeded; forcing a
+reconfigure means `rm -rf target/**/.fingerprint/esp-idf-sys-*` (cheap — the
+159 MB cmake cache in the OUT_DIR persists, so only the changed component
+recompiles).
+
+**Gate D — `git2` safe-API binding LINKS 2026-07-05.** Replaced the hand
+externs with the real path: the `git2` crate (default-features off, so no
+openssl-sys/libssh2-sys) bound to our component via `libgit2-sys` in **system
+mode** (`LIBGIT2_NO_VENDOR=1`). The trick: we don't want libgit2-sys to build
+*or* link anything — esp-idf already links `liblibgit2.a` inside its component
+group (verified in `build.ninja`: `esp-idf/libgit2/liblibgit2.a` sits in the
+`libespidf.elf` `LINK_LIBRARIES`, and the group is repeated ~6× so libgit2's
+refs to mbedtls/lwip resolve). So a **fake pkg-config with empty `Libs`**
+(`firmware/pkgconfig/{libgit2,zlib}.pc`, found via `PKG_CONFIG_LIBDIR` +
+`PKG_CONFIG_ALLOW_CROSS=1`) makes both libgit2-sys's and libz-sys's probes
+succeed while emitting nothing; the symbols come from the component. `git_smoke`
+now uses `git2::Version` + `Oid::hash_object` and links with zero undefined refs
+— `nm` confirms `git_odb_hash`, `git_oid_tostr`, `git_error_last`, and
+`mbedtls_sha1_starts` all **defined** in the ELF.
+
+**Build gotcha (important):** esp-idf-sys forwards the app's link args only when
+its build script reruns, and emits no `rerun-if-*`. After the component set
+changes, the forwarded args go stale — `rm -rf
+target/**/.fingerprint/esp-idf-sys-*` before building forces a fresh forward
+(that was why the first git2 link failed with undefined `git_*`).
+
+**Build-gating done:** `git2` is an optional dep behind the `git` feature, and
+`git_smoke` has `required-features = ["git"]`, so the editor build never pulls
+libgit2-sys/pkg-config. The component's CMake now registers *empty* when
+`LIBGIT2_SRC` is unset, so `just build` (no env) still works.
+
+**Open decisions before commit** (deliberately not done yet):
+
+1. **Vendoring** — the component points at `~/.cargo`'s unpacked source via
+   `LIBGIT2_SRC`; not reproducible. Needs a submodule pinned to `v1.9.4` (or a
+   vendored copy). This also lets the `just flash-git` recipe drop the env vars.
+2. **Component build burden** — `extra_components` still compiles all ~200
+   libgit2 files on a clean build even for the editor (cached after; Rust side
+   is already gated). Accept, or gate the C compile too.
+3. ~~Runtime (Gate D on HW)~~ — **DONE 2026-07-05.** `just flash-git` on the S3:
+   `git2 crate is talking to libgit2 1.9.4`, then `sha1(blob "hello") =
+   b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0` + "hash matches" — i.e. git2 →
+   libgit2 → mbedTLS SHA1 all ran correctly on device. Full chain proven.
+4. **The real thing** — `repository_init` → `commit` → `push` over mbedTLS
+   HTTPS (needs Wi-Fi/SNTP from Spike 6 + a working-copy location).
+
 ## Artifacts (this session)
 
 - `spikes/spike7-git-push/` — the desktop spike crate (`src/main.rs`,
   `Cargo.toml`, `README.md`, `.env.example`).
+- `firmware/components/libgit2/` — the esp-idf component (uncommitted probe):
+  `CMakeLists.txt`, `git2_features.h`, `poll.h`, `esp_port.h`, `esp_map.c`,
+  `esp_stubs.c`.
+- `firmware/src/bin/git_smoke.rs` + Cargo.toml `[[bin]]`/`extra_components`
+  (uncommitted probe wiring).
 - ADR-004 — outcome note appended (kill-switch fired → libgit2).
 - `docs/v0.1-mvp-technical.md` — risk-table row updated (gix push → libgit2).
