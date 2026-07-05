@@ -29,7 +29,7 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 
 ## v0.2 — Vim navigation — [ ]
 
-- [ ] Mode state machine (Normal / Insert), mode indicator in status line
+- [ ] Mode state machine (Normal / Insert), mode indicator in the side panel
 - [ ] Movement: `h j k l`, `w b e`, `0 $`, `gg G`, `Ctrl-d Ctrl-u`
 - [ ] `i a o O A` to enter Insert
 - [ ] `Esc` returns to Normal
@@ -46,7 +46,6 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 
 - [ ] Visual char (`v`) and line (`V`) modes, `y d c` on selections
 - [ ] `:` command line: `:w :q :wq :e <path>`
-- [ ] Status line shows file path, dirty flag, mode
 
 ## v0.5 — File palette + multi-file — [ ]
 
@@ -56,7 +55,7 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 - [ ] `:e` and palette share the same recent-files list
 - [ ] `:enew` creates a new file — prompts for scope (tracked vs local)
 - [ ] `Ctrl-G` is disabled / hidden when the current buffer is local-scope
-- [ ] Status line briefly shows file count on `Ctrl-G` when the publish bundles
+- [ ] The side panel briefly shows file count on `Ctrl-G` when the publish bundles
       more than one dirty Tracked file (e.g. `"publishing 3 files: abc1234"`),
       so workspace-scoped behaviour stays visible to the user
 
@@ -78,7 +77,7 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 - [ ] 18650 + IP5306 charge board, soft power switch
 - [ ] Light sleep on idle > 30 s (keyboard interrupt wakes)
 - [ ] Deep sleep on lid close (reed switch); restore cursor + buffer
-- [ ] Battery indicator in status line
+- [ ] Battery indicator in the side panel
 
 ## v0.9 — Robustness — [ ]
 

@@ -2,7 +2,8 @@
 
 A single-purpose writing appliance: e-ink + mechanical keyboard + ESP32-S3. The
 user opens the lid, writes Markdown, and (when they choose) publishes to a git
-remote. This glossary fixes the language of that workflow.
+remote. This glossary fixes the language of that workflow, and of the screen
+the writer looks at while doing it.
 
 **Related docs:**
 [`README.md`](README.md) — project overview, hardware, macro roadmap.
@@ -55,6 +56,28 @@ into user-facing language).
 > prompt. A **Publish** is the only user-observable unit of "shipping work";
 > internal commits are an implementation detail of that.
 
+### Screen regions
+
+**Writing column**:
+The left region of the panel showing the text being edited — the _only_ region
+that repaints per keystroke. ~60 columns, full panel height; straddles the
+driver's `x = 396` seam invisibly.
+_Avoid_: edit area, text area, main pane (superseded — they named the old
+full-width text region before the side panel carved out its right edge).
+
+**Side panel**:
+The right region (~150 px / ~20 cols, full height) holding all metadata:
+filename + dirty dot, mode, word count, session, clock, Wi-Fi,
+keyboard-disconnect flag, publish state. Sits entirely in the master half
+(right of the `x = 396` seam). Every field is static, event-driven, or
+throttled — never per-keystroke.
+_Avoid_: header, status line, status bar (retired — the old top header band and
+bottom status band are both collapsed into this one right-hand region); sidebar.
+Do not write bare **panel**: it collides with the **transient panel** (the
+modal full-screen help/config view that swaps in over the editor — a later
+release, see [`docs/spikes.md`](docs/spikes.md) Spike 11). Always qualify:
+_side panel_ vs _transient panel_.
+
 ## Relationships
 
 - A **File** belongs to exactly one scope (**Tracked** or **Local**), fixed at
@@ -68,7 +91,7 @@ into user-facing language).
 
 > **Dev:** "If I'm in a **Local** file and I press `Ctrl-G`, what happens?"
 > **Domain expert:** "Nothing — **Publish** is unavailable in **Local**. The
-> status line says so. There is no path from **Local** to the remote."
+> side panel says so. There is no path from **Local** to the remote."
 > **Dev:** "So if I want to publish something that started as a journal entry,
 > I have to copy-paste it into a **Tracked** file?"
 > **Domain expert:** "Yes, deliberately. Promotion is a manual gesture, not a
@@ -94,7 +117,7 @@ into user-facing language).
   the remote was cloned on, and never switches.
 - **Durability before delivery.** A **Publish**'s user-meaningful moment is
   when the local commit lands (~0.2 s), not when the push completes
-  (~5–10 s). The status line surfaces the commit-landed state as soon as
+  (~5–10 s). The side panel surfaces the commit-landed state as soon as
   it exists; the remaining push time is the transport of an already-safe
   thing. Long-form rationale:
   [`docs/notes/ctrl-g-perceived-latency.md`](docs/notes/ctrl-g-perceived-latency.md).

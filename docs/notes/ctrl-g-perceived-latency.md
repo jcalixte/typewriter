@@ -19,6 +19,6 @@ The reframing question: **what is the user actually waiting for?** For `Ctrl-S`,
 
 For `Ctrl-G`, the equivalent moment isn't "push complete." It's "commit landed locally" — which happens at ~0.2 seconds, well before the push even starts. From that moment on, your work is preserved across power loss, SD removal, the apocalypse — everything except remote delivery. The remaining 5–10 seconds is _transport of an already-safe thing_.
 
-Surface that moment in the status line at ~0.2 seconds (`✓ committed abc1234 · pushing…`) and the perceived latency of `Ctrl-G` collapses from 10 seconds to roughly 200 milliseconds. The gap with `Ctrl-S` disappears.
+Surface that moment in the side panel at ~0.2 seconds (`✓ committed abc1234 · pushing…`) and the perceived latency of `Ctrl-G` collapses from 10 seconds to roughly 200 milliseconds. The gap with `Ctrl-S` disappears.
 
 **Durability before delivery.** The moment that matters to the user is the moment durability is achieved, not the moment delivery completes. Once you see that, the slow operations stop feeling slow.

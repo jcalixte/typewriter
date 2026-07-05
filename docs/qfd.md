@@ -474,9 +474,13 @@ These are the live tensions we are watching, not deciding harder:
   transformation; H4's "to cursor" is implicit in Boot's definition.
   Matrix cell strengths held; no Σ recompute.
 
-The minor variance between README's "~12 lines" and product/[ADR-003]'s
-"~11 lines" of edit area is within rounding for a 14 px glyph in a 240 px
-tall edit region and is not load-bearing.
+The earlier variance between README's "~12 lines" and product/[ADR-003]'s
+"~11 lines" of "edit area" is now superseded: the side-panel redesign removed
+the top header and bottom status bars (metadata moved into the **side panel**),
+so the **writing column** spans the full panel height — ~13 lines at the
+editor's 20 px font (`FONT_10X20`, `editor.rs` `ROWS = HEIGHT / 20 = 13`).
+README, the product/technical docs, and [ADR-003] are all updated to ~13 lines
+(writing column).
 
 ---
 

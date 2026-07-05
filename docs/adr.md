@@ -152,7 +152,7 @@ as the price of those properties.
 
 ### Consequences
 
-- Visible edit area on this panel is ~11 lines. UI must embrace the
+- Visible writing column on this panel is ~13 lines. UI must embrace the
   constraint — no multi-pane, no large headers. See
   [v0.1 product → screen layout](v0.1-mvp-product.md#screen-layout).
 - Framebuffer is ~27 KB; keeps PSRAM free for git pack data — a top-3
