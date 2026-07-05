@@ -42,6 +42,30 @@ the `$` / end-of-line block caret sits one cell past the last char, `iw` / `aw`
 are whitespace-delimited (like vim's `iW` / `aW`), and `cw` isn't special-cased
 to `ce`.
 
+**Spike 6 — Wi-Fi + TLS: verified 2026-07-05.** A separate binary —
+[`src/bin/wifi_tls.rs`](src/bin/wifi_tls.rs), flashed with `just flash-wifi` —
+kept apart from the editor firmware. It brings up the station, syncs the clock
+over SNTP (mbedtls validates the server cert against wall time, so the 1970 RTC
+has to be corrected first), then does an HTTPS GET to `https://api.github.com/`
+with cert-chain validation against the esp-idf certificate bundle
+(`esp_crt_bundle_attach`), and logs status, a body preview, and free heap around
+the handshake (TLS heap pressure is a watched risk). A validated GET is the gate
+for Spike 7 (gitoxide push over HTTPS + PAT).
+
+Bench result (WPA2-PSK AP, 2.4 GHz): associate ~3 s → DHCP → SNTP first sync →
+`esp-x509-crt-bundle: Certificate validated` → `HTTPS GET … → 200`, reading real
+GitHub JSON. **TLS handshake cost ≈ 35 KB heap** (265 → 229 KB, recovered
+after), clean and repeatable across reboots. Note: PSRAM is **not** enabled yet
+(only ~339 KB internal heap) — TLS fits, but Spike 7's gitoxide working set will
+need `CONFIG_SPIRAM` turned on first.
+
+Credentials are build-time: copy [`.env.example`](.env.example) to `.env`, set
+`TW_WIFI_SSID` / `TW_WIFI_PASS`, and `just` loads them (dotenv) so `build.rs`
+bakes them in. `.env` is gitignored; the editor build (`just flash`) needs none
+of it. `sdkconfig.defaults` gains the full certificate bundle and a bigger main
+task stack for the mbedtls handshake — a one-time esp-idf reconfigure on the
+next build.
+
 **Spike 5 — partial refresh + typing: verified 2026-07-04.** `main.rs` wires
 the keyboard to the panel: [`src/usb_kbd.rs`](src/usb_kbd.rs) feeds decoded
 key-downs (US layout, edge-detected) into a queue, and the main loop keeps a
@@ -94,7 +118,8 @@ reseat the jumpers (CS first) before debugging code.
 
 Next up per
 [`docs/v0.1-mvp-technical.md`](../docs/v0.1-mvp-technical.md#hardware-bring-up-order):
-Wi-Fi/TLS, gitoxide push; SD is deferred.
+Wi-Fi/TLS (Spike 6, implemented above), then gitoxide push (Spike 7); SD is
+deferred.
 
 **Spike 1 — Blink: verified 2026-07-04.** GPIO 2 + on-board WS2812 toggled
 at 1 Hz with `blink N` on USB-serial, proving toolchain, esp-idf link, and
