@@ -5,10 +5,22 @@ authors = ["Julien Calixte <juliencalixte@gmail.com>"]
 edition = "2024"
 resolver = "2"
 rust-version = "1.85"
+# Declare every binary explicitly so a spike program under src/bin/ doesn't get
+# an auto-discovered target with the default test harness (which trips up
+# rust-analyzer — see README "harness = false" note).
+autobins = false
 
 [[bin]]
 name = "firmware"
+path = "src/main.rs"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+
+# Spike 6 — Wi-Fi + TLS. Standalone bench program, kept separate from the
+# editor firmware. Flash with `just flash-wifi`.
+[[bin]]
+name = "wifi_tls"
+path = "src/bin/wifi_tls.rs"
+harness = false
 
 [profile.release]
 opt-level = "s"
@@ -28,6 +40,9 @@ esp-idf-svc = { version = "0.52.1", features = ["critical-section", "embassy-tim
 # Remove `generic-queue-8` if you plan to use `embassy-time` WITH `embassy-executor`
 embassy-time = { version = "0.5", features = ["generic-queue-8"] }
 embedded-graphics = "0.8"
+# Traits shared with esp-idf-svc (Spike 6 uses `embedded_svc::http::Method`).
+# Already in the tree via esp-idf-svc; pinned here so the spike names it directly.
+embedded-svc = "0.29"
 
 [build-dependencies]
 embuild = "0.33"

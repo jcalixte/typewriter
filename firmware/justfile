@@ -2,8 +2,13 @@
 # Recipes source ~/export-esp.sh themselves (LIBCLANG_PATH + Xtensa GCC),
 # so no per-shell setup is needed before calling just.
 
+# Load firmware/.env (Wi-Fi creds for the network spikes) into recipe env.
+# Absent .env is fine — the editor build ignores TW_* entirely.
+set dotenv-load := true
+
 esp_env := ". ~/export-esp.sh &&"
 elf := "target/xtensa-esp32s3-espidf/release/firmware"
+elf_wifi := "target/xtensa-esp32s3-espidf/release/wifi_tls"
 
 # list recipes
 default:
@@ -11,15 +16,27 @@ default:
 
 # compile (release)
 build:
-    {{esp_env}} cargo build --release
+    {{esp_env}} cargo build --release --bin firmware
 
 # build + flash + open serial monitor
 flash:
-    {{esp_env}} cargo run --release
+    {{esp_env}} cargo run --release --bin firmware
 
 # serial monitor only, with decoded backtraces
 monitor:
     espflash monitor --elf {{elf}}
+
+# Spike 6 — build the Wi-Fi + TLS spike (needs TW_WIFI_SSID / TW_WIFI_PASS in .env)
+build-wifi:
+    {{esp_env}} cargo build --release --bin wifi_tls
+
+# Spike 6 — flash + monitor the Wi-Fi + TLS spike
+flash-wifi:
+    {{esp_env}} cargo run --release --bin wifi_tls
+
+# serial monitor for the Wi-Fi spike, with decoded backtraces
+monitor-wifi:
+    espflash monitor --elf {{elf_wifi}}
 
 # detect board, print chip/MAC/flash size
 info:
