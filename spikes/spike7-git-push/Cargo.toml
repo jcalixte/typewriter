@@ -1,0 +1,16 @@
+[package]
+name = "spike7-git-push"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Spike 7 (desktop half) — libgit2 add/commit/push over HTTPS+PAT"
+
+[dependencies]
+# libgit2 via the vendored C build — this is the ADR-004 kill-switch path.
+# gix was the first choice but cannot push over HTTPS yet (see README), so
+# Spike 7 proves the fallback the risk table names: libgit2-sys / git2.
+git2 = "0.20"
+anyhow = "1"
+# Only for the ISO-8601 commit-message timestamp (the message *is* the time,
+# per the git module spec). On device this comes from SNTP instead.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
