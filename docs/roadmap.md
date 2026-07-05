@@ -54,6 +54,9 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 - [ ] Open, switch, close buffers (keep ≤ 3 in memory)
 - [ ] `:e` and palette share the same recent-files list
 - [ ] `:enew` creates a new file — prompts for scope (tracked vs local)
+- [ ] Delete a file — removes it from the SD card; for a Tracked file the
+      removal reaches the next `Ctrl-G` Publish's staged set (`git rm` / `add -A`
+      semantics, not plain `git add .`); a Local file is just unlinked
 - [ ] `Ctrl-G` is disabled / hidden when the current buffer is local-scope
 - [ ] The side panel briefly shows file count on `Ctrl-G` when the publish bundles
       more than one dirty Tracked file (e.g. `"publishing 3 files: abc1234"`),
