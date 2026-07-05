@@ -172,7 +172,8 @@ gantt
   build.rs      reads TW_* env vars (Wi-Fi, PAT, author) — v0.1 config path
   sdkconfig.defaults
 /hardware       BOM, schematic, enclosure (later)
-/docs           ADRs, QFD, roadmap, per-version product + technical specs
+/docs           ADRs, QFD, roadmap, per-version product + technical specs,
+                rendering/UX spike log (spikes.md)
 CONTEXT.md      project glossary — Tracked / Local / Save / Publish, and the
                 principles that fall out of them
 GLOSSARY.md     methodology glossary — the WHAT / Function / Characteristic /
