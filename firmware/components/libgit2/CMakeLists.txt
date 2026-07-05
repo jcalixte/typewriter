@@ -106,3 +106,14 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     -Wno-error=incompatible-pointer-types
     -Wno-error=implicit-int
 )
+
+# FATFS can't do POSIX rename-replace (f_rename fails if the target exists) and
+# has no hardlinks, so libgit2's p_rename (link-then-rename) can't overwrite the
+# config/refs/HEAD/index files its lock→commit writes depend on. Compile
+# posix.c's p_rename under a throwaway name — scoped to this ONE file so no other
+# TU is touched — and provide our own remove-then-rename p_rename in esp_stubs.c
+# (p_rename is the single atomic-rename path: filebuf/futils/indexer/refdb_fs).
+set_source_files_properties(
+    "${LG2}/src/util/posix.c"
+    PROPERTIES COMPILE_DEFINITIONS "p_rename=libgit2_unused_p_rename"
+)

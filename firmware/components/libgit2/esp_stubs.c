@@ -14,6 +14,8 @@
 #include <pwd.h>
 #include <errno.h>
 #include <sys/time.h>
+#include <sys/stat.h> /* stat() for the existence-gated utimes() below */
+#include <stdio.h>   /* remove(), rename() for the p_rename replacement */
 
 /* One implicit root user/group. */
 uid_t getuid(void)  { return 0; }
@@ -48,10 +50,59 @@ ssize_t readlink(const char *path, char *buf, size_t bufsiz)
 	return -1;
 }
 
-/* VFS has no utimes(); accept and ignore (file mtime is cosmetic here). */
+/* No symlinks on FAT: creating one is unsupported. libgit2 calls this only in
+ * its "does this filesystem support symlinks?" probe (fs_path.c) and while
+ * copying trees (futils.c) — a clean failure is the honest answer, and libgit2
+ * treats the target as a normal file. (git_push referenced it; git_smoke, which
+ * only touched the ODB, did not — hence it surfaces now.) */
+int symlink(const char *target, const char *linkpath)
+{
+	(void)target;
+	(void)linkpath;
+	errno = ENOSYS;
+	return -1;
+}
+
+/* FATFS/VFS can't set file times — but utimes() MUST still fail for a path that
+ * doesn't exist. libgit2's git_futils_touch() is p_utimes(), and that is how the
+ * loose ODB's `freshen` probe answers "does this object already exist?":
+ * git_odb_write() SKIPS the write entirely when freshen succeeds (odb.c:1629).
+ * A blanket `return 0` made every freshen succeed, so libgit2 believed every
+ * object was already on disk and silently dropped ALL loose-object writes —
+ * blobs/trees/commits never persisted, and write_tree then failed with
+ * "invalid object specified". Gate success on existence: present → 0 (actually
+ * setting the time is a cosmetic no-op we skip), absent → -1/ENOENT so freshen
+ * reports "not found" and the real write proceeds. */
 int utimes(const char *path, const struct timeval times[2])
 {
-	(void)path;
+	struct stat st;
 	(void)times;
+	if (stat(path, &st) != 0)
+		return -1; /* stat set errno (ENOENT for a missing object) */
 	return 0;
+}
+
+/* lwip implements getaddrinfo() but not gai_strerror(); libgit2's socket stream
+ * (streams/socket.c) uses it only to format a connect-error message, so a
+ * constant string is sufficient. Deliberately no <netdb.h> include: the symbol
+ * is undefined at link (no macro/decl shadows it), so a plain definition is
+ * safe, and the ABI (pointer vs. implicit-int return) matches on xtensa. */
+const char *gai_strerror(int ecode)
+{
+	(void)ecode;
+	return "getaddrinfo failure";
+}
+
+/* POSIX rename() atomically replaces an existing target; FATFS f_rename does
+ * NOT (it fails with EEXIST) and FAT has no hardlinks, so libgit2's own
+ * p_rename (link-then-rename, in posix.c) can't overwrite config/refs/HEAD/index
+ * during their lock→commit. Provide replace semantics: drop the target, then
+ * rename. Not crash-atomic (a crash between the two loses `to`), but FAT offers
+ * no atomic replace — acceptable for the working copy. posix.c's original is
+ * compiled as libgit2_unused_p_rename (see the component CMakeLists), so this is
+ * the p_rename every caller links against. */
+int p_rename(const char *from, const char *to)
+{
+	(void)remove(to); /* ignore ENOENT when `to` doesn't exist yet */
+	return rename(from, to) == 0 ? 0 : -1;
 }
