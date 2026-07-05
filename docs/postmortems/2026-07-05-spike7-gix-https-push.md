@@ -101,12 +101,74 @@ So the full **SD → push** loop is still not testable on hardware; this spike
 retired the *library/API* risk and replaced it with a *cross-compile* risk to
 tackle once PSRAM + SD are unblocked.
 
+## On-device probe — 2026-07-05
+
+Two moves toward the on-device gate, decoupled from the (still-blocked) SD card:
+
+**PSRAM enabled.** `sdkconfig.defaults` gained `CONFIG_SPIRAM=y` +
+`CONFIG_SPIRAM_MODE_OCT=y` (the N16R8 is *octal* PSRAM — quad mode would fail
+init) + `CONFIG_SPIRAM_USE_MALLOC=y` (adds PSRAM to the heap so large Rust allocs
+land there). Speed left at 40 MHz for a safe first enable. Octal PSRAM uses
+GPIO 33–37; the EPD/SD pins (4–13) avoid that range, so no wiring conflict.
+**Confirmed on hardware 2026-07-05:** boot log shows `Found 8MB PSRAM device`
+(vendor AP, gen-3, 64 Mbit die), `SPI SRAM memory test OK`, and `Adding pool of
+8192K of PSRAM memory to heap allocator` — the full 8 MB joins the heap on top of
+~372 KB internal DRAM. The editor boots and types normally, so PSRAM broke
+nothing. The ~1.5 MB git working-set budget now has headroom.
+
+**libgit2 cross-compile probe.** Added `git2` (default-features off → no
+openssl/ssh, isolating the C build from the TLS question) + a throwaway
+`git_probe` bin, and built for `xtensa-esp32s3-espidf`. Result reframes the risk
+in a *more* encouraging direction than expected:
+
+- **The C cross-compiles.** `xtensa-esp-elf-gcc` ran on libgit2's sources and
+  several files built with `exit status: 0`. The feared "cmake can't target
+  xtensa / no toolchain" failure did **not** happen.
+- **The wall is missing esp-idf networking headers.** libgit2's core
+  `git2_util.h` does `#include <arpa/inet.h>`, and the build died with
+  `arpa/inet.h: No such file or directory`. Root cause: `libgit2-sys` builds
+  vendored libgit2 as a **standalone `cc` library**, so it never inherits
+  esp-idf's include paths — esp-idf's BSD-socket headers (lwIP) live under the
+  esp-idf component tree, not the bare toolchain sysroot the `cc` invocation
+  used. (`arpa/inet.h` *does* exist in esp-idf, via lwIP's POSIX compat layer;
+  it just wasn't on the `-I` path.)
+
+So the on-device libgit2 question is **not** "impossible," it's "needs esp-idf
+integration": get the vendored C build to see esp-idf's lwIP/newlib includes.
+Candidate paths, roughly in order of effort:
+
+1. **Inject esp-idf include dirs into the `cc` build** via
+   `CFLAGS_xtensa-esp32s3-espidf` (point `-I` at esp-idf's lwIP POSIX-compat
+   headers). Cheapest to try; risk is a *cascade* — `arpa/inet.h` is likely the
+   first of several missing headers, and then missing lwIP/pthread symbols at
+   final link.
+2. **Build libgit2 as a proper esp-idf component** (CMake component pulled into
+   the esp-idf build so it inherits all component includes/libs). The "right"
+   way; more plumbing, via esp-idf-sys's extra-components mechanism.
+3. **Patch/fork `libgit2-sys`** to be esp-idf-aware (read `DEP_ESP_IDF_*` and add
+   the include paths). Upstreamable but the most work.
+
+TLS is a *separate* later step regardless: `libgit2-sys` has no mbedtls backend
+(https → openssl only), so the plan remains libgit2 with networking off + a
+**custom Rust smart-subtransport** reusing the Spike 6 esp-idf HTTPS client. But
+the util-layer `arpa/inet.h` include is unconditional (not gated on the transport
+backend), so path 1/2/3 is needed before even a transport-less build links.
+
 ## Follow-ups
 
-- [ ] On-device Spike 7: cross-compile `git2`/`libgit2-sys` for
-      `xtensa-esp32s3-espidf` with the **mbedtls** TLS backend; if it won't build,
-      reconsider the gix-plumbing custom-transport route.
-- [ ] Enable PSRAM (`CONFIG_SPIRAM`) — prerequisite for the git working set.
+- [x] Enable PSRAM (`CONFIG_SPIRAM`) — **done + hardware-verified 2026-07-05**
+      (octal, USE_MALLOC): 8 MB detected, memory-tested, added to heap; editor
+      still runs.
+- [~] On-device Spike 7 libgit2 build — **probed 2026-07-05**: the C
+      cross-compiles for xtensa; blocker is esp-idf networking includes
+      (`arpa/inet.h`) missing from the standalone `cc` build (see "On-device
+      probe" above). Next: inject esp-idf lwIP include paths (path 1), expect a
+      header/symbol cascade, escalate to an esp-idf component (path 2) if it
+      sprawls.
+- [ ] Custom mbedtls-backed smart-subtransport (reuse Spike 6 HTTPS) once the
+      library links.
+- [x] Flash the PSRAM build and confirm the SPIRAM heap region — **done
+      2026-07-05**: 8192K pool added to heap, memory test OK.
 - [x] Run the desktop spike against a real GitHub test repo — **done 2026-07-05**
       (`jcalixte/typoena-test`, fine-grained PAT): HTTPS handshake + PAT auth +
       push confirmed. Still open: the `push_update_reference` rejection path over
