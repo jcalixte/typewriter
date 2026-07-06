@@ -418,8 +418,11 @@ microcommits through `a15789a`).
   would prefer esp-idf's bundle via a custom subtransport (it can't reach
   libgit2's private mbedtls config without touching libgit2 sources).
 - **PAT baked into flash — STILL STANDING** (ADR-005 spike shortcut). `build.rs`
-  embeds `TW_PAT` in the git_push image via `env!()`. A product must not ship the
-  token in flash.
+  embeds `TW_PAT` in the git_push/git_sync image via `env!()` — plaintext in
+  flash, extractable with `esptool read_flash`. Fine for the dev's bench unit,
+  not for a shipped one. The provisioning + at-rest-hardening decision is now
+  tracked as an **open** ADR: [ADR-011](../adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest)
+  (likely on-device paste → eFuse-encrypted NVS + a per-device fine-grained PAT).
 - **Product sync transport — DECIDED 2026-07-06: HTTPS + PAT.** On-device libgit2
   is HTTPS-only (mbedTLS build; no ssh client, libssh2 unported), and the proven
   path is HTTPS+PAT, so the product keeps ADR-005 rather than porting SSH. The

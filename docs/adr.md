@@ -475,6 +475,68 @@ retry). Failure surfaces as a single retry-able outcome in the status line.
 
 ---
 
+## ADR-011: Credential provisioning — how the PAT reaches the device and is protected at rest
+
+**Status:** Proposed / **Open** — 2026-07-07 (deferred beyond v0.1)
+**Scope:** Gates the first distribution to any non-dev user.
+
+### Context
+
+[ADR-005](#adr-005-auth--https--github-personal-access-token) decided the auth
+model (HTTPS + PAT) and sketched an endgame ("from v0.9 the PAT moves to
+encrypted storage with an eFuse-derived key"), but left the *mechanics* open:
+**how does a token get onto a device, and how is it protected once there?**
+
+Spike 7 made this concrete. The PAT is currently **baked into the firmware image
+at build time** (`build.rs` → `env!()` → a `const` in the `.bin`) — ADR-005's
+deliberate v0.1 shortcut. On a real device that means:
+
+- the token sits in **plaintext in flash** — anyone with physical access can
+  `esptool read_flash` and extract a working GitHub PAT (push/pull as the user);
+- it is the **same token on every unit** built from that image — no per-device
+  revocation;
+- **rotation requires a reflash**.
+
+This is fine for the dev's own bench unit (it's their token, their device) and is
+why the [Spike 7 postmortem](postmortems/2026-07-05-spike7-gix-https-push.md)
+lists it as the *last standing shortcut*. It is not fine for a unit in anyone
+else's hands. Resolving it needs a **provisioning path**, which the current design
+(["build-time only, no provisioning module"](v0.1-mvp-technical.md#provisioning--build-time-only-no-module-on-device))
+deliberately omits.
+
+### Options considered
+
+| Option | Pros | Cons |
+| --- | --- | --- |
+| **Build-time bake** (current, ADR-005 v0.1) | Zero UX; nothing to build. | Plaintext in flash; same token per unit; reflash to rotate. **Dev-bench only.** |
+| **On-device paste → NVS (plaintext)** | No reflash; per-device token. | Still plaintext at rest; needs a first-run entry UI (captive portal / keyboard). |
+| **On-device paste → NVS encrypted (eFuse key)** | ADR-005's stated target; a flash dump alone doesn't yield the token; per-device + rotatable. | Needs NVS encryption + eFuse key derivation + first-run UI — the whole provisioning module. |
+| **USB provisioning tool** (host writes NVS over serial) | No on-device text entry; scriptable at assembly. | Needs a host-side tool; token still needs at-rest protection (combine with encryption). |
+| **Per-device fine-grained PAT** (orthogonal) | Least blast radius; per-device revoke; repo-scoped. | User mints one PAT per device; pairs with any storage option above. |
+| **GitHub App installation token** | Strongest, rotating creds. | Heavy for a single-user appliance — rejected in ADR-005 for overhead. |
+
+### Decision
+
+**Open — deferred.** v0.1 stays on the build-time bake (dev-bench only). Before
+shipping to any non-dev user, pick a provisioning mechanism — the likely shape is
+**on-device paste → eFuse-encrypted NVS** (ADR-005's target) **+ a per-device
+fine-grained PAT** to bound the blast radius. That requires the provisioning
+module currently deferred, NVS encryption, and eFuse key derivation, and ties
+into [ADR-007](#adr-007-storage-split--fat-on-sd-for-working-copy-littlefs-on-flash-for-config)
+(where config lives).
+
+### Consequences
+
+- **Blocks nothing in v0.1** — the bench unit runs on the baked PAT.
+- **Gates first non-dev distribution** — this ADR must flip to Accepted (with a
+  chosen mechanism) before a unit leaves the dev's hands.
+- Whatever is chosen, the token must never be logged or written into the working
+  copy — already enforced in the git module (PAT lives only in libgit2's
+  credential callback).
+- Rotation UX and the first-run flow are the real work here, not the crypto.
+
+---
+
 ## How to add a new ADR
 
 1. Append a new `## ADR-NNN: <title>` section to this file.
