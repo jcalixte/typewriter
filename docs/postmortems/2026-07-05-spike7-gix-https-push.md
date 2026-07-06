@@ -209,11 +209,14 @@ up.
       hardware-verified 2026-07-06** (see "On-device push COMPLETE").
 - [ ] Revise the `git` module section of the technical doc (it still describes
       gix crates/transport) now the device path is confirmed.
-- [ ] Retire the spike shortcuts before product: real cert trust-store (drop the
-      `certificate_check` bypass), and no PAT-in-flash (ADR-005).
-- [ ] Settle the product sync transport — the real remote is SSH but on-device
-      libgit2 is HTTPS-only (ADR-level). Then fold the push into the editor's
-      `git` module (persistent clone + fast-forward, not a fresh per-boot branch).
+- [x] Real cert trust-store (drop the `certificate_check` bypass) — **DONE +
+      hardware-verified 2026-07-06** (commit `2519ed8`; see "Shortcuts — status").
+- [x] Settle the product sync transport — **DECIDED 2026-07-06: HTTPS + PAT**
+      (on-device libgit2 is HTTPS-only; no libssh2 port).
+- [ ] Retire the last shortcut: no PAT-in-flash (ADR-005) — source the token at
+      provisioning / from secure storage instead of `env!()` into the image.
+- [ ] Fold the push into the editor's `git` module (persistent clone +
+      fast-forward, not a fresh per-boot branch) over the HTTPS+PAT remote.
 - [ ] Optional tidy: move git to a dedicated large-stack task so the shared
       main-task stack (and the editor build) can drop back to ~16 KB.
 
@@ -394,23 +397,29 @@ microcommits through `a15789a`).
    chain. **Lesson:** a "harmless" no-op POSIX stub is actively dangerous when a
    caller reads its return value as a semantic signal.
 
-### Shortcuts still standing (retire before product)
+### Shortcuts — status
 
-- **Cert verification is bypassed.** libgit2's mbedTLS stream has no CA wired in
-  (`GIT_DEFAULT_CERT_LOCATION` NULL + `VERIFY_OPTIONAL`), so the
-  `certificate_check` callback accepts the peer cert with a WARN — MITM-open.
-  Real trust needs either `GIT_OPT_SET_SSL_CERT_LOCATIONS` → an embedded CA PEM
-  on FAT, or validating the presented chain against esp-idf's cert bundle inside
-  the callback.
-- **PAT baked into flash** (ADR-005 spike shortcut). `build.rs` embeds `TW_PAT`
-  in the git_push image via `env!()`. A product must not ship the token in flash.
-- **Product remote is SSH, on-device is HTTPS-only.** The spike pushes to a
-  throwaway HTTPS repo with a PAT; the real project remote is
-  `git@github.com:jcalixte/typewriter.git` (SSH), and on-device libgit2 has **no
-  SSH transport** (mbedTLS-only build; no ssh client, libssh2 unported). Folding
-  this into the editor's `git` module needs the sync transport settled first — an
-  HTTPS+PAT product remote, a libssh2 port, or another mechanism. ADR-level, not
-  wiring.
+- **Cert verification — DONE, hardware-verified 2026-07-06 (commit `2519ed8`).**
+  Was: `certificate_check` blanket-accepted the peer cert (MITM-open). Now: embed
+  GitHub's roots (`firmware/src/bin/github_roots.pem` — USERTrust ECC/RSA +
+  DigiCert G2/Global Root CA, extracted from the macOS root store), write them to
+  `/spiflash/ca.pem`, and load them via `git2::opts::set_ssl_cert_file`
+  (`GIT_OPT_SET_SSL_CERT_LOCATIONS`; `CONFIG_MBEDTLS_FS_IO=y` lets mbedtls fopen
+  the file). The callback returns `CertificatePassthrough`, which the transport
+  maps to `is_valid ? 0 : -1` (`httpclient.c:805`) → **fail-closed**. The push
+  still landed, proving the chain validates against the embedded USERTrust ECC
+  root on-device. Caveat: roots must be refreshed if GitHub rotates CAs; a product
+  would prefer esp-idf's bundle via a custom subtransport (it can't reach
+  libgit2's private mbedtls config without touching libgit2 sources).
+- **PAT baked into flash — STILL STANDING** (ADR-005 spike shortcut). `build.rs`
+  embeds `TW_PAT` in the git_push image via `env!()`. A product must not ship the
+  token in flash.
+- **Product sync transport — DECIDED 2026-07-06: HTTPS + PAT.** On-device libgit2
+  is HTTPS-only (mbedTLS build; no ssh client, libssh2 unported), and the proven
+  path is HTTPS+PAT, so the product keeps ADR-005 rather than porting SSH. The
+  real project remote (`git@github.com:jcalixte/typewriter.git`, SSH) stays for
+  desktop/human use; the device publishes over an HTTPS remote + token (stored
+  securely, not in flash). No libssh2 port needed.
 
 ## Artifacts (this session)
 
