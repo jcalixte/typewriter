@@ -1,9 +1,10 @@
 # Spike 7 (git push) — the ADR-004 kill-switch fired: gix can't push over HTTPS
 
-> Date: 2026-07-05
-> Status: **turned, not failed** — gix ruled out for the push path; pivoted to
-> `libgit2` (`git2`) and proved the git mechanics on desktop. On-device build is
-> the next gate.
+> Date: 2026-07-05 (on-device push completed 2026-07-06)
+> Status: **DONE** — gix ruled out for the push path; pivoted to `libgit2`
+> (`git2`), proved the git mechanics on desktop, then landed the full
+> `init → commit → push` over mbedTLS HTTPS **on hardware** (2026-07-06). See
+> "On-device push COMPLETE" below.
 >
 > Context: Spike 7 in
 > [`../v0.1-mvp-technical.md`](../v0.1-mvp-technical.md#hardware-bring-up-order),
@@ -204,8 +205,17 @@ up.
       (`jcalixte/typoena-test`, fine-grained PAT): HTTPS handshake + PAT auth +
       push confirmed. Still open: the `push_update_reference` rejection path over
       HTTPS (needs a non-fast-forward against a real remote to trigger it).
+- [x] On-device `init → commit → push` over mbedTLS HTTPS — **DONE +
+      hardware-verified 2026-07-06** (see "On-device push COMPLETE").
 - [ ] Revise the `git` module section of the technical doc (it still describes
-      gix crates/transport) once the device path is confirmed.
+      gix crates/transport) now the device path is confirmed.
+- [ ] Retire the spike shortcuts before product: real cert trust-store (drop the
+      `certificate_check` bypass), and no PAT-in-flash (ADR-005).
+- [ ] Settle the product sync transport — the real remote is SSH but on-device
+      libgit2 is HTTPS-only (ADR-level). Then fold the push into the editor's
+      `git` module (persistent clone + fast-forward, not a fresh per-boot branch).
+- [ ] Optional tidy: move git to a dedicated large-stack task so the shared
+      main-task stack (and the editor build) can drop back to ~16 KB.
 
 ## Path 2 result — libgit2 compiles and links on xtensa (Gate A + Gate B)
 
@@ -302,8 +312,105 @@ libgit2-sys/pkg-config. The component's CMake now registers *empty* when
    `git2 crate is talking to libgit2 1.9.4`, then `sha1(blob "hello") =
    b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0` + "hash matches" — i.e. git2 →
    libgit2 → mbedTLS SHA1 all ran correctly on device. Full chain proven.
-4. **The real thing** — `repository_init` → `commit` → `push` over mbedTLS
-   HTTPS (needs Wi-Fi/SNTP from Spike 6 + a working-copy location).
+4. ~~**The real thing** — `repository_init` → `commit` → `push` over mbedTLS
+   HTTPS~~ — **DONE + hardware-verified 2026-07-06** (flash-FAT working copy);
+   see "On-device push COMPLETE" below.
+
+## On-device push COMPLETE — 2026-07-06
+
+The real thing runs on hardware. `just flash-git-push` (bin
+`firmware/src/bin/git_push.rs`, build `@a15789a`) did the whole loop on the
+ESP32-S3 and pushed to GitHub over HTTPS:
+
+```
+init OK at /spiflash/wc-1783370910
+wrote device.md
+staged + tree written
+committed to master
+origin set; pushing refs/heads/master:refs/heads/device/1783370910
+cert-check BYPASSED for github.com
+push accepted by remote
+✅ Spike 7 complete — pushed master → origin/device/1783370910 over mbedTLS HTTPS
+```
+
+Verified from both ends: the device logged `push accepted`, and `git ls-remote
+https://github.com/jcalixte/typoena-test.git` independently shows
+`refs/heads/device/1783370910` at commit `a96a7996`. So Wi-Fi/SNTP → mount
+flash-FAT → `repository_init` → `add_all` → `commit` → smart-HTTP push + pack
+upload + PAT auth all work on-device through libgit2 + esp-idf mbedTLS.
+
+**Heap:** started at 8.44 MB free, min-ever **6.85 MB** — the whole TLS handshake
++ packfile build cost ~1.6 MB, all served from PSRAM; internal DRAM was never
+stressed. **Timing:** first-boot FATFS format of the working-copy dir ~7.7 s,
+commit sub-second, TLS handshake→accept ~6 s.
+
+### Three bugs stood between "links + runs" and "pushes"
+
+Gate D proved SHA1 on device; getting from there to a real push took three fixes
+on the flash-FAT + FATFS path, each found on hardware. All are committed (5
+microcommits through `a15789a`).
+
+1. **Main task stack 12 KB → 96 KB.** libgit2 is stack-hungry: nearly every
+   function puts a `char path[GIT_PATH_MAX]` (4 KB) buffer on the stack, and the
+   `repository_init → config-write → FATFS → wear-leveling` chain nests ~10 of
+   them — a *trivial config write* measured ~67 KB of stack. At 48 KB it
+   overflowed and smashed an adjacent newlib lock handle → `LoadProhibited` in
+   `xQueueGenericSend`. **This corrected an earlier misdiagnosis:** the "`time()`
+   only works on the main task, not a std::thread" conclusion from the first
+   on-device attempt was wrong — that thread had the *default 4 KB* stack, so the
+   same deep chain just overflowed sooner. It was always stack depth, not
+   thread-vs-main. (Caveat: `sdkconfig.defaults` is shared with the editor build,
+   which now over-reserves this stack; a dedicated large-stack git task would let
+   it drop back to ~16 KB.)
+
+2. **`p_rename` = remove-then-rename** (`esp_stubs.c`). FATFS `f_rename` fails
+   `EEXIST` if the target exists and FAT has no hardlinks, so libgit2's own
+   `p_rename` (link-then-rename in `posix.c`) can't overwrite the
+   `config`/`refs`/`HEAD`/`index` files its lock→commit sequence depends on. Ours
+   drops the target then renames; `posix.c`'s original is compiled under a
+   throwaway name via a file-scoped CMake `COMPILE_DEFINITIONS`, so ours is the
+   `p_rename` every caller links. (Not crash-atomic, but FAT offers no atomic
+   replace — acceptable for the working copy.) Verified on hardware: cleared the
+   `failed to rename lockfile to '.git/config'` error.
+
+3. **`utimes` existence-gate — the killer.** This one silently defeated every
+   object write. Our first `utimes` stub returned `0` unconditionally ("VFS can't
+   set times; ignore"). But libgit2's `git_futils_touch()` → `p_utimes()` is how
+   the loose ODB's `freshen` probe answers *"does this object already exist?"*,
+   and `git_odb_write()` (`odb.c:1629`) **skips the write entirely** when freshen
+   succeeds. So a blanket `return 0` made freshen always report "exists" →
+   libgit2 believed every object was already on disk → **every** blob/tree/commit
+   write was silently dropped. `.git/objects/` stayed empty (only `info/` +
+   `pack/`), and `write_tree` failed with `invalid object specified - device.md`.
+   Fix: `stat`-gate the stub — present → `0` (setting the time is a cosmetic
+   no-op we skip), absent → `-1`/`ENOENT`, so freshen correctly reports "not
+   found" and the real write proceeds.
+
+   Diagnosed with an in-binary A/B/C/D ODB probe — write an in-memory blob, a
+   file blob, run `add_all`, then walk `.git/objects` — which showed `exists =
+   false` for every OID and an empty objects dir, isolating it to the *write*
+   path (not read, not mmap, not the index). The vendored `odb.c` /
+   `odb_loose.c` / `futils.c` source then pinned it to the freshen→touch→utimes
+   chain. **Lesson:** a "harmless" no-op POSIX stub is actively dangerous when a
+   caller reads its return value as a semantic signal.
+
+### Shortcuts still standing (retire before product)
+
+- **Cert verification is bypassed.** libgit2's mbedTLS stream has no CA wired in
+  (`GIT_DEFAULT_CERT_LOCATION` NULL + `VERIFY_OPTIONAL`), so the
+  `certificate_check` callback accepts the peer cert with a WARN — MITM-open.
+  Real trust needs either `GIT_OPT_SET_SSL_CERT_LOCATIONS` → an embedded CA PEM
+  on FAT, or validating the presented chain against esp-idf's cert bundle inside
+  the callback.
+- **PAT baked into flash** (ADR-005 spike shortcut). `build.rs` embeds `TW_PAT`
+  in the git_push image via `env!()`. A product must not ship the token in flash.
+- **Product remote is SSH, on-device is HTTPS-only.** The spike pushes to a
+  throwaway HTTPS repo with a PAT; the real project remote is
+  `git@github.com:jcalixte/typewriter.git` (SSH), and on-device libgit2 has **no
+  SSH transport** (mbedTLS-only build; no ssh client, libssh2 unported). Folding
+  this into the editor's `git` module needs the sync transport settled first — an
+  HTTPS+PAT product remote, a libssh2 port, or another mechanism. ADR-level, not
+  wiring.
 
 ## Artifacts (this session)
 
