@@ -24,17 +24,23 @@
 //! The product will hold a *persistent clone* so real publishes fast-forward;
 //! proving clone/fetch on device is a clean follow-up.
 //!
-//! ## Cert verification — SPIKE SHORTCUT
+//! ## Cert verification
 //!
-//! libgit2's mbedTLS stream defaults to `GIT_DEFAULT_CERT_LOCATION = NULL` with
-//! `MBEDTLS_SSL_VERIFY_OPTIONAL`, and the http transport treats the resulting
-//! `GIT_ECERTIFICATE` as non-fatal, deferring the trust decision to the app's
-//! `certificate_check` callback (httpclient.c:834, smart.c:461). So esp-idf's
-//! validated cert bundle (Spike 6) is NOT wired into libgit2. Here the callback
-//! ACCEPTS the cert with a WARN — enough to prove transport + auth + pack upload.
-//! Real trust-store wiring (`GIT_OPT_SET_SSL_CERT_LOCATIONS` → an embedded CA
-//! PEM on FAT, or a custom subtransport delegating to esp-idf's bundle) is a
-//! separable hardening task and MUST land before this leaves the bench.
+//! libgit2's mbedTLS stream verifies the server chain against whatever CA is set
+//! via `GIT_OPT_SET_SSL_CERT_LOCATIONS`: the handshake is `VERIFY_OPTIONAL`, then
+//! `verify_server_cert` turns a bad/untrusted chain into `GIT_ECERTIFICATE`. We
+//! embed GitHub's root CAs (`github_roots.pem`), write them to `/spiflash/ca.pem`
+//! and point libgit2 there (`install_tls_trust_store`). The `certificate_check`
+//! callback then returns PASSTHROUGH — "honor libgit2's own result" — which the
+//! http transport maps to `is_valid ? 0 : -1` (httpclient.c:805), so an
+//! untrusted / MITM cert FAILS the push. Fail-closed, no blanket-accept.
+//!
+//! Scope note: esp-idf ships a full CA bundle (Spike 6), but it's attached to
+//! esp-idf's own mbedtls config, not libgit2's private one — bridging it would
+//! mean touching libgit2 sources. Embedding GitHub's roots is the minimal,
+//! source-clean trust store; refresh it if GitHub rotates CAs (a product would
+//! prefer esp-idf's bundle via a custom subtransport, or fetch roots at
+//! provisioning). See ADR-005 / the Spike 7 postmortem.
 //!
 //! Build/flash with `just flash-git-push` (needs the git TW_* vars in .env).
 
@@ -75,6 +81,14 @@ const AUTHOR_EMAIL: &str = env!("TW_AUTHOR_EMAIL");
 const FAT_LABEL: &CStr = c"storage";
 const MOUNT: &CStr = c"/spiflash";
 const MOUNT_STR: &str = "/spiflash";
+
+/// GitHub's root CAs, embedded so the push can verify the server's TLS chain
+/// (see the "Cert verification" module docs). Written to FAT at runtime and
+/// handed to libgit2 via GIT_OPT_SET_SSL_CERT_LOCATIONS.
+const GITHUB_ROOTS_PEM: &str = include_str!("github_roots.pem");
+/// Where install_tls_trust_store drops the bundle for libgit2's mbedTLS stream
+/// to parse (needs a real path — CONFIG_MBEDTLS_FS_IO is on).
+const CA_BUNDLE_PATH: &str = "/spiflash/ca.pem";
 
 /// SNTP first-sync budget (same as Spike 6).
 const SNTP_TIMEOUT: Duration = Duration::from_secs(20);
@@ -127,6 +141,7 @@ fn run() -> Result<()> {
 
     sync_clock()?;
     mount_fat().context("mounting flash-FAT")?;
+    install_tls_trust_store().context("installing TLS trust store")?;
 
     // Git work runs on the MAIN task, not a spawned thread. libgit2 (via mbedTLS
     // cert validation and FATFS timestamping) calls time()/gettimeofday, whose
@@ -218,6 +233,24 @@ fn mount_fat() -> Result<()> {
     Ok(())
 }
 
+/// Write the embedded GitHub root CAs to FAT and point libgit2's mbedTLS stream
+/// at them (GIT_OPT_SET_SSL_CERT_LOCATIONS). Must run after the FAT mount and
+/// before the push. Once set, libgit2 verifies the server chain itself, so the
+/// push fails closed on an untrusted cert (the push callback returns PASSTHROUGH
+/// to honor that result — see the module docs).
+fn install_tls_trust_store() -> Result<()> {
+    fs::write(CA_BUNDLE_PATH, GITHUB_ROOTS_PEM)
+        .with_context(|| format!("writing CA bundle to {CA_BUNDLE_PATH}"))?;
+    // SAFETY: sets a process-global libgit2 option once, before any TLS work.
+    unsafe { git2::opts::set_ssl_cert_file(CA_BUNDLE_PATH) }
+        .context("git2::opts::set_ssl_cert_file")?;
+    log::info!(
+        "TLS trust store installed — {} B of GitHub roots at {CA_BUNDLE_PATH}",
+        GITHUB_ROOTS_PEM.len()
+    );
+    Ok(())
+}
+
 /// The whole publish (on the main task): init a fresh working copy, write a
 /// file, commit, and push to a fresh remote branch. Returns a one-line summary.
 fn git_publish() -> Result<String> {
@@ -304,13 +337,14 @@ fn push(repo: &Repository, refspec: &str) -> Result<()> {
         ))
     });
 
-    // SPIKE SHORTCUT — see module docs. libgit2 can't verify the chain (no CA
-    // wired in), so it asks us; we accept. Real verification is a follow-up.
+    // Real verification: libgit2's mbedTLS stream checks the server chain
+    // against the CA bundle install_tls_trust_store() loaded. PASSTHROUGH tells
+    // libgit2 to honor that result — the http transport maps it to
+    // `is_valid ? 0 : -1` (httpclient.c:805), so an untrusted cert FAILS the
+    // push (fail-closed). No blanket-accept.
     cbs.certificate_check(|_cert, host| {
-        log::warn!(
-            "cert-check BYPASSED for {host} — libgit2 mbedTLS stream has no CA (spike shortcut)"
-        );
-        Ok(CertificateCheckStatus::CertificateOk)
+        log::info!("verifying {host} TLS chain against embedded GitHub CA bundle");
+        Ok(CertificateCheckStatus::CertificatePassthrough)
     });
 
     {
