@@ -93,6 +93,13 @@ const CA_BUNDLE_PATH: &str = "/spiflash/ca.pem";
 /// SNTP first-sync budget (same as Spike 6).
 const SNTP_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// Stack for the dedicated git thread (see run()). libgit2's init→push chain
+/// measured ~67 KB on hardware and the push is deeper; 96 KB is the value proven
+/// on the main task before git moved off it. Sizing the thread — not the shared
+/// main-task stack — is the whole point of this task: the editor build no longer
+/// reserves it. Allocated from internal DRAM only while a push is running.
+const GIT_STACK: usize = 96 * 1024;
+
 fn main() -> Result<()> {
     // Required once before any esp-idf-svc call; some runtime patches only link
     // if this symbol is referenced. See esp-idf-template#71.
@@ -143,15 +150,30 @@ fn run() -> Result<()> {
     mount_fat().context("mounting flash-FAT")?;
     install_tls_trust_store().context("installing TLS trust store")?;
 
-    // Git work runs on the MAIN task, not a spawned thread. libgit2 (via mbedTLS
-    // cert validation and FATFS timestamping) calls time()/gettimeofday, whose
-    // newlib lock asserts when taken from a Rust std::thread but works on main
-    // (Spike 6 ran TLS on main fine). The main stack is sized for it in
-    // sdkconfig.defaults (CONFIG_ESP_MAIN_TASK_STACK_SIZE). Errors are LOGGED,
-    // not propagated, so the radio stays up and the monitor shows the result.
-    match git_publish() {
-        Ok(summary) => log::info!("✅ Spike 7 complete — {summary}"),
-        Err(e) => log::error!("❌ git_publish failed: {e:?}"),
+    // Git runs on a DEDICATED large-stack thread, not the main task. libgit2's
+    // call chain is deeply stack-hungry (see GIT_STACK), and sizing the *shared*
+    // main-task stack for it made the editor build over-reserve ~80 KB. Its own
+    // thread lets the main task stay small (sdkconfig.defaults, back to 12 KB).
+    //
+    // NB: an earlier iteration ran git on a std::thread and appeared to fail,
+    // which we wrongly blamed on a "newlib time() lock that only works on main".
+    // The real cause was the default 4 KB pthread stack overflowing — the same
+    // chain just smashed the stack sooner. An explicit stack_size fixes it; there
+    // is no thread-vs-main limitation. (Verified: the push below runs mbedTLS +
+    // FATFS timestamping off-main.)
+    //
+    // Errors are LOGGED, not propagated, so the radio stays up (_wifi is held on
+    // this task) and the monitor shows the result. join() blocks main until git
+    // finishes; a panic almost certainly means GIT_STACK is too small.
+    let git = std::thread::Builder::new()
+        .name("git".into())
+        .stack_size(GIT_STACK)
+        .spawn(git_publish)
+        .context("spawning git thread")?;
+    match git.join() {
+        Ok(Ok(summary)) => log::info!("✅ Spike 7 complete — {summary}"),
+        Ok(Err(e)) => log::error!("❌ git_publish failed: {e:?}"),
+        Err(_) => log::error!("❌ git thread panicked — likely stack overflow, raise GIT_STACK"),
     }
 
     log::info!("idling with Wi-Fi up — press reset to re-run");
@@ -251,8 +273,9 @@ fn install_tls_trust_store() -> Result<()> {
     Ok(())
 }
 
-/// The whole publish (on the main task): init a fresh working copy, write a
-/// file, commit, and push to a fresh remote branch. Returns a one-line summary.
+/// The whole publish (runs on the dedicated git thread — see run()): init a fresh
+/// working copy, write a file, commit, and push to a fresh remote branch. Returns
+/// a one-line summary.
 fn git_publish() -> Result<String> {
     log::info!("git_publish started — free heap {}", free_heap());
     let unix = now_unix();
