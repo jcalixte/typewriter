@@ -220,13 +220,17 @@ up.
       Gates the first non-dev distribution; nothing to implement until then.
 - [~] Fold the push into the editor's `git` module (persistent clone +
       fast-forward) over HTTPS+PAT — **increment A DONE + hardware-verified
-      2026-07-07** (`git_sync.rs`, commit `afa61de`): `clone` + persistent `open`
-      + fast-forward push proven on device. Remaining: **B** = divergence/merge
-      path + the AM_RDO-clearing unlink shim (fetch/repack need read-only delete
-      on FAT — POSIX chmod can't clear it, verified); **C** = lift the logic into
-      a reusable `git` module wired to the editor's `Ctrl-G`. Storage caveat: the
-      real notes repo is 3.9 GB / 562 MiB pack — needs shallow+sparse or a
-      dedicated small repo (ADR-007), can't clone whole.
+      2026-07-07** (`git_sync.rs`): `clone` + persistent `open` + fast-forward push
+      proven on device (`afa61de`), plus **recursive delete on FATFS solved**
+      (`8dece73`): the EACCES on wiping a repo dir was `std::fs::remove_dir_all`
+      (uses `openat`/`unlinkat`/`fdopendir`, unimplemented in esp-idf's path-based
+      FATFS VFS), NOT read-only — a diagnostic walk showed every entry writable
+      (`ro=false`). Fix = a path-based `remove_tree`; the `p_open`/`p_creat` shim
+      (`39e1155`) stays to keep objects writable. Remaining: **B** = divergence/
+      merge path (merge commit on FATFS; low value for a single writer); **C** =
+      lift the logic into a reusable `git` module wired to the editor's `Ctrl-G`.
+      Storage caveat: the real notes repo is 3.9 GB / 562 MiB pack — needs
+      shallow+sparse or a dedicated small repo (ADR-007), can't clone whole.
 - [x] Move git to a dedicated large-stack task so the shared main-task stack (and
       the editor build) can drop back — **DONE + hardware-verified 2026-07-06**.
       `git_publish` now runs on its own `std::thread` (`GIT_STACK = 96 KB` via
