@@ -107,13 +107,18 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     -Wno-error=implicit-int
 )
 
-# FATFS can't do POSIX rename-replace (f_rename fails if the target exists) and
-# has no hardlinks, so libgit2's p_rename (link-then-rename) can't overwrite the
-# config/refs/HEAD/index files its lock→commit writes depend on. Compile
-# posix.c's p_rename under a throwaway name — scoped to this ONE file so no other
-# TU is touched — and provide our own remove-then-rename p_rename in esp_stubs.c
-# (p_rename is the single atomic-rename path: filebuf/futils/indexer/refdb_fs).
+# posix.c holds three low-level fs primitives we must replace for FATFS; compile
+# the originals under throwaway names — scoped to this ONE file so no other TU is
+# touched — and provide FATFS-correct versions in esp_stubs.c:
+#   p_rename — FATFS f_rename can't replace an existing target and FAT has no
+#     hardlinks, so libgit2's link-then-rename can't overwrite config/refs/HEAD/
+#     index during its lock→commit. Ours does remove-then-rename.
+#   p_open / p_creat — libgit2 creates objects/packs mode 0444; FATFS turns that
+#     into AM_RDO and then won't f_unlink them (and chmod can't clear it), so
+#     objects become undeletable (breaks re-clone/fetch/repack). Ours force
+#     owner-write so nothing is ever created read-only.
 set_source_files_properties(
     "${LG2}/src/util/posix.c"
-    PROPERTIES COMPILE_DEFINITIONS "p_rename=libgit2_unused_p_rename"
+    PROPERTIES COMPILE_DEFINITIONS
+        "p_rename=libgit2_unused_p_rename;p_open=libgit2_unused_p_open;p_creat=libgit2_unused_p_creat"
 )

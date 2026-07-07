@@ -14,8 +14,17 @@
 #include <pwd.h>
 #include <errno.h>
 #include <sys/time.h>
-#include <sys/stat.h> /* stat() for the existence-gated utimes() below */
-#include <stdio.h>   /* remove(), rename() for the p_rename replacement */
+#include <sys/stat.h> /* stat() + S_IWUSR for utimes()/p_open() below */
+#include <stdio.h>    /* remove(), rename() for the p_rename replacement */
+#include <fcntl.h>    /* open(), O_* flags for the p_open()/p_creat() shims */
+#include <stdarg.h>   /* va_list for the variadic p_open() */
+
+#ifndef O_BINARY
+#define O_BINARY 0 /* no text/binary distinction on esp-idf */
+#endif
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0 /* no exec() on esp-idf, so close-on-exec is a no-op */
+#endif
 
 /* One implicit root user/group. */
 uid_t getuid(void)  { return 0; }
@@ -105,4 +114,33 @@ int p_rename(const char *from, const char *to)
 {
 	(void)remove(to); /* ignore ENOENT when `to` doesn't exist yet */
 	return rename(from, to) == 0 ? 0 : -1;
+}
+
+/* libgit2 creates loose objects and packfiles with mode 0444 (read-only) — the
+ * git convention that objects are immutable. FATFS honours that as the AM_RDO
+ * attribute and then refuses to f_unlink the file (EACCES), and esp-idf's FATFS
+ * VFS chmod() can't clear AM_RDO — so a written object can NEVER be deleted,
+ * which breaks re-clone recovery and (later) fetch/repack. We force owner-write
+ * into every create mode so libgit2's files stay writable and therefore
+ * deletable. Immutability is only a safety hint on an appliance where nothing
+ * but libgit2 touches these files. posix.c's originals are compiled as
+ * libgit2_unused_p_open/p_creat (see the component CMakeLists), so these are the
+ * definitions every other TU links against. Mirrors posix.c's p_open/p_creat. */
+int p_open(const char *path, int flags, ...)
+{
+	mode_t mode = 0;
+	if (flags & O_CREAT) {
+		va_list arg_list;
+		va_start(arg_list, flags);
+		mode = (mode_t)va_arg(arg_list, int);
+		va_end(arg_list);
+		mode |= S_IWUSR; /* never create read-only → FATFS won't set AM_RDO */
+	}
+	return open(path, flags | O_BINARY | O_CLOEXEC, mode);
+}
+
+int p_creat(const char *path, mode_t mode)
+{
+	return open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY | O_CLOEXEC,
+	            mode | S_IWUSR);
 }
