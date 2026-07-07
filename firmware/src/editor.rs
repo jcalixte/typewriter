@@ -37,6 +37,9 @@ pub enum Mode {
     Insert,
     /// Read-only reading: keys scroll the viewport, edits are locked out.
     View,
+    /// `:` command line — keys accumulate a command shown in the status strip;
+    /// Enter runs it, Esc cancels. Currently just `:fmt`.
+    Command,
 }
 
 /// A pending operator awaiting a motion or text object (`d`elete / `c`hange).
@@ -64,6 +67,8 @@ pub struct Editor {
     pending_obj: Option<bool>,
     /// First `g` of a `gg` awaiting the second.
     pending_g: bool,
+    /// The `:` command line being typed (valid only in `Mode::Command`).
+    cmdline: String,
 }
 
 /// One wrapped display line: its text and the buffer offset of its first char.
@@ -83,6 +88,7 @@ impl Editor {
             pending_op: None,
             pending_obj: None,
             pending_g: false,
+            cmdline: String::new(),
         }
     }
 
@@ -100,6 +106,7 @@ impl Editor {
             Mode::Insert => self.insert_key(key),
             Mode::Normal => self.normal_key(key),
             Mode::View => self.view_key(key),
+            Mode::Command => self.command_key(key),
         }
     }
 
@@ -109,7 +116,7 @@ impl Editor {
         match key {
             Key::Char('\t') => self.insert_str(TAB),
             Key::Char(c) => self.insert_char(c),
-            Key::Enter => self.insert_char('\n'),
+            Key::Enter => self.insert_newline(),
             Key::Backspace => self.backspace(),
             Key::DeleteWord => self.delete_word_before(),
             Key::DeleteLine => self.delete_to_line_start(),
@@ -255,9 +262,75 @@ impl Editor {
                 self.mode = Mode::Insert;
             }
             'v' | 'V' => self.mode = Mode::View,
+            ':' => {
+                self.reset_pending();
+                self.cmdline.clear();
+                self.mode = Mode::Command;
+                return;
+            }
             _ => {}
         }
         self.count = 0;
+    }
+
+    // --- Command mode (`:`) ------------------------------------------------
+
+    fn command_key(&mut self, key: Key) {
+        match key {
+            Key::Char(c) => self.cmdline.push(c),
+            Key::Backspace => {
+                // Backspace on the empty command line cancels back to Normal.
+                if self.cmdline.pop().is_none() {
+                    self.mode = Mode::Normal;
+                }
+            }
+            Key::Enter => {
+                self.execute_command();
+                self.cmdline.clear();
+                self.mode = Mode::Normal;
+            }
+            Key::Escape => {
+                self.cmdline.clear();
+                self.mode = Mode::Normal;
+            }
+            // Word/line deletes and Tab aren't meaningful on a short command line.
+            _ => {}
+        }
+    }
+
+    /// Run the typed `:` command. Unknown commands are silently ignored.
+    fn execute_command(&mut self) {
+        match self.cmdline.trim() {
+            "fmt" => self.format_buffer(),
+            _ => {}
+        }
+    }
+
+    /// `:fmt` — normalize the buffer (align tables, collapse duplicate blank
+    /// lines, strip trailing whitespace) and keep the caret on roughly the same
+    /// line (buffer length changes, so exact restoration isn't possible).
+    fn format_buffer(&mut self) {
+        let row = self.text[..self.caret].bytes().filter(|&b| b == b'\n').count();
+        self.text = format_markdown(&self.text);
+        // Land the caret at the start of the same logical line, clamped.
+        let total = self.text.bytes().filter(|&b| b == b'\n').count() + 1;
+        let target = row.min(total - 1);
+        self.caret = if target == 0 {
+            0
+        } else {
+            let mut seen = 0;
+            let mut off = self.text.len();
+            for (i, b) in self.text.bytes().enumerate() {
+                if b == b'\n' {
+                    seen += 1;
+                    if seen == target {
+                        off = i + 1;
+                        break;
+                    }
+                }
+            }
+            off
+        };
     }
 
     fn reset_pending(&mut self) {
@@ -411,6 +484,29 @@ impl Editor {
     fn insert_str(&mut self, s: &str) {
         self.text.insert_str(self.caret, s);
         self.caret += s.len();
+    }
+
+    /// Enter in Insert mode, with Markdown list continuation. At the END of a
+    /// list line (`- `/`* `/`+ ` or `N. `), start the next item automatically —
+    /// same bullet, or the next number — preserving indentation. Enter on an
+    /// otherwise-empty item strips the marker instead (exits the list). Anywhere
+    /// else (mid-line, or a non-list line) it's a plain newline.
+    fn insert_newline(&mut self) {
+        let le = self.line_end(self.caret);
+        if self.caret == le {
+            let ls = self.line_start(self.caret);
+            if let Some((next, cur_len, content_empty)) = list_marker(&self.text[ls..le]) {
+                if content_empty {
+                    // Empty item: drop the marker, leaving a blank line.
+                    self.text.replace_range(ls..ls + cur_len, "");
+                    self.caret = ls;
+                } else {
+                    self.insert_str(&format!("\n{next}"));
+                }
+                return;
+            }
+        }
+        self.insert_char('\n');
     }
 
     fn backspace(&mut self) {
@@ -628,29 +724,50 @@ impl Editor {
     // --- Rendering ---------------------------------------------------------
 
     /// Wrap the buffer into display lines, tracking each line's buffer offset.
+    /// Soft-wrap at word boundaries: a logical line too long for `COLS` breaks at
+    /// the last space that fits, so words are never split — except a single word
+    /// wider than the panel, which hard-breaks at `COLS` as a fallback. Buffer is
+    /// ASCII (1 byte = 1 char), so a char index within a line is also a byte
+    /// offset (matches the rest of `editor.rs`; UTF-8 correctness is v0.2 work).
     fn layout(&self) -> Vec<Line> {
-        let mut lines = vec![Line {
-            start: 0,
-            text: String::new(),
-        }];
-        let mut idx = 0usize;
-        for ch in self.text.chars() {
-            if ch == '\n' {
-                idx += 1;
-                lines.push(Line {
-                    start: idx,
-                    text: String::new(),
-                });
-                continue;
+        let mut lines: Vec<Line> = Vec::new();
+        let mut base = 0usize; // buffer offset of the current logical line's start
+        for logical in self.text.split('\n') {
+            let chars: Vec<char> = logical.chars().collect();
+            if chars.is_empty() {
+                lines.push(Line { start: base, text: String::new() });
+            } else {
+                let mut c = 0usize; // char index within `logical`
+                while c < chars.len() {
+                    let remaining = chars.len() - c;
+                    let take = if remaining <= COLS {
+                        remaining
+                    } else {
+                        // Break at the last space within the COLS-wide window;
+                        // include that space on this line. No space → hard break.
+                        let window = c + COLS;
+                        let mut brk = None;
+                        let mut p = window;
+                        while p > c {
+                            p -= 1;
+                            if chars[p] == ' ' {
+                                brk = Some(p);
+                                break;
+                            }
+                        }
+                        match brk {
+                            Some(sp) if sp > c => sp + 1 - c,
+                            _ => COLS,
+                        }
+                    };
+                    lines.push(Line {
+                        start: base + c,
+                        text: chars[c..c + take].iter().collect(),
+                    });
+                    c += take;
+                }
             }
-            if lines.last().unwrap().text.chars().count() >= COLS {
-                lines.push(Line {
-                    start: idx,
-                    text: String::new(),
-                });
-            }
-            lines.last_mut().unwrap().text.push(ch);
-            idx += 1;
+            base += chars.len() + 1; // + the '\n' that `split` consumed
         }
         lines
     }
@@ -688,6 +805,18 @@ impl Editor {
         }
     }
 
+    /// Is the logical line starting at `ls` a Markdown ATX heading — 1–6 `#`
+    /// followed by a space? (Used to render heading lines bold.)
+    fn is_heading_at(&self, ls: usize) -> bool {
+        let b = self.text.as_bytes();
+        let mut i = ls;
+        while i < b.len() && b[i] == b'#' {
+            i += 1;
+        }
+        let hashes = i - ls;
+        (1..=6).contains(&hashes) && b.get(i) == Some(&b' ')
+    }
+
     /// Render the current state into a frame. `insert_cursor_on` gates the
     /// Insert-mode bar caret (suppressed while typing, shown after a pause);
     /// Normal draws a block caret and View draws none, regardless.
@@ -700,14 +829,18 @@ impl Editor {
         let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
         let end = (self.scroll_top + ROWS).min(lay.len());
         for (vis, li) in (self.scroll_top..end).enumerate() {
-            Text::with_baseline(
-                &lay[li].text,
-                Point::new(0, vis as i32 * CH),
-                text_style,
-                Baseline::Top,
-            )
-            .draw(&mut f)
-            .unwrap();
+            let y = vis as i32 * CH;
+            Text::with_baseline(&lay[li].text, Point::new(0, y), text_style, Baseline::Top)
+                .draw(&mut f)
+                .unwrap();
+            // Markdown heading (`#`..`######` + space): faux-bold by double-
+            // striking the whole display line 1px to the right (no bold Latin-9
+            // font exists). Checks the logical line so wrapped headings stay bold.
+            if self.is_heading_at(self.line_start(lay[li].start)) {
+                Text::with_baseline(&lay[li].text, Point::new(1, y), text_style, Baseline::Top)
+                    .draw(&mut f)
+                    .unwrap();
+            }
         }
 
         if crow >= self.scroll_top && crow < self.scroll_top + ROWS {
@@ -751,10 +884,21 @@ impl Editor {
     /// Draw the mode indicator (and any pending count/operator) in the bottom
     /// strip, in the small 6×10 font so it fits below the 13 text rows.
     fn draw_status(&self, f: &mut Frame) {
+        // Command mode shows the command line itself, vim-style, instead of a
+        // mode name.
+        if self.mode == Mode::Command {
+            let s = format!(":{}", self.cmdline);
+            let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+            Text::with_baseline(&s, Point::new(2, ROWS as i32 * CH + 1), style, Baseline::Top)
+                .draw(f)
+                .unwrap();
+            return;
+        }
         let name = match self.mode {
             Mode::Normal => "NORMAL",
             Mode::Insert => "INSERT",
             Mode::View => "VIEW",
+            Mode::Command => unreachable!(),
         };
         let mut s = format!(" -- {name} --");
         if self.count > 0 {
@@ -777,5 +921,188 @@ impl Editor {
         Text::with_baseline(&s, Point::new(2, ROWS as i32 * CH + 1), style, Baseline::Top)
             .draw(f)
             .unwrap();
+    }
+}
+
+/// Parse a Markdown list marker at the start of `line`. Returns
+/// `(next_marker, current_marker_len, content_empty)` where `next_marker` is what
+/// the following item should start with (same bullet, or the incremented number,
+/// preserving indentation), `current_marker_len` is the byte length of this
+/// line's marker prefix, and `content_empty` is whether anything follows it.
+/// Returns `None` when the line isn't a list item. ASCII throughout (leading
+/// spaces, bullets, digits, `. ` are all single-byte).
+fn list_marker(line: &str) -> Option<(String, usize, bool)> {
+    let indent = line.len() - line.trim_start_matches(' ').len();
+    let rest = &line[indent..];
+    for bullet in ["- ", "* ", "+ "] {
+        if rest.starts_with(bullet) {
+            let cur_len = indent + bullet.len();
+            let content_empty = line[cur_len..].trim().is_empty();
+            return Some((format!("{}{bullet}", &line[..indent]), cur_len, content_empty));
+        }
+    }
+    // Ordered: <digits>`. ` → continue as the next number.
+    let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits > 0 && rest[digits..].starts_with(". ") {
+        let cur_len = indent + digits + 2;
+        let content_empty = line[cur_len..].trim().is_empty();
+        let n: usize = rest[..digits].parse().unwrap_or(0);
+        return Some((format!("{}{}. ", &line[..indent], n + 1), cur_len, content_empty));
+    }
+    None
+}
+
+// --- `:fmt` Markdown normalizer ----------------------------------------------
+
+/// Column alignment parsed from a table's `|:--:|` separator row.
+#[derive(Clone, Copy)]
+enum Align {
+    Left,
+    Right,
+    Center,
+    None,
+}
+
+/// Normalize a Markdown buffer for `:fmt`: strip trailing whitespace, align
+/// pipe tables, and collapse runs of blank lines to a single blank (dropping
+/// trailing blanks). Deliberately does NOT reflow paragraphs — the buffer's
+/// logical line breaks are the writer's, and display wrapping is soft (see
+/// `layout`). ASCII throughout (widths are char counts).
+fn format_markdown(text: &str) -> String {
+    // 1. Trailing-whitespace strip, per line.
+    let stripped: Vec<String> = text.split('\n').map(|l| l.trim_end().to_string()).collect();
+
+    // 2. Reformat pipe-table blocks in place; pass everything else through.
+    let mut piped: Vec<String> = Vec::with_capacity(stripped.len());
+    let mut i = 0;
+    while i < stripped.len() {
+        if let Some(len) = table_block_len(&stripped[i..]) {
+            piped.extend(format_table(&stripped[i..i + len]));
+            i += len;
+        } else {
+            piped.push(stripped[i].clone());
+            i += 1;
+        }
+    }
+
+    // 3. Collapse 2+ consecutive blank lines to one; drop trailing blanks.
+    let mut out: Vec<String> = Vec::with_capacity(piped.len());
+    let mut blank_run = 0;
+    for line in piped {
+        if line.is_empty() {
+            blank_run += 1;
+            if blank_run == 1 {
+                out.push(String::new());
+            }
+        } else {
+            blank_run = 0;
+            out.push(line);
+        }
+    }
+    while out.last().is_some_and(|l| l.is_empty()) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
+/// Split a table row into trimmed cells, dropping the empty cells that leading /
+/// trailing `|` produce (`| a | b |` → `["a", "b"]`).
+fn table_cells(line: &str) -> Vec<String> {
+    let t = line.trim();
+    let t = t.strip_prefix('|').unwrap_or(t);
+    let t = t.strip_suffix('|').unwrap_or(t);
+    t.split('|').map(|c| c.trim().to_string()).collect()
+}
+
+/// A separator row: every cell is dashes with optional edge colons (`:--`, `-:`,
+/// `:-:`, `---`) and at least one dash.
+fn is_separator_row(line: &str) -> bool {
+    if !line.contains('|') {
+        return false;
+    }
+    let cells = table_cells(line);
+    !cells.is_empty()
+        && cells.iter().all(|c| {
+            !c.is_empty() && c.contains('-') && c.chars().all(|ch| ch == '-' || ch == ':')
+        })
+}
+
+/// If `lines[0..]` starts a pipe table (header row + separator row + data rows),
+/// return its length in lines; else `None`.
+fn table_block_len(lines: &[String]) -> Option<usize> {
+    if lines.len() < 2 || !lines[0].contains('|') || !is_separator_row(&lines[1]) {
+        return None;
+    }
+    let mut n = 2;
+    while n < lines.len() && !lines[n].is_empty() && lines[n].contains('|') {
+        n += 1;
+    }
+    Some(n)
+}
+
+/// Reformat one detected table block: pad every cell to its column's width and
+/// rebuild the separator row, honoring per-column alignment colons.
+fn format_table(block: &[String]) -> Vec<String> {
+    let rows: Vec<Vec<String>> = block.iter().map(|l| table_cells(l)).collect();
+    let aligns: Vec<Align> = rows[1]
+        .iter()
+        .map(|c| match (c.starts_with(':'), c.ends_with(':')) {
+            (true, true) => Align::Center,
+            (true, false) => Align::Left,
+            (false, true) => Align::Right,
+            (false, false) => Align::None,
+        })
+        .collect();
+    let ncols = rows.iter().map(|r| r.len()).max().unwrap_or(0).max(aligns.len());
+
+    // Column widths from content rows (min 3 so the separator stays readable).
+    let mut width = vec![3usize; ncols];
+    for (ri, row) in rows.iter().enumerate() {
+        if ri == 1 {
+            continue; // the separator's own width doesn't constrain the column
+        }
+        for (ci, cell) in row.iter().enumerate() {
+            width[ci] = width[ci].max(cell.chars().count());
+        }
+    }
+    let align_of = |ci: usize| aligns.get(ci).copied().unwrap_or(Align::None);
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (ri, row) in rows.iter().enumerate() {
+        let cells: Vec<String> = (0..ncols)
+            .map(|ci| {
+                let w = width[ci];
+                if ri == 1 {
+                    match align_of(ci) {
+                        Align::Left => format!(":{}", "-".repeat(w - 1)),
+                        Align::Right => format!("{}:", "-".repeat(w - 1)),
+                        Align::Center => format!(":{}:", "-".repeat(w - 2)),
+                        Align::None => "-".repeat(w),
+                    }
+                } else {
+                    pad_cell(row.get(ci).map(String::as_str).unwrap_or(""), w, align_of(ci))
+                }
+            })
+            .collect();
+        out.push(format!("| {} |", cells.join(" | ")));
+    }
+    out
+}
+
+/// Pad `cell` to `w` columns per `align` (left/none pad right, right pads left,
+/// center splits). Over-wide cells are returned unchanged.
+fn pad_cell(cell: &str, w: usize, align: Align) -> String {
+    let len = cell.chars().count();
+    if len >= w {
+        return cell.to_string();
+    }
+    let pad = w - len;
+    match align {
+        Align::Right => format!("{}{cell}", " ".repeat(pad)),
+        Align::Center => {
+            let l = pad / 2;
+            format!("{}{cell}{}", " ".repeat(l), " ".repeat(pad - l))
+        }
+        _ => format!("{cell}{}", " ".repeat(pad)),
     }
 }
