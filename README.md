@@ -64,7 +64,7 @@ each decision is weighted against the user-facing requirements lives in
 | UI layer      | Custom thin widget layer                                                                            | Ratatui's API _shape_ without its char-grid terminal model ([ADR-002](docs/adr.md#adr-002-ui-strategy--custom-widgets-on-embedded-graphics-not-ratatui)).                                                                                                  |
 | Editor core   | Custom, in-tree (`src/editor.rs`)                                                                   | Modal (Normal / Insert / View / Command), motions, operators + text objects. Plain-ASCII buffer until the v0.2 UTF-8 work.                                                                                                                                 |
 | USB host      | `esp-idf` TinyUSB bindings                                                                          | Boot-protocol HID; verified on hardware (Spike 4).                                                                                                                                                                                                         |
-| Git           | **libgit2 via `git2`**, built as an esp-idf component with mbedTLS (`firmware/components/libgit2/`) | `gix` was the original pick but can't push over HTTPS — the [ADR-004](docs/adr.md#adr-004-git-implementation--gitoxide-gix) kill-switch fired. On-device add → commit → push verified.                                                                     |
+| Git           | **libgit2 via `git2`**, built as an esp-idf component with mbedTLS (`firmware/components/libgit2/`) | `gix` was the original pick but can't push over HTTPS — the [ADR-004](docs/adr.md#adr-004-git-implementation--gitoxide-gix) kill-switch fired ([postmortem](docs/postmortems/2026-07-05-spike7-gix-https-push.md)). On-device add → commit → push verified.                                                                     |
 | TLS           | `mbedtls` via `esp-idf`                                                                             | GitHub HTTPS with the chain checked against embedded roots; ≈35 KB heap measured during handshake (Spike 6).                                                                                                                                               |
 | Auth          | HTTPS + GitHub PAT                                                                                  | v0.1 bakes credentials in at build time via `TW_*` env vars; provisioning + at-rest protection is [ADR-011](docs/adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest) (open), on-device settings land in v0.9. |
 | Filesystem    | FAT on SD (`esp_vfs_fat`)                                                                           | Working copy lives here. Internal LittleFS holds config.                                                                                                                                                                                                   |
@@ -144,8 +144,9 @@ package.json              pnpm + oxfmt — formatting toolchain for docs/JSON
 - [ ] Heap fragmentation over a long writing session with the PSRAM allocator.
 - [ ] Real-world e-ink ghosting with the current partial-refresh cadence.
 
-Retired risks (gix push, TinyUSB HID stability, TLS heap, libgit2-on-xtensa)
-and how they died: [`docs/spikes.md`](docs/spikes.md) and
+Retired risks ([gix push](docs/postmortems/2026-07-05-spike7-gix-https-push.md),
+TinyUSB HID stability, TLS heap, libgit2-on-xtensa) and how they died:
+[`docs/spikes.md`](docs/spikes.md) and
 [`docs/postmortems/`](docs/postmortems/).
 
 These get resolved by writing code, not by deciding harder.
