@@ -1,9 +1,9 @@
 # Roadmap — version details
 
 Frequent releases. Each version is a usable artifact, not a checkpoint.
-The macro-plan (Gantt) lives in the [README](../README.md#roadmap); this file
-holds the per-version scope. The user-facing requirements and engineering
-targets each release feeds into are tracked in [`qfd.md`](qfd.md).
+This file holds the macro-plan (Gantt below) and the per-version scope. The
+user-facing requirements and engineering targets each release feeds into are
+tracked in [`qfd.md`](qfd.md).
 
 ## Status — synced 2026-07-07
 
@@ -15,6 +15,33 @@ are unchanged — they track shippable device releases, not core progress.
 
 Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
 inline `(✓)` marks the done half of a split item.
+
+## Macro-plan
+
+Original baseline (June 2026 start, not re-dated) — actuals are in the Status
+block above.
+
+```mermaid
+gantt
+    title Typoena — macro plan
+    dateFormat YYYY-MM-DD
+    axisFormat %b %Y
+    section MVP
+    v0.1 it writes, it pushes :v01, 2026-06-01, 4w
+    section Vim
+    v0.2 navigation           :v02, after v01, 3w
+    v0.2.5 international input :v025, after v02, 2w
+    v0.3 editing              :v03, after v025, 3w
+    v0.4 visual + ex          :v04, after v03, 2w
+    section Files
+    v0.5 palette + multi-file :v05, after v04, 3w
+    v0.6 markdown             :v06, after v05, 2w
+    v0.7 search + git         :v07, after v06, 3w
+    section Hardware polish
+    v0.8 battery + sleep      :v08, after v07, 4w
+    v0.9 robustness           :v09, after v08, 4w
+    v1.0 polish               :v10, after v09, 4w
+```
 
 ---
 
@@ -37,9 +64,9 @@ lives in the `git_sync` / `sd_fat` spike bins, not `main.rs`.
 - [x] Wi-Fi credentials + remote URL + PAT + author baked into the binary at
       build time via env vars (no NVS, no on-device provisioning UI in v0.1)
 - [~] `Ctrl-G` runs: `git add .` → commit with an ISO-8601 timestamp message →
-      `git push`; on push failure, `git pull --no-edit` then retry the push
-      (no-op short-circuit when nothing is staged). Proven on device in the
-      `git_sync` spike (✓); not yet wired to the editor.
+  `git push`; on push failure, `git pull --no-edit` then retry the push
+  (no-op short-circuit when nothing is staged). Proven on device in the
+  `git_sync` spike (✓); not yet wired to the editor.
 - [~] Partial refresh on edits (✓ Spike 5); full refresh on save — save not wired yet
 
 Out of scope: Vim, palette, multiple files, branches, conflict handling.
