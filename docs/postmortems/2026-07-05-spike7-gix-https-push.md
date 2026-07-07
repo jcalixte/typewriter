@@ -207,16 +207,26 @@ up.
       HTTPS (needs a non-fast-forward against a real remote to trigger it).
 - [x] On-device `init → commit → push` over mbedTLS HTTPS — **DONE +
       hardware-verified 2026-07-06** (see "On-device push COMPLETE").
-- [ ] Revise the `git` module section of the technical doc (it still describes
-      gix crates/transport) now the device path is confirmed.
+- [x] Revise the `git` module section of the technical doc — **DONE 2026-07-07**
+      (commit `2f2f122`): gix → libgit2/git2, transport settled, 96 KB stack,
+      persistent-clone flow.
 - [x] Real cert trust-store (drop the `certificate_check` bypass) — **DONE +
       hardware-verified 2026-07-06** (commit `2519ed8`; see "Shortcuts — status").
 - [x] Settle the product sync transport — **DECIDED 2026-07-06: HTTPS + PAT**
       (on-device libgit2 is HTTPS-only; no libssh2 port).
-- [ ] Retire the last shortcut: no PAT-in-flash (ADR-005) — source the token at
-      provisioning / from secure storage instead of `env!()` into the image.
-- [ ] Fold the push into the editor's `git` module (persistent clone +
-      fast-forward, not a fresh per-boot branch) over the HTTPS+PAT remote.
+- [~] Retire the last shortcut: no PAT-in-flash — **decision documented, deferred**
+      as [ADR-011](../adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest)
+      (open): on-device paste → eFuse-encrypted NVS + a per-device fine-grained PAT.
+      Gates the first non-dev distribution; nothing to implement until then.
+- [~] Fold the push into the editor's `git` module (persistent clone +
+      fast-forward) over HTTPS+PAT — **increment A DONE + hardware-verified
+      2026-07-07** (`git_sync.rs`, commit `afa61de`): `clone` + persistent `open`
+      + fast-forward push proven on device. Remaining: **B** = divergence/merge
+      path + the AM_RDO-clearing unlink shim (fetch/repack need read-only delete
+      on FAT — POSIX chmod can't clear it, verified); **C** = lift the logic into
+      a reusable `git` module wired to the editor's `Ctrl-G`. Storage caveat: the
+      real notes repo is 3.9 GB / 562 MiB pack — needs shallow+sparse or a
+      dedicated small repo (ADR-007), can't clone whole.
 - [x] Move git to a dedicated large-stack task so the shared main-task stack (and
       the editor build) can drop back — **DONE + hardware-verified 2026-07-06**.
       `git_publish` now runs on its own `std::thread` (`GIT_STACK = 96 KB` via
