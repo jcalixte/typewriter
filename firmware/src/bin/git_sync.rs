@@ -76,6 +76,15 @@ const REPO_DIR: &str = "/spiflash/repo";
 /// The tracked file we append to. Stands in for the editor's note file(s).
 const NOTES_FILE: &str = "notes.md";
 
+/// Debug/recovery + the read-only-delete test knob: when true, wipe REPO_DIR and
+/// re-clone from scratch every boot instead of opening the existing clone.
+/// Deleting the existing clone's objects only succeeds with the esp_stubs
+/// p_open/p_creat fix (libgit2 objects are otherwise mode 0444 → AM_RDO →
+/// un-deletable on FAT). Ships **false** — the product opens the persistent
+/// clone and fast-forwards; flip true to validate the RO-delete fix or to force
+/// a clean re-clone.
+const RECLONE_EACH_BOOT: bool = false;
+
 /// GitHub's root CAs, embedded so the push can verify the server's TLS chain.
 /// Shared with `git_push` (same file). Written to FAT and handed to libgit2 via
 /// GIT_OPT_SET_SSL_CERT_LOCATIONS.
@@ -235,6 +244,11 @@ fn publish() -> Result<String> {
 /// whether a clone happened. Clone carries the auth + cert callbacks (the remote
 /// may be private, and the TLS chain is verified either way).
 fn open_or_clone() -> Result<(Repository, bool)> {
+    if RECLONE_EACH_BOOT && Path::new(REPO_DIR).exists() {
+        log::warn!("RECLONE_EACH_BOOT — removing {REPO_DIR} to re-clone from scratch");
+        fs::remove_dir_all(REPO_DIR)
+            .context("RECLONE_EACH_BOOT wipe — deletes libgit2 objects, needs the RO-delete fix")?;
+    }
     match Repository::open(REPO_DIR) {
         Ok(repo) => {
             log::info!("opened existing clone at {REPO_DIR}");
