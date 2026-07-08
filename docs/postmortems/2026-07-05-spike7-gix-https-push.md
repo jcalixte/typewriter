@@ -10,7 +10,7 @@
 > [`../v0.1-mvp-technical.md`](../v0.1-mvp-technical.md#hardware-bring-up-order),
 > git impl [ADR-004](../adr.md#adr-004-git-implementation--gitoxide-gix), auth
 > [ADR-005](../adr.md#adr-005-auth--https--github-personal-access-token).
-> Spike program: [`../../spikes/spike7-git-push/`](../../spikes/spike7-git-push/).
+> Spike program: [`../../spikes/spike7-git-push/`](../../spikes/spike7-git-push/README.md).
 
 ## Summary
 
@@ -34,7 +34,7 @@ is met at the library level.
 **Decision:** take the fallback the risk table already names — `libgit2` via the
 [`git2`](https://docs.rs/git2) crate — keeping ADR-005 (HTTPS + PAT) intact.
 Proved the full `add → commit → push` sequence on desktop
-([`spikes/spike7-git-push`](../../spikes/spike7-git-push/)).
+([`spikes/spike7-git-push`](../../spikes/spike7-git-push/README.md)).
 
 ## Why not the alternatives
 

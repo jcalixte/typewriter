@@ -28,7 +28,7 @@ rewrite.
 The board is on the bench and bring-up is largely done — per-spike results
 live in [`spikes.md`](spikes.md) and
 [`v0.1-mvp-technical.md`](v0.1-mvp-technical.md#hardware-bring-up-order),
-with failure write-ups in [`postmortems/`](postmortems/). Notable: the
+with failure write-ups in [`postmortems/`](postmortems/README.md). Notable: the
 keyboard runs bus-powered on the S3's native USB port, and SD wiring is
 proven on shared SPI2 but blocked on a compatible ≤32 GB card
 ([postmortem](postmortems/2026-07-05-spike3-sd-cmd59.md)).

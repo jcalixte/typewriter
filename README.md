@@ -9,7 +9,7 @@ runs on it.
 > in spikes. No release has shipped yet — v0.1 is blocked on SD (waiting on a
 > compatible card), the boot splash, and wiring the save/publish path into the
 > app binary. Live per-item status: [`docs/roadmap.md`](docs/roadmap.md) ·
-> failure write-ups: [`docs/postmortems/`](docs/postmortems/).
+> failure write-ups: [`docs/postmortems/`](docs/postmortems/README.md).
 
 ---
 
@@ -147,6 +147,6 @@ package.json              pnpm + oxfmt — formatting toolchain for docs/JSON
 Retired risks ([gix push](docs/postmortems/2026-07-05-spike7-gix-https-push.md),
 TinyUSB HID stability, TLS heap, libgit2-on-xtensa) and how they died:
 [`docs/spikes.md`](docs/spikes.md) and
-[`docs/postmortems/`](docs/postmortems/).
+[`docs/postmortems/`](docs/postmortems/README.md).
 
 These get resolved by writing code, not by deciding harder.

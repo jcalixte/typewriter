@@ -234,7 +234,7 @@ over `file://` and `ssh://` — **not HTTP(S)** — so with HTTPS + PAT fixed by
 [ADR-005], the smart-HTTP push path this ADR bet on does not exist yet. We
 switched to **`libgit2` (`git2` crate)** and proved `add → commit → push`
 (incl. `pull --no-edit` + retry) on desktop
-([`spikes/spike7-git-push`](../spikes/spike7-git-push/)). The remaining risk is
+([`spikes/spike7-git-push`](../spikes/spike7-git-push/README.md)). The remaining risk is
 now the on-device **libgit2 → xtensa/mbedtls cross-compile** — the very pain
 this ADR chose gix to avoid. Full context:
 [postmortem](postmortems/2026-07-05-spike7-gix-https-push.md). Revisit gix if
