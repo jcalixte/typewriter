@@ -20,11 +20,22 @@ use embedded_graphics::text::{Baseline, Text};
 use crate::epd::{self, Frame};
 use crate::usb_kbd::Key;
 
-/// FONT_10X20 cell size and the grid it tiles the panel into.
+/// FONT_10X20 cell size (writing column) and the grid it tiles into.
 pub const CW: i32 = 10;
 pub const CH: i32 = 20;
-const COLS: usize = (epd::WIDTH / 10) as usize; // 79 characters per line
-const ROWS: usize = (epd::HEIGHT / 20) as usize; // 13 text rows; bottom 12 px = status
+/// Writing-column width, in characters. The panel is split into a left
+/// **writing column** (this wide) and a right **side panel** for metadata (see
+/// CONTEXT.md § Screen regions). 60 cols × 10 px = 600 px of text; the driver's
+/// `x = 396` seam runs through it invisibly. The remaining 192 px sit entirely
+/// in the master half (right of the seam) and hold the side panel.
+const WRITE_COLS: usize = 60;
+/// Visible writing rows. 13 × 20 px = 260 px; the bottom 12 px is the transient
+/// `:` command line (the only thing left of the old status band).
+const ROWS: usize = (epd::HEIGHT / 20) as usize; // 13
+/// x of the 1 px rule dividing writing column from side panel, and the left edge
+/// of panel text (a small gutter past the rule).
+const DIVIDER_X: i32 = WRITE_COLS as i32 * CW; // 600
+const PANEL_X: i32 = DIVIDER_X + 8; // 608
 /// Tab stop, in spaces. Tabs never enter the buffer — they expand on insert so
 /// the buffer stays 1 char = 1 column.
 const TAB: &str = "    ";
@@ -69,6 +80,16 @@ pub struct Editor {
     pending_g: bool,
     /// The `:` command line being typed (valid only in `Mode::Command`).
     cmdline: String,
+    /// Word count as of the last stats refresh. The panel shows this snapshot,
+    /// not a live count, so ordinary typing never repaints the panel row — it is
+    /// refreshed on a typing pause / non-Insert action via `refresh_stats`.
+    shown_words: usize,
+    /// Word count captured at the session start (buffer load / boot), so the
+    /// panel can show words *added* this session. Empty boot buffer → 0.
+    session_base_words: usize,
+    /// Whether a USB keyboard is attached; drives the panel disconnect flag.
+    /// Fed from `usb_kbd::keyboard_present()` by the main loop.
+    keyboard_present: bool,
 }
 
 /// One wrapped display line: its text and the buffer offset of its first char.
@@ -89,6 +110,9 @@ impl Editor {
             pending_obj: None,
             pending_g: false,
             cmdline: String::new(),
+            shown_words: 0,
+            session_base_words: 0,
+            keyboard_present: false,
         }
     }
 
@@ -98,6 +122,23 @@ impl Editor {
 
     pub fn scroll_top(&self) -> usize {
         self.scroll_top
+    }
+
+    /// Recompute the panel word-count snapshot from the buffer. The main loop
+    /// calls this on a typing pause and on non-Insert actions, so the panel
+    /// count stays current without repainting on every keystroke.
+    pub fn refresh_stats(&mut self) {
+        self.shown_words = self.word_count();
+    }
+
+    /// Tell the editor whether a keyboard is attached (for the panel flag).
+    pub fn set_keyboard_present(&mut self, present: bool) {
+        self.keyboard_present = present;
+    }
+
+    /// Whitespace-delimited word count of the whole buffer.
+    fn word_count(&self) -> usize {
+        self.text.split_whitespace().count()
     }
 
     /// Dispatch one decoded key event according to the current mode.
@@ -724,9 +765,9 @@ impl Editor {
     // --- Rendering ---------------------------------------------------------
 
     /// Wrap the buffer into display lines, tracking each line's buffer offset.
-    /// Soft-wrap at word boundaries: a logical line too long for `COLS` breaks at
-    /// the last space that fits, so words are never split — except a single word
-    /// wider than the panel, which hard-breaks at `COLS` as a fallback. Buffer is
+    /// Soft-wrap at word boundaries: a logical line too long for `WRITE_COLS`
+    /// breaks at the last space that fits, so words are never split — except a
+    /// single word wider than the writing column, hard-broken at `WRITE_COLS`. Buffer is
     /// ASCII (1 byte = 1 char), so a char index within a line is also a byte
     /// offset (matches the rest of `editor.rs`; UTF-8 correctness is v0.2 work).
     fn layout(&self) -> Vec<Line> {
@@ -740,12 +781,12 @@ impl Editor {
                 let mut c = 0usize; // char index within `logical`
                 while c < chars.len() {
                     let remaining = chars.len() - c;
-                    let take = if remaining <= COLS {
+                    let take = if remaining <= WRITE_COLS {
                         remaining
                     } else {
                         // Break at the last space within the COLS-wide window;
                         // include that space on this line. No space → hard break.
-                        let window = c + COLS;
+                        let window = c + WRITE_COLS;
                         let mut brk = None;
                         let mut p = window;
                         while p > c {
@@ -757,7 +798,7 @@ impl Editor {
                         }
                         match brk {
                             Some(sp) if sp > c => sp + 1 - c,
-                            _ => COLS,
+                            _ => WRITE_COLS,
                         }
                     };
                     lines.push(Line {
@@ -844,7 +885,7 @@ impl Editor {
         }
 
         if crow >= self.scroll_top && crow < self.scroll_top + ROWS {
-            let x = ccol.min(COLS - 1) as i32 * CW;
+            let x = ccol.min(WRITE_COLS - 1) as i32 * CW;
             let y = (crow - self.scroll_top) as i32 * CH;
             match self.mode {
                 Mode::Normal => {
@@ -877,46 +918,94 @@ impl Editor {
             }
         }
 
-        self.draw_status(&mut f);
+        self.draw_panel(&mut f);
+        self.draw_cmdline(&mut f);
         f
     }
 
-    /// Draw the mode indicator (and any pending count/operator) in the bottom
-    /// strip, in the small 6×10 font so it fits below the 13 text rows.
-    fn draw_status(&self, f: &mut Frame) {
-        // Command mode shows the command line itself, vim-style, instead of a
-        // mode name.
-        if self.mode == Mode::Command {
-            let s = format!(":{}", self.cmdline);
-            let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-            Text::with_baseline(&s, Point::new(2, ROWS as i32 * CH + 1), style, Baseline::Top)
-                .draw(f)
-                .unwrap();
-            return;
-        }
+    /// Draw the side panel: a full-height rule, then the mode and any pending
+    /// command state, in the small 6×10 font. This is the metadata surface every
+    /// later panel field (filename, word count, clock, Wi-Fi, publish state)
+    /// will add to; v0.1 shows the mode plus the transient count/operator echo.
+    /// Everything here is event-driven (mode/command state), never per-keystroke,
+    /// so it adds no typing-time ghosting.
+    fn draw_panel(&self, f: &mut Frame) {
+        // The rule dividing writing column from panel, full panel height.
+        Rectangle::new(Point::new(DIVIDER_X, 0), Size::new(1, epd::HEIGHT as u32))
+            .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+            .draw(f)
+            .unwrap();
+
+        let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
         let name = match self.mode {
             Mode::Normal => "NORMAL",
             Mode::Insert => "INSERT",
             Mode::View => "VIEW",
-            Mode::Command => unreachable!(),
+            Mode::Command => "COMMAND",
         };
-        let mut s = format!(" -- {name} --");
+        Text::with_baseline(name, Point::new(PANEL_X, 2), style, Baseline::Top)
+            .draw(f)
+            .unwrap();
+
+        // Pending count / operator / text-object / g, one line below the mode —
+        // transient feedback while a multi-key command is mid-entry.
+        let mut pend = String::new();
         if self.count > 0 {
-            s.push_str(&format!("  {}", self.count));
+            pend.push_str(&self.count.to_string());
         }
         match self.pending_op {
-            Some(Op::Delete) => s.push('d'),
-            Some(Op::Change) => s.push('c'),
+            Some(Op::Delete) => pend.push('d'),
+            Some(Op::Change) => pend.push('c'),
             None => {}
         }
         match self.pending_obj {
-            Some(false) => s.push('i'),
-            Some(true) => s.push('a'),
+            Some(false) => pend.push('i'),
+            Some(true) => pend.push('a'),
             None => {}
         }
         if self.pending_g {
-            s.push('g');
+            pend.push('g');
         }
+        if !pend.is_empty() {
+            Text::with_baseline(&pend, Point::new(PANEL_X, 14), style, Baseline::Top)
+                .draw(f)
+                .unwrap();
+        }
+
+        // Word count + words added this session, from the throttled snapshot.
+        let words = format!("{} words", self.shown_words);
+        Text::with_baseline(&words, Point::new(PANEL_X, 40), style, Baseline::Top)
+            .draw(f)
+            .unwrap();
+        let session = format!(
+            "+{} this session",
+            self.shown_words.saturating_sub(self.session_base_words)
+        );
+        Text::with_baseline(&session, Point::new(PANEL_X, 52), style, Baseline::Top)
+            .draw(f)
+            .unwrap();
+
+        // Keyboard-disconnect flag at the panel foot, shown only while the
+        // keyboard is dropped. Latin-9 has no ⌨/✗ glyph, so plain text.
+        if !self.keyboard_present {
+            Text::with_baseline(
+                "NO KBD",
+                Point::new(PANEL_X, epd::HEIGHT as i32 - 22),
+                style,
+                Baseline::Top,
+            )
+            .draw(f)
+            .unwrap();
+        }
+    }
+
+    /// The transient `:` command line, in the bottom 12 px strip below the
+    /// writing column (vim-style). Shown only while composing a command.
+    fn draw_cmdline(&self, f: &mut Frame) {
+        if self.mode != Mode::Command {
+            return;
+        }
+        let s = format!(":{}", self.cmdline);
         let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
         Text::with_baseline(&s, Point::new(2, ROWS as i32 * CH + 1), style, Baseline::Top)
             .draw(f)

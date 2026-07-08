@@ -66,6 +66,12 @@ fn main() -> anyhow::Result<()> {
     let mut cursor_shown = true; // the initial render includes the caret
     let mut last_activity = Instant::now();
 
+    // Keyboard attach/detach state drives the panel's disconnect flag; seed it
+    // (and the word-count snapshot) before the first render.
+    let mut last_kbd = usb_kbd::keyboard_present();
+    ed.set_keyboard_present(last_kbd);
+    ed.refresh_stats();
+
     // First render is full (establishes the on-screen baseline for partials).
     let mut shown = ed.draw(true);
     epd.display_frame(shown.bytes())?;
@@ -79,14 +85,31 @@ fn main() -> anyhow::Result<()> {
             keys += 1;
         }
 
+        // Keyboard attach/detach feeds the panel's disconnect flag.
+        let kbd = usb_kbd::keyboard_present();
+        ed.set_keyboard_present(kbd);
+        let kbd_changed = kbd != last_kbd;
+        last_kbd = kbd;
+
         if keys == 0 {
+            // A connect/disconnect while idle must still repaint the panel flag —
+            // no keystroke will arrive to trigger it otherwise.
+            if kbd_changed {
+                let f = ed.draw(true);
+                epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT)?;
+                shown = f;
+                cursor_shown = true;
+                log::info!("keyboard {}", if kbd { "connected" } else { "disconnected" });
+                continue;
+            }
             // Debounced caret, Insert mode only: once typing pauses, bring the
-            // bar caret back with a silent full-area partial (no flash).
-            // Normal/View already draw their caret on every action.
+            // bar caret back and refresh the panel word count with a silent
+            // full-area partial (no flash). Normal/View draw their caret on action.
             if ed.mode() == Mode::Insert
                 && !cursor_shown
                 && last_activity.elapsed().as_millis() >= CURSOR_DEBOUNCE_MS
             {
+                ed.refresh_stats();
                 let f = ed.draw(true);
                 epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT)?;
                 shown = f;
@@ -99,6 +122,12 @@ fn main() -> anyhow::Result<()> {
         }
 
         last_activity = Instant::now();
+        // Non-Insert actions (Normal edits, mode switches) aren't rapid typing,
+        // so the panel word count can refresh immediately; in Insert the snapshot
+        // stays frozen until the typing-pause path above refreshes it.
+        if ed.mode() != Mode::Insert {
+            ed.refresh_stats();
+        }
         // Suppress the Insert bar caret while typing (fast, no ghost); Normal
         // and View render their caret regardless of this flag.
         let insert_cursor_on = ed.mode() != Mode::Insert;
