@@ -5,13 +5,16 @@ This file holds the macro-plan (Macroplan block below) and the per-version
 scope. The user-facing requirements and engineering targets each release feeds
 into are tracked in [`qfd.md`](qfd.md).
 
-## Status — synced 2026-07-07
+## Status — synced 2026-07-11
 
-The editor **core** (`firmware/src/editor.rs`) has been built 2–3 versions
-ahead of the device **releases**. No release has shipped: v0.1's hardware gate
-(SD, splash, wiring the git/save path into the app binary) is still open, even
-though v0.2 navigation and most of v0.6 Markdown already run. Version numbers
-are unchanged — they track shippable device releases, not core progress.
+The editor **core** has been built 2–3 versions ahead of the device
+**releases**, and is now **extracted into a host-testable `editor` crate** (plus
+a `display` crate for the panel framebuffer) so `cargo test` exercises it off the
+xtensa target. No release has shipped: v0.1's hardware gate (SD, splash, wiring
+the git/save path into the app binary) is still open, even though v0.2
+navigation, **v0.2.5 international input (hardware-verified 2026-07-11)**, and
+most of v0.6 Markdown already run. Version numbers are unchanged — they track
+shippable device releases, not core progress.
 
 Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
 inline `(✓)` marks the done half of a split item.
@@ -43,6 +46,8 @@ note = "Core work landed early: motions and modes already run; gutter, Ctrl-d/u,
 name = "v0.2.5 international input"
 start = 2026-07-20
 original = 2026-08-03
+status = "on-track"
+note = "Done early + hardware-verified 2026-07-11: dead-key accent composer in the keymap crate, editor buffer made UTF-8-correct. Side-panel pending marker dropped by decision (stale before the ~630 ms panel repaint)."
 
 [[feature]]
 name = "v0.3 editing"
@@ -131,9 +136,10 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 
 ## v0.2 — Vim navigation — [~]
 
-**Status:** navigation done in core; remaining = `Ctrl-d/u`, the line-number
-gutter, and the UTF-8 buffer. Shipped early beyond scope: a read-only **View**
-mode and the full `d`/`c` operator + text-object grammar (see v0.3 / v0.4).
+**Status:** navigation done in core; the **UTF-8-correct buffer landed
+2026-07-11** (hardware-verified). Remaining = `Ctrl-d/u` and the line-number
+gutter. Shipped early beyond scope: a read-only **View** mode and the full
+`d`/`c` operator + text-object grammar (see v0.3 / v0.4).
 
 - [x] Mode state machine (Normal / Insert / View), mode indicator in the status strip
 - [~] Movement: `h j k l`, `w b e`, `0 $`, `gg G` (✓); `Ctrl-d Ctrl-u` remain
@@ -141,30 +147,35 @@ mode and the full `d`/`c` operator + text-object grammar (see v0.3 / v0.4).
 - [x] `Esc` returns to Normal
 - [ ] Line numbers in the left gutter: relative in Normal mode (current line
       shown as its absolute number), absolute in Insert mode — Spike 13 first
-- [ ] Groundwork — UTF-8-correct buffer: caret motions and edits step by
-      character, not byte (drop the ASCII == byte-offset assumption in
-      `editor.rs`), so every motion added here and later stays correct once
-      accented input lands. Done early so it isn't retrofitted across the whole
-      motion/text-object surface. Render font is already ISO-8859-15 (Latin-9),
-      so accented glyphs display.
+- [x] Groundwork — UTF-8-correct buffer: caret motions and edits step by
+      character, not byte (dropped the ASCII == byte-offset assumption), so every
+      motion stays correct with accented input. **Done 2026-07-11** alongside
+      extracting the editor into a host-testable crate — char-step
+      motions/deletes, byte-vs-char split in `layout`/`caret_rc`, `word_end`/`de`
+      fixed; 15 host tests. Render font is ISO-8859-15 (Latin-9), so accented
+      glyphs display.
 
-## v0.2.5 — International input — [ ]
+## v0.2.5 — International input — [x]
 
-**Status:** not started (depends on the v0.2 UTF-8-correct buffer).
+**Status:** DONE in core, **hardware-verified 2026-07-11** (typed ç é è ñ on the
+bench, no crash). US-International dead-key accent composition lives in the
+`keymap` crate — a `Composer` downstream of the decoder — wired into
+`usb_kbd.rs` so the editor still receives a single `Key::Char`. Builds on the
+v0.2 UTF-8-correct buffer and the ISO-8859-15 render font. Host-tested.
 
-A small focused release between navigation and editing. US-International
-dead-key accent composition, resolved in the keyboard layer (`usb_kbd.rs`) so
-the editor still receives a single `Key::Char`. Builds on the v0.2
-UTF-8-correct buffer and the ISO-8859-15 render font.
-
-- [ ] Dead keys — grave, acute, circumflex, diaeresis, tilde — compose with
+- [x] Dead keys — grave, acute, circumflex, diaeresis, tilde — compose with
       the next letter: à é ê ë ñ, ç (via `'`+c), both cases
-- [ ] `'`+space emits a literal apostrophe (the everyday apostrophe path); a
+- [x] `'`+space emits a literal apostrophe (the everyday apostrophe path); a
       dead key followed by a non-composing letter emits the accent then the
       letter
-- [ ] A non-character event (Enter, Backspace, arrows) flushes any pending
+- [x] A non-character event (Enter, Backspace, arrows) flushes any pending
       accent as its literal first
-- [ ] Pending-accent indicator in the side-panel status strip
+- [ ] ~~Pending-accent indicator in the side-panel status strip~~ — **DROPPED
+      (2026-07-11 decision):** at typing speed it would be stale before the
+      ~630 ms panel repaint, so it conveys nothing. Left unbuilt on purpose.
+- [x] Bonus (2026-07-11): the physical **Esc key** (HID 0x29) now types
+      `` ` ``/`~` — Esc comes from the Caps tap — so grave/tilde accents and
+      Markdown code fences are reachable on a 60% board without a Fn layer.
 
 ## v0.3 — Vim editing — [~]
 
