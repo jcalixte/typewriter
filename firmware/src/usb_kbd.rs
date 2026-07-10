@@ -78,6 +78,12 @@ static KEY_QUEUE: OnceLock<Mutex<VecDeque<Key>>> = OnceLock::new();
 /// is for the `static`, not contention. The decode logic itself is the
 /// host-tested `keymap` crate.
 static DECODER: Mutex<keymap::Decoder> = Mutex::new(keymap::Decoder::new());
+/// US-International dead-key accent composition, downstream of the decoder: it
+/// folds a dead key (`'` `` ` `` `^` `"` `~`) plus the next letter into one
+/// accented `Key::Char`. Like `DECODER`, only ever touched from the client
+/// thread. Safe to feed the editor only because its buffer is UTF-8-correct —
+/// this emits non-ASCII Latin-9 characters. Host-tested in the `keymap` crate.
+static COMPOSER: Mutex<keymap::Composer> = Mutex::new(keymap::Composer::new());
 /// Whether the interrupt-IN report transfer is currently in-flight (submitted
 /// and awaiting completion). Set on submit, cleared the moment `report_cb`
 /// fires. Read on unplug to quiesce the transfer before freeing it — freeing an
@@ -217,6 +223,7 @@ fn close_device(
     unsafe { usb_host_device_close(client, *open_dev) };
     *open_dev = ptr::null_mut();
     DECODER.lock().unwrap().reset();
+    COMPOSER.lock().unwrap().reset(); // drop any half-typed accent
     KBD_PRESENT.store(false, Ordering::SeqCst);
 }
 
@@ -262,7 +269,11 @@ unsafe extern "C" fn report_cb(transfer: *mut usb_transfer_t) {
         // is clamped to that, so the slice stays within the allocation even if
         // the device reports a bogus actual_num_bytes.
         let report = unsafe { core::slice::from_raw_parts(t.data_buffer, n) };
-        DECODER.lock().unwrap().feed(report, enqueue);
+        // Decode HID → keys, then fold dead-key accents before enqueuing.
+        DECODER
+            .lock()
+            .unwrap()
+            .feed(report, |k| COMPOSER.lock().unwrap().feed(k, enqueue));
         let err = unsafe { usb_host_transfer_submit(transfer) };
         if err != 0 {
             log::error!("interrupt resubmit failed: {err}");
