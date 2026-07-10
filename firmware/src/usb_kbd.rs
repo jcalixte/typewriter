@@ -38,22 +38,11 @@ use esp_idf_svc::sys::{
     usb_transfer_t, EspError, ESP_INTR_FLAG_LEVEL1,
 };
 
-/// A decoded key-down event. Beyond plain characters, the decoder recognises a
-/// few editing combos (resolved here so the main loop only sees intents) and a
-/// dual-role Caps Lock: held it acts as Ctrl, tapped it emits `Escape`.
-#[derive(Debug, Clone, Copy)]
-pub enum Key {
-    Char(char),
-    Enter,
-    Backspace,
-    /// Ctrl+Backspace or Ctrl+W — delete the word before the caret.
-    DeleteWord,
-    /// Cmd/GUI+Backspace — delete back to the start of the current line.
-    DeleteLine,
-    /// Caps Lock tapped on its own. A no-op for now; groundwork for a future
-    /// vim-style normal mode.
-    Escape,
-}
+/// A decoded key-down event, re-exported from the `keymap` crate. The decode
+/// logic (edge detection + US-QWERTY translation) lives there — pure, with no
+/// esp/std deps — so it is host-testable and fuzzable off the xtensa target.
+/// This module only bridges it to the USB transport. See MEMORY_AUDIT.md.
+pub use keymap::Key;
 
 /// Boot-keyboard parameters, confirmed by Spike 4's enumeration.
 const KBD_INTERFACE: u8 = 0;
@@ -83,13 +72,18 @@ static CTRL_STATUS: AtomicU32 = AtomicU32::new(0);
 /// mutex-guarded queue rather than a channel because `mpsc::Sender` is not
 /// `Sync` and so can't live in a `static`.
 static KEY_QUEUE: OnceLock<Mutex<VecDeque<Key>>> = OnceLock::new();
-/// Keycodes held in the previous report, for key-down edge detection. Only
-/// ever touched from the single client thread's `report_cb`.
-static PREV_KEYS: Mutex<[u8; 6]> = Mutex::new([0; 6]);
-/// Caps Lock dual-role tracking: set while Caps is held once any other key is
-/// pressed, so releasing Caps only emits `Escape` on a clean tap. Only touched
-/// from the client thread's `report_cb`.
-static CAPS_USED: AtomicBool = AtomicBool::new(false);
+/// Edge-detecting decode state (previous report + Caps dual-role), owned here
+/// as one `keymap::Decoder` rather than the pair of loose statics it used to
+/// be. Only ever touched from the single client thread's `report_cb`; the mutex
+/// is for the `static`, not contention. The decode logic itself is the
+/// host-tested `keymap` crate.
+static DECODER: Mutex<keymap::Decoder> = Mutex::new(keymap::Decoder::new());
+/// Whether the interrupt-IN report transfer is currently in-flight (submitted
+/// and awaiting completion). Set on submit, cleared the moment `report_cb`
+/// fires. Read on unplug to quiesce the transfer before freeing it — freeing an
+/// in-flight transfer races the library's pending completion into a
+/// use-after-free (MEMORY_AUDIT.md finding #1).
+static REPORT_INFLIGHT: AtomicBool = AtomicBool::new(false);
 
 /// Pop the next decoded key-down event, if any.
 pub fn next_key() -> Option<Key> {
@@ -160,6 +154,13 @@ fn client_loop() {
 
         let addr = NEW_DEV_ADDR.swap(0, Ordering::SeqCst);
         if addr != 0 {
+            // A new attach while a device is still open means we missed the
+            // detach event; tear the old one down first so its transfer and
+            // handle aren't leaked and overwritten (MEMORY_AUDIT.md finding #3).
+            if !open_dev.is_null() {
+                log::warn!("new device while one is still open; closing the previous keyboard");
+                close_device(client, &mut open_dev, &mut report_xfer);
+            }
             match setup_keyboard(client, addr) {
                 Ok((dev, xfer)) => {
                     open_dev = dev;
@@ -171,19 +172,52 @@ fn client_loop() {
         }
         if DEV_GONE.swap(false, Ordering::SeqCst) && !open_dev.is_null() {
             log::info!("keyboard unplugged; releasing interface and closing");
-            // Order per the USB Host Library: free transfers, release
-            // interfaces, then close the device.
-            if !report_xfer.is_null() {
-                unsafe { usb_host_transfer_free(report_xfer) };
-                report_xfer = ptr::null_mut();
-            }
-            unsafe { usb_host_interface_release(client, open_dev, KBD_INTERFACE) };
-            unsafe { usb_host_device_close(client, open_dev) };
-            open_dev = ptr::null_mut();
-            *PREV_KEYS.lock().unwrap() = [0; 6];
-            KBD_PRESENT.store(false, Ordering::SeqCst);
+            close_device(client, &mut open_dev, &mut report_xfer);
         }
     }
+}
+
+/// Tear down the open keyboard: quiesce + free the report transfer, release the
+/// interface, close the device, then reset the decode + presence state. Order
+/// per the USB Host Library: free transfers, release interfaces, then close.
+///
+/// The report transfer is freed only once it is no longer in-flight. On unplug
+/// the library completes the pending interrupt transfer with a canceled status
+/// and fires `report_cb` (which clears `REPORT_INFLIGHT`); we pump client events
+/// until that happens so we never hand `usb_host_transfer_free` a transfer the
+/// lower layer still owns — doing so would race the pending completion into a
+/// use-after-free (MEMORY_AUDIT.md finding #1). Bounded so a wedged transfer
+/// can't spin the client loop forever; if it never quiesces we leak it rather
+/// than risk the free.
+fn close_device(
+    client: usb_host_client_handle_t,
+    open_dev: &mut usb_device_handle_t,
+    report_xfer: &mut *mut usb_transfer_t,
+) {
+    if !(*report_xfer).is_null() {
+        let mut spins = 0;
+        while REPORT_INFLIGHT.load(Ordering::SeqCst) && spins < 100 {
+            unsafe { usb_host_client_handle_events(client, 10) };
+            spins += 1;
+        }
+        if REPORT_INFLIGHT.load(Ordering::SeqCst) {
+            log::error!(
+                "report transfer still in-flight after drain; leaking it rather than \
+                 freeing (a free here would be a use-after-free)"
+            );
+        } else {
+            let err = unsafe { usb_host_transfer_free(*report_xfer) };
+            if err != 0 {
+                log::warn!("usb_host_transfer_free(report) returned {err}");
+            }
+        }
+        *report_xfer = ptr::null_mut();
+    }
+    unsafe { usb_host_interface_release(client, *open_dev, KBD_INTERFACE) };
+    unsafe { usb_host_device_close(client, *open_dev) };
+    *open_dev = ptr::null_mut();
+    DECODER.lock().unwrap().reset();
+    KBD_PRESENT.store(false, Ordering::SeqCst);
 }
 
 /// Client event callback — runs inside `usb_host_client_handle_events`. Keep
@@ -216,14 +250,24 @@ unsafe extern "C" fn ctrl_cb(transfer: *mut usb_transfer_t) {
 /// `usb_host_client_handle_events`. On any non-completed status (e.g. the
 /// device was unplugged and the transfer canceled) it stops resubmitting.
 unsafe extern "C" fn report_cb(transfer: *mut usb_transfer_t) {
+    // A completion fired, so the transfer is no longer in-flight. Clear the flag
+    // first — the non-completed (canceled-on-unplug) path below returns without
+    // resubmitting, and leaving it false is what lets close_device free the
+    // transfer safely (MEMORY_AUDIT.md finding #1).
+    REPORT_INFLIGHT.store(false, Ordering::SeqCst);
     let t = unsafe { &mut *transfer };
     if t.status == usb_transfer_status_t_USB_TRANSFER_STATUS_COMPLETED {
         let n = (t.actual_num_bytes as usize).min(BOOT_REPORT_LEN);
+        // SAFETY: data_buffer was allocated with BOOT_REPORT_LEN bytes and `n`
+        // is clamped to that, so the slice stays within the allocation even if
+        // the device reports a bogus actual_num_bytes.
         let report = unsafe { core::slice::from_raw_parts(t.data_buffer, n) };
-        handle_report(report);
+        DECODER.lock().unwrap().feed(report, enqueue);
         let err = unsafe { usb_host_transfer_submit(transfer) };
         if err != 0 {
             log::error!("interrupt resubmit failed: {err}");
+        } else {
+            REPORT_INFLIGHT.store(true, Ordering::SeqCst);
         }
     } else {
         log::info!("interrupt transfer stopped, status {}", t.status as u32);
@@ -236,116 +280,6 @@ fn enqueue(key: Key) {
     if let Some(q) = KEY_QUEUE.get() {
         q.lock().unwrap().push_back(key);
     }
-}
-
-/// Caps Lock usage ID — repurposed as a dual-role Ctrl/Escape key.
-const CAPS: u8 = 0x39;
-
-/// Edge-detect key-downs in an 8-byte boot report and enqueue translated keys.
-/// Layout: [modifiers, reserved, key1..key6]; 0 means "no key".
-fn handle_report(report: &[u8]) {
-    if report.len() < 3 {
-        return;
-    }
-    let mods = report[0];
-    let shift = mods & 0x22 != 0; // LShift 0x02 | RShift 0x20
-    let cmd = mods & 0x88 != 0; // LGUI 0x08 | RGUI 0x80
-    let current = &report[2..];
-
-    let mut prev = PREV_KEYS.lock().unwrap();
-
-    // Caps Lock is a normal key in the boot report (not a modifier bit), so we
-    // track its down/up edges here. Held, it acts as Ctrl; tapped alone, it
-    // emits Escape.
-    let caps_now = current.contains(&CAPS);
-    let caps_before = prev.contains(&CAPS);
-    let ctrl = mods & 0x11 != 0 || caps_now; // LCtrl 0x01 | RCtrl 0x10, or Caps
-    // Any other key down while Caps is held means it was used as Ctrl — so its
-    // release must not fire Escape.
-    if caps_now && current.iter().any(|&k| k != 0 && k != CAPS) {
-        CAPS_USED.store(true, Ordering::SeqCst);
-    }
-
-    for &k in current {
-        if k == 0 || k == CAPS || prev.contains(&k) {
-            continue; // empty slot, the Caps key itself, or already held
-        }
-        if let Some(key) = translate(k, shift, ctrl, cmd) {
-            enqueue(key);
-        }
-    }
-
-    // Caps released as a clean tap (nothing else pressed while it was down) →
-    // Escape. Reset the used-flag on both the press and release edges.
-    if caps_before && !caps_now {
-        if !CAPS_USED.swap(false, Ordering::SeqCst) {
-            enqueue(Key::Escape);
-        }
-    } else if caps_now && !caps_before {
-        CAPS_USED.store(false, Ordering::SeqCst);
-    }
-
-    let mut next = [0u8; 6];
-    for (slot, &k) in next.iter_mut().zip(current.iter()) {
-        *slot = k;
-    }
-    *prev = next;
-}
-
-/// Translate a HID keyboard usage ID to a key event using a US QWERTY layout.
-/// Editing combos (Ctrl/Cmd chords) resolve to intents here and take priority
-/// over character insertion; other keys with Ctrl or Cmd held are swallowed.
-fn translate(usage: u8, shift: bool, ctrl: bool, cmd: bool) -> Option<Key> {
-    match usage {
-        0x2a => {
-            // Backspace: Cmd = delete line, Ctrl = delete word, else one char.
-            return Some(if cmd {
-                Key::DeleteLine
-            } else if ctrl {
-                Key::DeleteWord
-            } else {
-                Key::Backspace
-            });
-        }
-        0x1a if ctrl => return Some(Key::DeleteWord), // Ctrl+W, readline-style
-        _ => {}
-    }
-
-    // With Ctrl or Cmd held and no combo matched above, insert nothing — so
-    // Caps+J or Cmd+S don't type a stray character.
-    if ctrl || cmd {
-        return None;
-    }
-
-    let key = match usage {
-        0x04..=0x1d => {
-            let base = b'a' + (usage - 0x04);
-            Key::Char(if shift { base.to_ascii_uppercase() } else { base } as char)
-        }
-        0x1e..=0x27 => {
-            const UNSHIFTED: [char; 10] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
-            const SHIFTED: [char; 10] = ['!', '@', '#', '$', '%', '^', '&', '*', '(', ')'];
-            let i = (usage - 0x1e) as usize;
-            Key::Char(if shift { SHIFTED[i] } else { UNSHIFTED[i] })
-        }
-        0x28 => Key::Enter,
-        0x2a => Key::Backspace,
-        0x2b => Key::Char('\t'),
-        0x2c => Key::Char(' '),
-        0x2d => Key::Char(if shift { '_' } else { '-' }),
-        0x2e => Key::Char(if shift { '+' } else { '=' }),
-        0x2f => Key::Char(if shift { '{' } else { '[' }),
-        0x30 => Key::Char(if shift { '}' } else { ']' }),
-        0x31 => Key::Char(if shift { '|' } else { '\\' }),
-        0x33 => Key::Char(if shift { ':' } else { ';' }),
-        0x34 => Key::Char(if shift { '"' } else { '\'' }),
-        0x35 => Key::Char(if shift { '~' } else { '`' }),
-        0x36 => Key::Char(if shift { '<' } else { ',' }),
-        0x37 => Key::Char(if shift { '>' } else { '.' }),
-        0x38 => Key::Char(if shift { '?' } else { '/' }),
-        _ => return None,
-    };
-    Some(key)
 }
 
 /// Open a newly-attached device, dump its descriptors, claim the keyboard
@@ -427,7 +361,12 @@ fn control_request(
     }
 
     CTRL_DONE.store(false, Ordering::SeqCst);
-    esp!(unsafe { usb_host_transfer_submit_control(client, xfer) })?;
+    if let Err(e) = esp!(unsafe { usb_host_transfer_submit_control(client, xfer) }) {
+        // Free the transfer we allocated before bailing, or it leaks
+        // (MEMORY_AUDIT.md finding #3).
+        unsafe { usb_host_transfer_free(xfer) };
+        return Err(e);
+    }
     while !CTRL_DONE.load(Ordering::SeqCst) {
         unsafe { usb_host_client_handle_events(client, u32::MAX) };
     }
@@ -455,6 +394,12 @@ fn start_report_polling(dev: usb_device_handle_t) -> Result<*mut usb_transfer_t,
         t.callback = Some(report_cb);
         t.context = ptr::null_mut();
     }
-    esp!(unsafe { usb_host_transfer_submit(xfer) })?;
+    if let Err(e) = esp!(unsafe { usb_host_transfer_submit(xfer) }) {
+        // Free the transfer we allocated before bailing, or it leaks
+        // (MEMORY_AUDIT.md finding #3).
+        unsafe { usb_host_transfer_free(xfer) };
+        return Err(e);
+    }
+    REPORT_INFLIGHT.store(true, Ordering::SeqCst);
     Ok(xfer)
 }

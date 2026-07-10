@@ -78,6 +78,9 @@ git = ["dep:git2"]
 [dependencies]
 anyhow = "1"
 log = "0.4"
+# Pure HID decode (Key type + edge-detecting Decoder), split out so it is
+# host-testable off the xtensa target. See ../keymap and MEMORY_AUDIT.md.
+keymap = { path = "../keymap" }
 git2 = { version = "0.20", default-features = false, optional = true }
 esp-idf-svc = { version = "0.52.1", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
 # Remove `generic-queue-8` if you plan to use `embassy-time` WITH `embassy-executor`
