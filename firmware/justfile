@@ -113,3 +113,107 @@ info:
 # list USB serial devices
 ports:
     @ls /dev/cu.usb* 2>/dev/null || echo "no USB serial device found"
+
+# Pre-seed an SD card with a full clone of the notes repo, copied from a
+# computer (the decision in docs/notes/git-sync-images-and-repo-size.md). The
+# device never cold-clones 566 MB over Wi-Fi + mbedTLS; a laptop copies the
+# clone onto the card via a reader, and the device only ever takes the `open` +
+# fast-forward path. Dest on the card is a top-level `repo/`, matching the
+# on-device /sd/repo the editor opens (roadmap v0.1).
+#
+#   just seed-sd ~/code/notes          # auto-detect the one removable card
+#   just seed-sd ~/code/notes MYSD     # or name /Volumes/<name> if >1 card
+#
+# Everything the repo's .gitignore ignores is excluded (node_modules is 3.9 GB,
+# gitignored, and never in .git) — the device needs .git + the checkout
+# (~720 MB), not the JS deps or any local secrets like firmware/.env. Copying
+# (not a fresh `git clone` of the local path) preserves origin → GitHub so
+# on-device fetch/push still work; the recipe warns if origin isn't a remote.
+sd_repo_dir := "repo"
+
+seed-sd repo_src sd_volume="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Resolve + validate the source clone.
+    src="{{repo_src}}"
+    src="${src%/}"                       # strip trailing slash
+    [ -d "$src/.git" ] || { echo "error: '$src' is not a git repo (no .git/)"; exit 1; }
+
+    origin="$(git -C "$src" remote get-url origin 2>/dev/null || true)"
+    case "$origin" in
+        https://*|git@*|ssh://*|git://*)
+            echo "source origin: $origin" ;;
+        "")
+            echo "warning: '$src' has no 'origin' remote — the device can't fetch/push after seeding" ;;
+        *)
+            echo "warning: origin is '$origin' (looks like a local path, not a remote) —"
+            echo "         the device fetch/push will fail; set origin to the GitHub URL first" ;;
+    esac
+    # Opportunistic cross-check against TW_REMOTE_URL (loaded from .env if present).
+    if [ -n "${TW_REMOTE_URL:-}" ] && [ -n "$origin" ] && [ "$origin" != "${TW_REMOTE_URL}" ]; then
+        echo "warning: origin ($origin) != TW_REMOTE_URL (${TW_REMOTE_URL})"
+    fi
+
+    # Detect the target card. Prefer an explicit /Volumes/<name>; else auto-detect
+    # exactly one ejectable + external volume (refuse on 0 or >1 — a wrong guess
+    # here means rsync --delete wipes the wrong disk's repo/).
+    want="{{sd_volume}}"
+    if [ -n "$want" ]; then
+        vol="/Volumes/$want"
+        [ -d "$vol" ] || { echo "error: '$vol' is not mounted"; exit 1; }
+    else
+        cands=()
+        for v in /Volumes/*; do
+            [ -d "$v" ] || continue
+            info="$(diskutil info "$v" 2>/dev/null || true)"
+            if echo "$info" | grep -qiE 'Ejectable:[[:space:]]+Yes' \
+               && echo "$info" | grep -qiE 'Device Location:[[:space:]]+External|Removable Media:[[:space:]]+(Removable|Yes)'; then
+                cands+=("$v")
+            fi
+        done
+        case "${#cands[@]}" in
+            0) echo "error: no removable card detected under /Volumes — insert an SD card (FAT32)"; exit 1 ;;
+            1) vol="${cands[0]}" ;;
+            *) echo "error: multiple removable volumes — name one as the 2nd arg (just seed-sd <src> <name>):"
+               printf '  %s\n' "${cands[@]#/Volumes/}"; exit 1 ;;
+        esac
+    fi
+
+    # The device won't mount a non-FAT card (esp_vfs_fat, format_if_mount_failed=false).
+    fs="$(diskutil info "$vol" 2>/dev/null | grep -iE 'File System Personality' | sed 's/.*:[[:space:]]*//' || true)"
+    case "$fs" in
+        *FAT32*|*MS-DOS*) : ;;
+        *) echo "warning: '$vol' is '$fs', not FAT32 — the device may fail to mount it" ;;
+    esac
+
+    dest="$vol/{{sd_repo_dir}}"
+    echo "seeding: $src  ->  $dest"
+    mkdir -p "$dest"
+
+    # Build the exclude list from git's own ignore resolution (the repo's
+    # .gitignore, plus .git/info/exclude and any global excludes). --directory
+    # collapses a fully-ignored dir (node_modules/, 3.9 GB) to one line, so the
+    # list stays tiny. Driving off git — not rsync's own dir-merge — means we
+    # never list a tracked file or anything under .git/, so a .gitignore pattern
+    # like `logs/` or `*.pack` can't silently corrupt the copied clone.
+    ignore_list="$(mktemp)"
+    trap 'rm -f "$ignore_list"' EXIT
+    git -C "$src" -c core.quotePath=false ls-files \
+        --others --ignored --exclude-standard --directory --no-empty-directory \
+        > "$ignore_list"
+    echo "excluding $(wc -l < "$ignore_list" | tr -d ' ') gitignored path(s) (incl. node_modules, .env)"
+
+    # -rt (no perms/owner/symlinks — meaningless on FAT), --modify-window=1 for
+    # FAT's 2 s timestamp granularity, --delete to mirror (re-runs stay clean),
+    # -P for progress on the ~700 MB copy. Scoped to repo/, never the card root.
+    rsync -rtP --delete --modify-window=1 --exclude-from="$ignore_list" "$src/" "$dest/"
+
+    # Flush and eject so the card can go straight into Typoena.
+    sync
+    echo "seeded ok — ejecting $vol"
+    if diskutil eject "$vol" >/dev/null 2>&1; then
+        echo "✅ card ejected — remove it and insert into Typoena"
+    else
+        echo "⚠️  eject failed (a file may still be open) — eject '$vol' from Finder before removing"
+    fi
