@@ -55,7 +55,8 @@ transport — has an ADR in [`docs/adr.md`](docs/adr.md), including the rejected
 alternatives (Ratatui, Gleam + Shore on AtomVM, C/Arduino — ADR-001/002). How
 each decision is weighted against the user-facing requirements lives in
 [`docs/qfd.md`](docs/qfd.md); the ontology those docs use is defined in
-[`GLOSSARY.md`](GLOSSARY.md).
+[`GLOSSARY.md`](GLOSSARY.md). A memory-safety review of the Rust `unsafe`/FFI
+surface (mostly `usb_kbd.rs`) is in [`MEMORY_AUDIT.md`](MEMORY_AUDIT.md).
 
 | Layer         | Choice                                                                                              | Notes                                                                                                                                                                                                                                                       |
 | ------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -143,6 +144,8 @@ package.json              pnpm + oxfmt — formatting toolchain for docs/JSON
       ≤32 GB card ([postmortem](docs/postmortems/2026-07-05-spike3-sd-cmd59.md)).
 - [ ] Heap fragmentation over a long writing session with the PSRAM allocator.
 - [ ] Real-world e-ink ghosting with the current partial-refresh cadence.
+- [ ] Possible use-after-free freeing the in-flight USB transfer on keyboard
+      unplug ([`MEMORY_AUDIT.md`](MEMORY_AUDIT.md) finding #1).
 
 Retired risks ([gix push](docs/postmortems/2026-07-05-spike7-gix-https-push.md),
 TinyUSB HID stability, TLS heap, libgit2-on-xtensa) and how they died:
