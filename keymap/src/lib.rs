@@ -9,8 +9,11 @@
 //!
 //! Why this is the module worth testing: [`Decoder::feed`] is the one place
 //! device-controlled bytes are parsed, and [`translate`] is the sole source of
-//! `Key::Char`, whose ASCII-only guarantee the editor's byte==char indexing
-//! relies on. Both invariants are pinned by the tests below. See MEMORY_AUDIT.md.
+//! *ASCII* `Key::Char`, whose byte==char guarantee the editor's indexing relies
+//! on. [`Composer`] adds US-International dead-key accent folding downstream; it
+//! is the one deliberate source of *non-ASCII* (Latin-9) `Key::Char`, and so
+//! must not reach the editor until the buffer is UTF-8-correct (see its docs).
+//! All three invariants are pinned by the tests below. See MEMORY_AUDIT.md.
 
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
@@ -175,6 +178,129 @@ fn translate(usage: u8, shift: bool, ctrl: bool, cmd: bool) -> Option<Key> {
         _ => return None,
     };
     Some(key)
+}
+
+/// The five US-International dead keys, as the characters the QWERTY decoder
+/// produces for them: acute `'`, grave `` ` ``, circumflex `^`, diaeresis `"`,
+/// tilde `~`. Typing one arms the [`Composer`]; the next key resolves it.
+const DEAD_KEYS: [char; 5] = ['\'', '`', '^', '"', '~'];
+
+fn is_dead(c: char) -> bool {
+    DEAD_KEYS.contains(&c)
+}
+
+/// Fold a dead key and the following base letter into a single accented glyph,
+/// for the ISO-8859-15 (Latin-9) repertoire the render font carries. Returns
+/// `None` when the pair doesn't compose (e.g. `'`+`z`), so the caller can fall
+/// back to emitting the accent then the letter.
+fn compose(dead: char, base: char) -> Option<char> {
+    Some(match (dead, base) {
+        // Acute — plus ç, the roadmap's `'`+c special case.
+        ('\'', 'a') => 'á', ('\'', 'e') => 'é', ('\'', 'i') => 'í',
+        ('\'', 'o') => 'ó', ('\'', 'u') => 'ú', ('\'', 'y') => 'ý',
+        ('\'', 'c') => 'ç',
+        ('\'', 'A') => 'Á', ('\'', 'E') => 'É', ('\'', 'I') => 'Í',
+        ('\'', 'O') => 'Ó', ('\'', 'U') => 'Ú', ('\'', 'Y') => 'Ý',
+        ('\'', 'C') => 'Ç',
+        // Grave
+        ('`', 'a') => 'à', ('`', 'e') => 'è', ('`', 'i') => 'ì',
+        ('`', 'o') => 'ò', ('`', 'u') => 'ù',
+        ('`', 'A') => 'À', ('`', 'E') => 'È', ('`', 'I') => 'Ì',
+        ('`', 'O') => 'Ò', ('`', 'U') => 'Ù',
+        // Circumflex
+        ('^', 'a') => 'â', ('^', 'e') => 'ê', ('^', 'i') => 'î',
+        ('^', 'o') => 'ô', ('^', 'u') => 'û',
+        ('^', 'A') => 'Â', ('^', 'E') => 'Ê', ('^', 'I') => 'Î',
+        ('^', 'O') => 'Ô', ('^', 'U') => 'Û',
+        // Diaeresis
+        ('"', 'a') => 'ä', ('"', 'e') => 'ë', ('"', 'i') => 'ï',
+        ('"', 'o') => 'ö', ('"', 'u') => 'ü', ('"', 'y') => 'ÿ',
+        ('"', 'A') => 'Ä', ('"', 'E') => 'Ë', ('"', 'I') => 'Ï',
+        ('"', 'O') => 'Ö', ('"', 'U') => 'Ü', ('"', 'Y') => 'Ÿ',
+        // Tilde
+        ('~', 'a') => 'ã', ('~', 'n') => 'ñ', ('~', 'o') => 'õ',
+        ('~', 'A') => 'Ã', ('~', 'N') => 'Ñ', ('~', 'O') => 'Õ',
+        _ => return None,
+    })
+}
+
+/// US-International dead-key composer: folds a dead key plus the following letter
+/// into one accented [`Key::Char`], so the editor still sees a single character.
+/// Sits downstream of [`Decoder`] in the key stream — the decoder does HID
+/// edge-detection + US-QWERTY translation, this does accent composition.
+///
+/// **Latin-9, not ASCII.** Unlike [`translate`], this is deliberately a source
+/// of non-ASCII `Key::Char` (à, é, ç … the ISO-8859-15 set the render font
+/// carries). Its output must therefore NOT be fed to the editor until the editor
+/// buffer is UTF-8-correct — byte offsets stepped per character, not per byte
+/// (the v0.2 groundwork item). Wiring it into `usb_kbd`'s decode path before
+/// then would let a caret motion land mid-char and panic on the next edit, which
+/// is why `Decoder` does not route through it yet.
+#[derive(Debug, Clone, Default)]
+pub struct Composer {
+    /// The armed dead key awaiting its base letter, if any.
+    pending: Option<char>,
+}
+
+impl Composer {
+    pub const fn new() -> Self {
+        Self { pending: None }
+    }
+
+    /// The currently-armed dead key, for the side-panel pending-accent indicator
+    /// (roadmap v0.2.5). `None` when nothing is pending.
+    pub fn pending(&self) -> Option<char> {
+        self.pending
+    }
+
+    /// Drop any pending accent (call on keyboard detach or a mode reset, so a
+    /// stale dead key can't swallow the next unrelated letter).
+    pub fn reset(&mut self) {
+        self.pending = None;
+    }
+
+    /// Feed one decoded key; emit zero, one, or two resolved keys.
+    ///
+    /// - A dead key (`'` `` ` `` `^` `"` `~`) arms and emits nothing yet.
+    /// - Armed + a composing letter → the single accented char.
+    /// - Armed + space → the literal dead-key char (the everyday apostrophe
+    ///   path: `'` then space is a plain `'`); the space is consumed.
+    /// - Armed + a non-composing char → the accent as a literal, then the char
+    ///   processed fresh (so it may itself arm the next dead key).
+    /// - Armed + a non-character event (Enter, Backspace, arrows, …) → flush the
+    ///   accent as a literal first, then the event.
+    pub fn feed(&mut self, key: Key, mut emit: impl FnMut(Key)) {
+        let Some(dead) = self.pending.take() else {
+            self.arm_or_emit(key, &mut emit);
+            return;
+        };
+        match key {
+            Key::Char(' ') => emit(Key::Char(dead)),
+            Key::Char(c) => match compose(dead, c) {
+                Some(accented) => emit(Key::Char(accented)),
+                None => {
+                    emit(Key::Char(dead));
+                    self.arm_or_emit(key, &mut emit);
+                }
+            },
+            other => {
+                emit(Key::Char(dead));
+                emit(other);
+            }
+        }
+    }
+
+    /// If `key` is a dead-key character, arm it (emitting nothing); otherwise
+    /// pass it straight through.
+    fn arm_or_emit(&mut self, key: Key, emit: &mut impl FnMut(Key)) {
+        if let Key::Char(c) = key {
+            if is_dead(c) {
+                self.pending = Some(c);
+                return;
+            }
+        }
+        emit(key);
+    }
 }
 
 #[cfg(test)]
@@ -351,5 +477,149 @@ mod tests {
         d.reset();
         // After reset the same key reads as a fresh down, not a held slot.
         assert_eq!(feed(&mut d, &report(0, &[0x04])), vec![Key::Char('a')]);
+    }
+
+    // ---- Composer: US-International dead-key accent folding ----
+
+    fn ch(c: char) -> Key {
+        Key::Char(c)
+    }
+
+    /// Feed a sequence of keys through a fresh composer and collect the output.
+    fn compose_keys(seq: &[Key]) -> Vec<Key> {
+        let mut c = Composer::new();
+        let mut out = Vec::new();
+        for &k in seq {
+            c.feed(k, |k| out.push(k));
+        }
+        out
+    }
+
+    #[test]
+    fn dead_key_composes_accented_letter() {
+        // The roadmap's worked examples: à é ê ë ñ, and ç via `'`+c.
+        assert_eq!(compose_keys(&[ch('`'), ch('a')]), vec![ch('à')]);
+        assert_eq!(compose_keys(&[ch('\''), ch('e')]), vec![ch('é')]);
+        assert_eq!(compose_keys(&[ch('^'), ch('e')]), vec![ch('ê')]);
+        assert_eq!(compose_keys(&[ch('"'), ch('e')]), vec![ch('ë')]);
+        assert_eq!(compose_keys(&[ch('~'), ch('n')]), vec![ch('ñ')]);
+        assert_eq!(compose_keys(&[ch('\''), ch('c')]), vec![ch('ç')]);
+    }
+
+    #[test]
+    fn dead_key_composes_uppercase() {
+        assert_eq!(compose_keys(&[ch('\''), ch('E')]), vec![ch('É')]);
+        assert_eq!(compose_keys(&[ch('~'), ch('N')]), vec![ch('Ñ')]);
+        assert_eq!(compose_keys(&[ch('"'), ch('Y')]), vec![ch('Ÿ')]);
+        assert_eq!(compose_keys(&[ch('\''), ch('C')]), vec![ch('Ç')]);
+    }
+
+    #[test]
+    fn dead_key_plus_space_is_literal_diacritic() {
+        // The everyday apostrophe path: `'` then space → a single `'`, space
+        // consumed. Same for every dead key.
+        assert_eq!(compose_keys(&[ch('\''), ch(' ')]), vec![ch('\'')]);
+        assert_eq!(compose_keys(&[ch('^'), ch(' ')]), vec![ch('^')]);
+        assert_eq!(compose_keys(&[ch('"'), ch(' ')]), vec![ch('"')]);
+        assert_eq!(compose_keys(&[ch('`'), ch(' ')]), vec![ch('`')]);
+        assert_eq!(compose_keys(&[ch('~'), ch(' ')]), vec![ch('~')]);
+    }
+
+    #[test]
+    fn dead_key_plus_noncomposing_emits_accent_then_letter() {
+        assert_eq!(compose_keys(&[ch('\''), ch('z')]), vec![ch('\''), ch('z')]);
+        // Grave doesn't compose with 'c' (only acute does, → ç).
+        assert_eq!(compose_keys(&[ch('`'), ch('c')]), vec![ch('`'), ch('c')]);
+    }
+
+    #[test]
+    fn noncharacter_event_flushes_pending_accent_first() {
+        assert_eq!(compose_keys(&[ch('\''), Key::Enter]), vec![ch('\''), Key::Enter]);
+        assert_eq!(
+            compose_keys(&[ch('^'), Key::Backspace]),
+            vec![ch('^'), Key::Backspace]
+        );
+        assert_eq!(compose_keys(&[ch('~'), Key::Escape]), vec![ch('~'), Key::Escape]);
+        assert_eq!(
+            compose_keys(&[ch('"'), Key::DeleteWord]),
+            vec![ch('"'), Key::DeleteWord]
+        );
+    }
+
+    #[test]
+    fn dead_key_twice_emits_one_then_rearms() {
+        let mut c = Composer::new();
+        let mut out = Vec::new();
+        c.feed(ch('\''), |k| out.push(k)); // arm
+        assert_eq!(out, vec![]);
+        assert_eq!(c.pending(), Some('\''));
+        c.feed(ch('\''), |k| out.push(k)); // second acute: flush one, re-arm
+        assert_eq!(out, vec![ch('\'')]);
+        assert_eq!(c.pending(), Some('\''));
+        c.feed(ch('e'), |k| out.push(k)); // now composes with the re-armed acute
+        assert_eq!(out, vec![ch('\''), ch('é')]);
+        assert_eq!(c.pending(), None);
+    }
+
+    #[test]
+    fn pending_reflects_armed_dead_key() {
+        let mut c = Composer::new();
+        assert_eq!(c.pending(), None);
+        c.feed(ch('~'), |_| {});
+        assert_eq!(c.pending(), Some('~')); // side-panel indicator would show '~'
+        c.feed(ch('o'), |_| {}); // resolves
+        assert_eq!(c.pending(), None);
+    }
+
+    #[test]
+    fn reset_drops_pending() {
+        let mut c = Composer::new();
+        c.feed(ch('`'), |_| {});
+        assert_eq!(c.pending(), Some('`'));
+        c.reset();
+        assert_eq!(c.pending(), None);
+        // Next base letter is not swallowed by the dropped accent.
+        let mut out = Vec::new();
+        c.feed(ch('a'), |k| out.push(k));
+        assert_eq!(out, vec![ch('a')]);
+    }
+
+    #[test]
+    fn plain_ascii_passes_through_unchanged() {
+        let seq: Vec<Key> = "hello world".chars().map(ch).collect();
+        assert_eq!(compose_keys(&seq), seq);
+    }
+
+    #[test]
+    fn composes_within_a_word() {
+        // Keystrokes n a " i v e  →  "naïve" (the diaeresis folds into ï).
+        let seq = [ch('n'), ch('a'), ch('"'), ch('i'), ch('v'), ch('e')];
+        let out: String = compose_keys(&seq)
+            .into_iter()
+            .map(|k| match k {
+                Key::Char(c) => c,
+                _ => '?',
+            })
+            .collect();
+        assert_eq!(out, "naïve");
+    }
+
+    #[test]
+    fn every_composed_char_is_non_ascii() {
+        // The Composer is the deliberate non-ASCII (Latin-9) source; translate
+        // stays ASCII. If a mapping ever produced an ASCII char it would slip
+        // past the editor's UTF-8 gate unnoticed — pin it here.
+        for &dead in &DEAD_KEYS {
+            for base in [
+                'a', 'e', 'i', 'o', 'u', 'y', 'c', 'n', 'A', 'E', 'I', 'O', 'U', 'Y', 'C', 'N',
+            ] {
+                if let Some(accented) = compose(dead, base) {
+                    assert!(
+                        !accented.is_ascii(),
+                        "compose({dead:?}, {base:?}) = {accented:?} must be non-ASCII"
+                    );
+                }
+            }
+        }
     }
 }
