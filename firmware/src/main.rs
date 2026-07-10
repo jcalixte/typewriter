@@ -10,7 +10,7 @@ use esp_idf_svc::hal::spi::config::{Config, DriverConfig};
 use esp_idf_svc::hal::spi::{Dma, SpiBusDriver, SpiDriver};
 use esp_idf_svc::hal::units::FromValueType;
 
-use editor::{Editor, Mode, CH};
+use editor::{Editor, Effect, Mode, CH};
 use epd::Epd;
 
 /// Injected by build.rs so serial output identifies the exact build.
@@ -79,9 +79,26 @@ fn main() -> anyhow::Result<()> {
         // Drain all queued keystrokes (type-ahead absorbed during a refresh),
         // apply them, then do a single refresh for the batch.
         let mut keys = 0;
+        let mut effect = Effect::None;
         while let Some(k) = usb_kbd::next_key() {
-            ed.handle(k);
+            // A `:` command (only) yields an Effect; keep the last one in the batch.
+            match ed.handle(k) {
+                Effect::None => {}
+                e => effect = e,
+            }
             keys += 1;
+        }
+
+        // Carry out any host-side effect a `:` command asked for. The SD write
+        // and git-push paths aren't wired into the main loop yet (v0.1 gate —
+        // see src/bin/git_sync.rs for the persistent-clone push, git_push.rs
+        // for the TLS trust store). Both block for seconds, so the real version
+        // must run off this task (dedicated git thread, as the spike does) and
+        // surface status on the panel; for now we log the intent.
+        match effect {
+            Effect::None => {}
+            Effect::Save => log::info!(":w — save requested (TODO v0.1: write buffer to SD)"),
+            Effect::Publish => log::info!(":sync — publish requested (TODO v0.1: save + git push)"),
         }
 
         // Keyboard attach/detach feeds the panel's disconnect flag.

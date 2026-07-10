@@ -51,8 +51,25 @@ pub enum Mode {
     /// Read-only reading: keys scroll the viewport, edits are locked out.
     View,
     /// `:` command line — keys accumulate a command shown in the status strip;
-    /// Enter runs it, Esc cancels. Currently just `:fmt`.
+    /// Enter runs it, Esc cancels. Handles `:fmt` (in-core) plus `:w`/`:sync`
+    /// (which ask the host to persist/publish via an [`Effect`]).
     Command,
+}
+
+/// A side effect the host (firmware) must carry out after a `:` command. The
+/// editor core is pure and does no IO, so persistence and publishing can't
+/// happen here — they're signalled out through [`Editor::handle`]'s return
+/// value and actioned by the main loop. `:fmt` is pure text work and stays
+/// in-core, so it yields [`Effect::None`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effect {
+    /// Nothing for the host to do — ordinary keys, `:fmt`, unknown commands.
+    None,
+    /// `:w` (and the `:wq`/`:x` aliases) — persist the buffer to storage.
+    Save,
+    /// `:sync` — publish the buffer (save, then git push). The host saves
+    /// first: publishing an unsaved buffer is meaningless.
+    Publish,
 }
 
 /// A pending operator awaiting a motion or text object (`d`elete / `c`hange).
@@ -139,12 +156,23 @@ impl Editor {
         self.text.split_whitespace().count()
     }
 
-    /// Dispatch one decoded key event according to the current mode.
-    pub fn handle(&mut self, key: Key) {
+    /// Dispatch one decoded key event according to the current mode, returning
+    /// any [`Effect`] the host must carry out (only `:` commands produce one;
+    /// every other key yields [`Effect::None`]).
+    pub fn handle(&mut self, key: Key) -> Effect {
         match self.mode {
-            Mode::Insert => self.insert_key(key),
-            Mode::Normal => self.normal_key(key),
-            Mode::View => self.view_key(key),
+            Mode::Insert => {
+                self.insert_key(key);
+                Effect::None
+            }
+            Mode::Normal => {
+                self.normal_key(key);
+                Effect::None
+            }
+            Mode::View => {
+                self.view_key(key);
+                Effect::None
+            }
             Mode::Command => self.command_key(key),
         }
     }
@@ -315,7 +343,7 @@ impl Editor {
 
     // --- Command mode (`:`) ------------------------------------------------
 
-    fn command_key(&mut self, key: Key) {
+    fn command_key(&mut self, key: Key) -> Effect {
         match key {
             Key::Char(c) => self.cmdline.push(c),
             Key::Backspace => {
@@ -325,9 +353,10 @@ impl Editor {
                 }
             }
             Key::Enter => {
-                self.execute_command();
+                let effect = self.execute_command();
                 self.cmdline.clear();
                 self.mode = Mode::Normal;
+                return effect;
             }
             Key::Escape => {
                 self.cmdline.clear();
@@ -336,13 +365,22 @@ impl Editor {
             // Word/line deletes and Tab aren't meaningful on a short command line.
             _ => {}
         }
+        Effect::None
     }
 
-    /// Run the typed `:` command. Unknown commands are silently ignored.
-    fn execute_command(&mut self) {
+    /// Run the typed `:` command, returning any [`Effect`] the host must carry
+    /// out. Unknown commands are silently ignored. The `:q` quit family is
+    /// deliberately absent — an always-on writing appliance has nothing to
+    /// quit to; `:wq`/`:x` therefore just save (the "quit" half is dropped).
+    fn execute_command(&mut self) -> Effect {
         match self.cmdline.trim() {
-            "fmt" => self.format_buffer(),
-            _ => {}
+            "fmt" => {
+                self.format_buffer();
+                Effect::None
+            }
+            "w" | "wq" | "x" => Effect::Save,
+            "sync" => Effect::Publish,
+            _ => Effect::None,
         }
     }
 
@@ -1242,6 +1280,19 @@ mod tests {
         e
     }
 
+    /// From a fresh editor, run `:{cmd}<Enter>`, returning the editor and the
+    /// [`Effect`] the Enter produced.
+    fn command(cmd: &str) -> (Editor, Effect) {
+        let mut e = Editor::new();
+        e.handle(Key::Escape); // Insert -> Normal
+        e.handle(Key::Char(':')); // Normal -> Command
+        for c in cmd.chars() {
+            e.handle(Key::Char(c));
+        }
+        let effect = e.handle(Key::Enter);
+        (e, effect)
+    }
+
     #[test]
     fn insert_builds_buffer_and_advances_caret() {
         let e = typed("hello");
@@ -1384,5 +1435,35 @@ mod tests {
         let mut e = typed("café naïve garçon çÿ");
         let frame = e.draw(true);
         assert_eq!(frame.bytes().len(), display::FB_BYTES);
+    }
+
+    #[test]
+    fn w_command_signals_save_and_returns_to_normal() {
+        let (e, eff) = command("w");
+        assert_eq!(eff, Effect::Save);
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn sync_command_signals_publish() {
+        assert_eq!(command("sync").1, Effect::Publish);
+    }
+
+    #[test]
+    fn wq_and_x_alias_save_dropping_the_quit() {
+        assert_eq!(command("wq").1, Effect::Save);
+        assert_eq!(command("x").1, Effect::Save);
+    }
+
+    #[test]
+    fn fmt_stays_in_core_and_asks_the_host_for_nothing() {
+        assert_eq!(command("fmt").1, Effect::None);
+    }
+
+    #[test]
+    fn unknown_command_is_ignored() {
+        let (e, eff) = command("q"); // quit is deliberately unimplemented
+        assert_eq!(eff, Effect::None);
+        assert_eq!(e.mode(), Mode::Normal);
     }
 }
