@@ -144,8 +144,9 @@ package.json              pnpm + oxfmt — formatting toolchain for docs/JSON
       ≤32 GB card ([postmortem](docs/postmortems/2026-07-05-spike3-sd-cmd59.md)).
 - [ ] Heap fragmentation over a long writing session with the PSRAM allocator.
 - [ ] Real-world e-ink ghosting with the current partial-refresh cadence.
-- [ ] Possible use-after-free freeing the in-flight USB transfer on keyboard
-      unplug ([`MEMORY_AUDIT.md`](MEMORY_AUDIT.md) finding #1).
+- [~] Use-after-free freeing the in-flight USB transfer on keyboard unplug —
+      fixed in code, pending an on-device hot-plug run to confirm
+      ([`MEMORY_AUDIT.md`](MEMORY_AUDIT.md) finding #1).
 
 Retired risks ([gix push](docs/postmortems/2026-07-05-spike7-gix-https-push.md),
 TinyUSB HID stability, TLS heap, libgit2-on-xtensa) and how they died:

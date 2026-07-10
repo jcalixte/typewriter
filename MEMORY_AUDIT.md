@@ -4,6 +4,14 @@
 > point-in-time review of the `unsafe`/FFI surface; line numbers and the
 > soundness arguments below are only valid against that tree. Re-run it after
 > any change to `usb_kbd.rs`, the SD/git FFI, or an `esp-idf-sys` bump.
+>
+> **Remediation (2026-07-10).** Findings #1 and #3 are addressed in follow-up
+> commits, and the decode logic is now the host-tested `keymap` crate (14 tests,
+> including an ASCII-invariant sweep over all 256 usage IDs and a never-panics
+> fuzz). The `usb_kbd.rs` line numbers below predate that refactor. The fixes are
+> verified by inspection plus the `keymap` tests, but still need an on-device
+> hot-plug run to confirm — #1/#3 live in FFI that can't run on the host.
+> Per-finding status is inline.
 
 ## Scope & method
 
@@ -38,6 +46,10 @@ operation.
   risks. Real memory safety means the invariant is *enforced*, not hoped for.
 - Closing #1 so the in-flight invariant is explicit → 9. A 10 on FFI this heavy
   needs the structural guards in the "Regression testing" section.
+
+**Update (2026-07-10):** #1 and #3 are now addressed in code and the decode path
+is host-tested (see per-finding status). Once the hot-plug bench run confirms #1
+on hardware this becomes a 9; #2 and #4 are the remaining gap to 10.
 
 This is a *memory-safety* score. Robustness (leaks on hot-plug) and correctness
 would score separately and slightly lower.
@@ -84,6 +96,13 @@ before freeing — or track an in-flight flag set on submit and cleared in
 minimum, check the return value of `usb_host_transfer_free` and don't null the
 pointer / proceed to `device_close` while it reports the transfer busy.
 
+**Status: fixed in code.** A `REPORT_INFLIGHT` flag is set on submit and cleared
+first thing in every `report_cb`. The teardown moved into a `close_device`
+helper that pumps client events (bounded) until the transfer quiesces before
+freeing it — and *leaks it rather than frees* if it never does, since a leak is
+recoverable and a UAF is not. `usb_host_transfer_free`'s return value is now
+checked. Needs the hot-plug bench run below to confirm on hardware.
+
 ### 2. `mem::zeroed()` / `MaybeUninit::zeroed().assume_init()` on bindgen structs is a latent footgun — `usb_kbd.rs:110,143`, `sd_fat.rs:138,173,192`
 
 **Sound today**: every field of the zeroed descriptors is valid at all-zero (C
@@ -101,6 +120,12 @@ Prefer keeping them as `MaybeUninit` and writing fields via `addr_of_mut!`, or
 at least add a static/compile-time assertion (or a test) that pins the
 zero-is-valid assumption so a dependency bump fails loudly.
 
+**Status: left as-is deliberately** (sound today, low severity). There is no
+clean *stable* compile-time "all-zero is a valid bit pattern" assertion, and a
+runtime canary can't fire before the UB it would guard (`assume_init` is the UB
+site). The `addr_of_mut!` rewrite is the real fix but churns five call sites for
+a latent-only risk; deferred until an `esp-idf-sys` bump makes it worth it.
+
 ### 3. Resource leaks on re-attach and on submit error — not UB — `usb_kbd.rs:163-168, 417/436, 449`
 
 - A second keyboard attaching while one is open makes `setup_keyboard` overwrite
@@ -115,6 +140,10 @@ Not memory-unsafe — worst case is heap exhaustion over many hot-plug cycles,
 which matters for an always-powered appliance. Guard the re-attach case
 (`if !open_dev.is_null()` → tear down first) and free-on-error in
 `control_request`.
+
+**Status: fixed in code.** A new attach while a device is still open now runs
+`close_device` on the old one first. `control_request` and `start_report_polling`
+free the transfer they allocated on a submit error before returning.
 
 ### 4. USB thread stack sizing is unverified — `usb_kbd.rs:121,132`
 
@@ -175,13 +204,18 @@ split by what's reachable where, ranked by leverage.
    `handle_report`'s decode, the editor text ops, `changed_rows` /
    `only_adds_ink` in `main.rs`, the `epd` row math. Pull them into a
    no-esp-deps module/crate (workspace member or `#[cfg]`-gated) so `cargo test`
-   runs on host. Then:
-   - **Fuzz `handle_report` on host under Miri or ASAN** — the single most
-     valuable test. It's the exact path where a broken/malicious keyboard's
-     bytes meet `from_raw_parts` + slicing; feed arbitrary `&[u8]` and Miri
-     catches any OOB the clamp fails to prevent. Guards finding #5.
-   - Unit-test that `translate` never emits a non-ASCII `char`, pinning the
-     invariant `editor.rs` byte-indexing depends on.
+   runs on host.
+   - **Done for the keyboard decode.** `translate` + the report edge-detection
+     are now the `../keymap` crate (`#![no_std]`, `#![forbid(unsafe_code)]`, zero
+     deps), with 14 host tests including a `translate` **ASCII-invariant sweep**
+     over all 256 usage IDs × modifiers and a **never-panics fuzz** feeding
+     arbitrary-length/content byte streams. The slice itself is bounds-clamped in
+     the FFI layer (finding #5), and once it's a safe `&[u8]` the decode is
+     `forbid(unsafe_code)` — so Miri adds nothing over the panic-freedom the fuzz
+     test already proves; the plain `cargo test` run is the guard.
+   - **Still TODO:** the editor text ops and `changed_rows`/`only_adds_ink` are
+     also FFI-free and worth the same treatment, but stay coupled to
+     `embedded-graphics` / `epd` constants for now.
 2. **Compile-time guards for the `zeroed()` assumption (#2).** Static assertions
    (or a test constructing the struct and checking a sentinel field is
    `None`/`0`) so an `esp-idf-sys` bump fails loudly instead of going silently
@@ -189,7 +223,9 @@ split by what's reachable where, ranked by leverage.
 3. **`clippy` as a ratchet.** `#![warn(clippy::undocumented_unsafe_blocks)]` +
    `clippy::multiple_unsafe_ops_per_block`, deny-warnings in CI. Forces every
    new `unsafe` to carry a SAFETY comment — keeps the existing discipline from
-   eroding.
+   eroding. **Deferred:** turning it on crate-wide today floods warnings on the
+   many existing bare-FFI `unsafe` one-liners, which trains people to ignore it.
+   Worth doing *after* a pass that adds `// SAFETY:` to the existing blocks.
 4. **On-device tests for what only exists on device (#1, #3, #4).**
    - **Hot-plug stress loop**: attach/detach ~100× on a bench script, log
      `esp_get_free_heap_size` each cycle. A downward trend proves the leaks
