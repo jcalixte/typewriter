@@ -10,6 +10,13 @@ rust-version = "1.85"
 # rust-analyzer — see README "harness = false" note).
 autobins = false
 
+# Shared library surface (currently just resilient Wi-Fi bring-up in
+# `firmware::net`), reused by the editor bin and the spike bins so the connect
+# retry logic lives in exactly one place rather than being copied per binary.
+[lib]
+name = "firmware"
+path = "src/lib.rs"
+
 [[bin]]
 name = "firmware"
 path = "src/main.rs"

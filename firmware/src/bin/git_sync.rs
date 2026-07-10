@@ -44,7 +44,8 @@ use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sntp::{EspSntp, SyncStatus};
 use esp_idf_svc::sys::{self, esp};
-use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi};
+use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
+use firmware::net::connect_wifi;
 use git2::build::{CheckoutBuilder, RepoBuilder};
 use git2::{
     CertificateCheckStatus, Commit, Cred, CredentialType, FetchOptions, IndexAddOption,
@@ -135,7 +136,7 @@ fn run() -> Result<()> {
             EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
             sys_loop,
         )?;
-        connect_wifi(&mut wifi)?;
+        connect_wifi(&mut wifi, WIFI_SSID, WIFI_PASS)?;
         let ip = wifi.wifi().sta_netif().get_ip_info()?;
         log::info!("Wi-Fi up — IP {}", ip.ip);
         wifi
@@ -403,26 +404,6 @@ fn auth_callbacks<'a>() -> RemoteCallbacks<'a> {
 /// First 8 hex chars of an OID, for readable logs.
 fn short(oid: git2::Oid) -> String {
     oid.to_string()[..8].to_string()
-}
-
-/// Associate with the configured AP and wait for DHCP. Mirrors Spike 6 / git_push.
-fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> Result<()> {
-    let auth_method = if WIFI_PASS.is_empty() {
-        AuthMethod::None
-    } else {
-        AuthMethod::WPA2Personal
-    };
-    wifi.set_configuration(&Configuration::Client(ClientConfiguration {
-        ssid: WIFI_SSID.try_into().ok().context("SSID > 32 bytes")?,
-        password: WIFI_PASS.try_into().ok().context("password > 64 bytes")?,
-        auth_method,
-        ..Default::default()
-    }))?;
-    wifi.start()?;
-    log::info!("associating with \"{WIFI_SSID}\"…");
-    wifi.connect().context("Wi-Fi association failed")?;
-    wifi.wait_netif_up().context("DHCP / netif never came up")?;
-    Ok(())
 }
 
 /// Kick off SNTP and block until first sync. Required before TLS (cert validity)

@@ -28,7 +28,8 @@ use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::http::client::{Configuration as HttpConfig, EspHttpConnection};
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sntp::{EspSntp, SyncStatus};
-use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi};
+use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
+use firmware::net::connect_wifi;
 
 /// Injected by build.rs so serial output identifies the exact build.
 const BUILD_TAG: &str = concat!("build ", env!("BUILD_TIME"), " @", env!("BUILD_GIT"));
@@ -81,42 +82,13 @@ fn run() -> Result<()> {
         sys_loop,
     )?;
 
-    connect_wifi(&mut wifi)?;
+    connect_wifi(&mut wifi, WIFI_SSID, WIFI_PASS)?;
     let ip = wifi.wifi().sta_netif().get_ip_info()?;
     log::info!("Wi-Fi up — IP {}, GW {}", ip.ip, ip.subnet.gateway);
 
     sync_clock()?;
 
     https_get(TEST_URL)?;
-    Ok(())
-}
-
-/// Associate with the configured AP and wait for the netif (DHCP) to come up.
-fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> Result<()> {
-    // Open network → no auth; otherwise WPA2-Personal (see .env.example for WPA3).
-    let auth_method = if WIFI_PASS.is_empty() {
-        AuthMethod::None
-    } else {
-        AuthMethod::WPA2Personal
-    };
-
-    wifi.set_configuration(&Configuration::Client(ClientConfiguration {
-        ssid: WIFI_SSID
-            .try_into()
-            .ok()
-            .context("SSID longer than 32 bytes")?,
-        password: WIFI_PASS
-            .try_into()
-            .ok()
-            .context("password longer than 64 bytes")?,
-        auth_method,
-        ..Default::default()
-    }))?;
-
-    wifi.start()?;
-    log::info!("associating with \"{WIFI_SSID}\"…");
-    wifi.connect().context("Wi-Fi association failed")?;
-    wifi.wait_netif_up().context("DHCP / netif never came up")?;
     Ok(())
 }
 
