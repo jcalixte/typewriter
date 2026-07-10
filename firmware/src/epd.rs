@@ -12,74 +12,21 @@
 //! `embedded-graphics` `DrawTarget` (`Frame`), full refresh (`display_frame`),
 //! and partial refresh (`display_frame_partial`) — Spikes 2 and 5.
 
-use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::*;
 use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::hal::gpio::{Input, Output, PinDriver};
 use esp_idf_svc::hal::spi::{SpiBusDriver, SpiDriver};
 use esp_idf_svc::sys::EspError;
 
-pub const WIDTH: u16 = 792;
-pub const HEIGHT: u16 = 272;
+// Panel geometry and the drawable `Frame` now live in the `display` crate, so
+// the editor can render onto them off the xtensa target. Re-exported here so
+// `epd::HEIGHT`, `epd::FB_BYTES`, etc. keep resolving for main.rs and the driver
+// code below, and so the driver need not know they were relocated.
+pub use display::{FB_BYTES, FB_BYTES_W, HEIGHT, WIDTH};
 
 /// Each controller drives one half. SSD1683 X is byte-addressed; 396 px
 /// rounds up to 50 bytes (400 px) of RAM width, full panel height (272 rows).
 const CTRL_BYTES_W: usize = 50;
 const CTRL_BYTES: usize = CTRL_BYTES_W * HEIGHT as usize; // 50 * 272 = 13600
-
-/// Full-frame 1-bit framebuffer: 792 px = 99 bytes per row, MSB-first,
-/// 1 = white, 0 = black (SSD16xx convention).
-pub const FB_BYTES_W: usize = (WIDTH / 8) as usize; // 99
-pub const FB_BYTES: usize = FB_BYTES_W * HEIGHT as usize; // 26928
-
-/// In-memory 792×272 1-bit frame, drawable via `embedded-graphics`.
-/// `BinaryColor::On` = black ink, `Off` = white paper.
-pub struct Frame {
-    buf: Vec<u8>,
-}
-
-impl Frame {
-    pub fn new_white() -> Self {
-        Self { buf: vec![0xFF; FB_BYTES] }
-    }
-
-    #[allow(dead_code)] // symmetric with new_white; kept as part of the API
-    pub fn new_black() -> Self {
-        Self { buf: vec![0x00; FB_BYTES] }
-    }
-
-    pub fn bytes(&self) -> &[u8] {
-        &self.buf
-    }
-}
-
-impl OriginDimensions for Frame {
-    fn size(&self) -> Size {
-        Size::new(WIDTH as u32, HEIGHT as u32)
-    }
-}
-
-impl DrawTarget for Frame {
-    type Color = BinaryColor;
-    type Error = core::convert::Infallible;
-
-    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = Pixel<Self::Color>>,
-    {
-        for Pixel(p, color) in pixels {
-            if (0..WIDTH as i32).contains(&p.x) && (0..HEIGHT as i32).contains(&p.y) {
-                let idx = p.y as usize * FB_BYTES_W + p.x as usize / 8;
-                let bit = 0x80u8 >> (p.x % 8);
-                match color {
-                    BinaryColor::On => self.buf[idx] &= !bit, // black ink
-                    BinaryColor::Off => self.buf[idx] |= bit, // white paper
-                }
-            }
-        }
-        Ok(())
-    }
-}
 
 /// Max bytes per SPI transfer; matches the DMA size configured in `main`.
 const SPI_CHUNK: usize = 4096;

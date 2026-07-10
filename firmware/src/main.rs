@@ -1,4 +1,3 @@
-mod editor;
 mod epd;
 mod usb_kbd;
 

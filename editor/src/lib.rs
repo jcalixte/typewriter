@@ -17,8 +17,8 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
 
-use crate::epd::{self, Frame};
-use crate::usb_kbd::Key;
+use display::{Frame, HEIGHT};
+use keymap::Key;
 
 /// FONT_10X20 cell size (writing column) and the grid it tiles into.
 pub const CW: i32 = 10;
@@ -31,7 +31,7 @@ pub const CH: i32 = 20;
 const WRITE_COLS: usize = 60;
 /// Visible writing rows. 13 × 20 px = 260 px; the bottom 12 px is the transient
 /// `:` command line (the only thing left of the old status band).
-const ROWS: usize = (epd::HEIGHT / 20) as usize; // 13
+const ROWS: usize = (HEIGHT / 20) as usize; // 13
 /// x of the 1 px rule dividing writing column from side panel, and the left edge
 /// of panel text (a small gutter past the rule).
 const DIVIDER_X: i32 = WRITE_COLS as i32 * CW; // 600
@@ -928,7 +928,7 @@ impl Editor {
     /// repaints per keystroke.
     fn draw_panel(&self, f: &mut Frame) {
         // The rule dividing writing column from panel, full panel height.
-        Rectangle::new(Point::new(DIVIDER_X, 0), Size::new(1, epd::HEIGHT as u32))
+        Rectangle::new(Point::new(DIVIDER_X, 0), Size::new(1, HEIGHT as u32))
             .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
             .draw(f)
             .unwrap();
@@ -946,7 +946,7 @@ impl Editor {
         if !self.keyboard_present {
             Text::with_baseline(
                 "NO KBD",
-                Point::new(PANEL_X, epd::HEIGHT as i32 - 24),
+                Point::new(PANEL_X, HEIGHT as i32 - 24),
                 style,
                 Baseline::Top,
             )
@@ -983,7 +983,7 @@ impl Editor {
             }
             Text::with_baseline(
                 &s,
-                Point::new(PANEL_X, epd::HEIGHT as i32 - 12),
+                Point::new(PANEL_X, HEIGHT as i32 - 12),
                 style,
                 Baseline::Top,
             )
@@ -1186,5 +1186,92 @@ fn pad_cell(cell: &str, w: usize, align: Align) -> String {
             format!("{}{cell}{}", " ".repeat(l), " ".repeat(pad - l))
         }
         _ => format!("{cell}{}", " ".repeat(pad)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Type a run of characters in Insert mode (the power-on mode).
+    fn typed(s: &str) -> Editor {
+        let mut e = Editor::new();
+        for c in s.chars() {
+            e.handle(Key::Char(c));
+        }
+        e
+    }
+
+    #[test]
+    fn insert_builds_buffer_and_advances_caret() {
+        let e = typed("hello");
+        assert_eq!(e.text, "hello");
+        assert_eq!(e.caret, 5);
+        assert_eq!(e.mode(), Mode::Insert);
+    }
+
+    #[test]
+    fn backspace_deletes_previous_char() {
+        let mut e = typed("hello");
+        e.handle(Key::Backspace);
+        assert_eq!(e.text, "hell");
+        assert_eq!(e.caret, 4);
+    }
+
+    #[test]
+    fn enter_splits_the_line() {
+        let mut e = typed("ab");
+        e.handle(Key::Enter);
+        e.handle(Key::Char('c'));
+        assert_eq!(e.text, "ab\nc");
+        assert_eq!(e.caret, 4);
+    }
+
+    #[test]
+    fn escape_enters_normal_and_steps_onto_last_char() {
+        let mut e = typed("abc");
+        e.handle(Key::Escape);
+        assert_eq!(e.mode(), Mode::Normal);
+        assert_eq!(e.caret, 2); // vim: caret drops onto the last inserted char
+    }
+
+    #[test]
+    fn normal_h_and_l_step_one_char() {
+        let mut e = typed("abc");
+        e.handle(Key::Escape); // Normal, caret = 2
+        e.handle(Key::Char('h'));
+        assert_eq!(e.caret, 1);
+        e.handle(Key::Char('h'));
+        assert_eq!(e.caret, 0);
+        e.handle(Key::Char('l'));
+        assert_eq!(e.caret, 1);
+    }
+
+    #[test]
+    fn normal_x_deletes_char_under_caret() {
+        let mut e = typed("abc");
+        e.handle(Key::Escape); // caret on 'c'
+        e.handle(Key::Char('h')); // caret on 'b'
+        e.handle(Key::Char('x'));
+        assert_eq!(e.text, "ac");
+    }
+
+    #[test]
+    fn word_forward_lands_on_next_word_start() {
+        let mut e = typed("foo bar");
+        e.handle(Key::Escape); // Normal
+        e.handle(Key::Char('0')); // line start
+        e.handle(Key::Char('w'));
+        assert_eq!(e.caret, 4); // 'b' of "bar"
+    }
+
+    /// The buffer round-trips and `draw()` runs for a plain-ASCII buffer — the
+    /// current, byte==char world. UTF-8 (accented-input) correctness is the next
+    /// change; when it lands, add the accented-motion cases here.
+    #[test]
+    fn draw_produces_a_full_frame_for_ascii() {
+        let mut e = typed("hello world");
+        let frame = e.draw(true);
+        assert_eq!(frame.bytes().len(), display::FB_BYTES);
     }
 }

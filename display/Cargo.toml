@@ -1,0 +1,10 @@
+[package]
+name = "display"
+version = "0.1.0"
+edition = "2021"
+description = "The GDEY0579T93 panel's geometry plus an in-memory drawable Frame (an embedded-graphics DrawTarget), split out of the hardware driver so the driver and the host-testable editor crate share one framebuffer definition without pulling in esp-idf."
+
+# Pure embedded-graphics — no esp/std hardware deps — so the editor crate that
+# renders onto Frame stays host-buildable and testable off the xtensa target.
+[dependencies]
+embedded-graphics = "0.8"

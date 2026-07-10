@@ -1,0 +1,10 @@
+[package]
+name = "editor"
+version = "0.1.0"
+edition = "2021"
+description = "Modal (vim-style) text-editor core: the buffer, motions, edits, and e-paper layout/render. Depends only on embedded-graphics plus the display and keymap crates, so it builds and is tested on the host off the xtensa target (unlike the firmware crate it used to live in)."
+
+[dependencies]
+embedded-graphics = "0.8"
+display = { path = "../display" }
+keymap = { path = "../keymap" }
