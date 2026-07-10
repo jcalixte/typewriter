@@ -115,12 +115,20 @@ lives in the `git_sync` / `sd_fat` spike bins, not `main.rs`.
 
 - [~] ESP32-S3 boots (✓); e-ink shows Typoena splash + boot log — splash pending Spike 9
 - [x] USB host enumerates the Nuphy, key events reach the editor (Spike 4)
-- [ ] One hard-coded file (`/sd/repo/notes.md`) opens on boot — SD spike-only, not in `main.rs`
+- [ ] One hard-coded file (`/sd/repo/notes.md`) opens on boot — SD spike-only,
+      not in `main.rs`. The card is pre-seeded from a computer (`just init`
+      copies a full clone to `/sd/repo` + writes config), never cold-cloned on
+      device — see [note](notes/git-sync-images-and-repo-size.md).
 - [x] Insert-only editing, backspace, enter, arrow keys — modal editor overshot this early (see v0.2)
 - [x] Line wrap, no line numbers yet — soft-wrap done early (see v0.6)
 - [ ] Save on `Ctrl-S` → SD — SD blocked, not wired to `main.rs`
-- [x] Wi-Fi credentials + remote URL + PAT + author baked into the binary at
-      build time via env vars (no NVS, no on-device provisioning UI in v0.1)
+- [~] Wi-Fi credentials + remote URL + PAT + author: today baked into the binary
+      via `env!()` (no NVS, no on-device provisioning UI in v0.1). Migrating to
+      `/sd/typoena.conf` on the card, provisioned by `just provision` (or
+      `just init` for a fresh card) from the same `firmware/.env` the build uses
+      (minimum input — rotate the PAT or switch networks without a reflash, no
+      card re-copy). Firmware to read it at boot instead of
+      `env!()` — TODO, rides with the SD wiring into `main.rs`.
 - [~] `Ctrl-G` runs: `git add .` → commit with an ISO-8601 timestamp message →
   `git push`; on push failure, `git pull --no-edit` then retry the push
   (no-op short-circuit when nothing is staged). Proven on device in the

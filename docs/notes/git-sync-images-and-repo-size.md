@@ -80,6 +80,23 @@ pre-seed (not depth-1) also sidesteps the shallow-push sharp edge. remanso
 keeps working, the device gets everything, and repo size stops being anyone's
 problem.
 
+Implemented in firmware/justfile as three recipes, each ejecting the card when
+done so it goes straight into Typoena:
+
+- `just init <repo-path>` — full prep of a fresh card: copies a full clone to
+  the card's `repo/`, excluding everything the repo's `.gitignore` ignores (so
+  `node_modules` and local secrets like `firmware/.env` never land on the card),
+  then writes `/sd/typoena.conf` — Wi-Fi creds + PAT + git identity — from the
+  TW_* vars already in `firmware/.env` (no re-typing, no prompts).
+- `just load <repo-path>` — the repo copy on its own (refresh after big upstream
+  changes).
+- `just provision` — the config on its own (rotate the PAT / switch networks
+  without re-copying the repo).
+
+The firmware still reads those values via `env!()` today; reading
+`/sd/typoena.conf` at boot is a TODO that rides with the SD wiring into
+`main.rs`.
+
 ## What happens on an ongoing pull
 
 In the single-writer model the device usually doesn't pull at all:
