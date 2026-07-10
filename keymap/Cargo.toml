@@ -1,0 +1,10 @@
+[package]
+name = "keymap"
+version = "0.1.0"
+edition = "2021"
+description = "Pure HID boot-keyboard decode: the Key event type, a US-QWERTY translate, and an edge-detecting Decoder. No esp/std deps, so it is host-testable and fuzzable off-device (see MEMORY_AUDIT.md)."
+
+# Deliberately dependency-free and #![no_std] (except under test) so the decode
+# path — the one place untrusted device bytes are parsed — can be exercised on
+# the host without the ESP toolchain. The firmware crate depends on this by path.
+[dependencies]
