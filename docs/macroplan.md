@@ -1,9 +1,9 @@
-# Roadmap — version details
+# Macroplan — version details
 
 Frequent releases. Each version is a usable artifact, not a checkpoint.
-This file holds the macro-plan (Macroplan block below) and the per-version
-scope. The user-facing requirements and engineering targets each release feeds
-into are tracked in [`qfd.md`](qfd.md).
+This file holds the `macroplan` source block (below) and the per-version scope.
+The user-facing requirements and engineering targets each release feeds into are
+tracked in [`qfd.md`](qfd.md).
 
 ## Status — synced 2026-07-11
 
@@ -49,7 +49,7 @@ name = "v0.2 navigation"
 start = 2026-06-29
 original = 2026-07-20
 status = "on-track"
-note = "Core work landed early: motions and modes already run; Ctrl-d/u and the UTF-8 buffer landed 2026-07-11; only the line-number gutter remains."
+note = "Core essentially complete: motions/modes, Ctrl-d/u, the UTF-8 buffer, and the absolute line-number gutter all landed 2026-07-11 (host-tested). Only Spike 13's on-panel gutter refresh check remains before the release ships."
 
 [[feature]]
 name = "v0.2.5 international input"
@@ -76,7 +76,7 @@ note = ": command-line mechanism and :fmt done early; Visual mode not started."
 name = "v0.5 palette + multi-file"
 start = 2026-09-07
 original = 2026-09-28
-note = "Also adds the git-tracked .typoena.toml preferences file (save_on_idle, auto_sync cadence, line_numbers) and the palette `>` command mode that edits it live."
+note = "Also adds the git-tracked .typoena.toml preferences file (save_on_idle, format_on_save, auto_sync cadence, line_numbers) and the palette `>` command mode that edits it live."
 
 [[feature]]
 name = "v0.6 markdown"
@@ -156,8 +156,9 @@ post-ship acceptance checks are power-pull recovery, 1000-word no-drop, and
       `env!()` — the git-publish wiring landed with baked config (2026-07-11);
       the `typoena.conf` migration itself is deferred to v0.9 (on-device
       provisioning).
-- [x] Publish on **`:sync`** (the editor's command; the roadmap originally
-  planned `Ctrl-G`): stage `notes.md` → commit with a timestamp message →
+- [x] Publish on **`:sync`** (the editor's command; originally planned as
+  `Ctrl-G`): format (`:fmt`, when `format_on_save`) → save → stage `notes.md`
+  → commit with a timestamp message →
   fast-forward `push`; on a rejected push, fetch + reconcile then retry once
   (no-op short-circuit when the tree is unchanged). **Wired into the editor and
   hardware-verified 2026-07-11** — `firmware::git_sync` opens the SD `/sd/repo`,
@@ -247,7 +248,7 @@ v0.2 UTF-8-correct buffer and the ISO-8859-15 render font. Host-tested.
 
 **Status:** deletes and counts done; **yank/paste, undo/redo, and `.` repeat
 remain** — there is no register or recorded-op mechanism yet. The `d`/`c`
-operator grammar and text objects landed here ahead of schedule (the roadmap
+operator grammar and text objects landed here ahead of schedule (the plan
 had scheduled only `dd`/`dw`/`d$`).
 
 - [~] `x dd`, `dw dd d$` (✓); `yy p P` and repeat with `.` remain (need a register / recorded op)
@@ -268,7 +269,10 @@ those keys and gets its own trigger (exact key TBD when Visual lands). View mode
 stays — it just frees `v`/`V` for Visual.
 
 - [ ] Visual char (`v`) and line (`V`) modes, `y d c` on selections
-- [~] `:` command line: `:w :q :wq :e <path>` (mechanism ✓; these commands remain)
+- [~] `:` command line (mechanism ✓; `:w`/`:wq`/`:x` save, `:fmt`/`:sync`/`:gl`
+      wired; `:e <path>` remains, `:q` deliberately dropped — nothing to quit
+      to). Command-line editing added 2026-07-11: Ctrl-W deletes the previous
+      word, Cmd-Backspace clears the line.
 - [x] Ahead of schedule / unscheduled: `:fmt` Markdown formatter
       (table alignment, blank-line collapse, trailing-whitespace strip)
 
@@ -297,6 +301,14 @@ buffer-lifecycle risk first).
   - [ ] `save_on_idle` (bool, default `true`) — auto-save the current buffer on
         the existing idle pause (the ≥ 1 s typing-pause the panel already uses
         for its refresh), so `:w` becomes optional rather than required.
+  - [ ] `format_on_save` (bool, default `true`) — run `:fmt` (table alignment,
+        blank-line collapse, trailing-whitespace strip) on the buffer before it
+        is persisted, so `:sync` is **fmt → save → commit → push** and `:w`
+        saves formatted. Implemented in-core 2026-07-11 (`Editor::format_on_save`,
+        default on); this key will drive it. **Open question:** with
+        `save_on_idle` also on, this reformats on every idle pause — reflowing
+        tables / collapsing blanks mid-session. Consider limiting fmt to
+        explicit `:w`/`:sync` and leaving the idle auto-save unformatted.
   - [ ] `line_numbers` (bool, default `true`) — show the absolute line-number
         gutter (built always-on in v0.2). Off reclaims the gutter's columns for
         text; the palette `> line numbers: on/off` command toggles it live.
@@ -360,12 +372,17 @@ engine remain (snippets are net-new scope, added 2026-07-08).
   - [ ] Starter set: link `[$1]($2)$0`, image `![$1]($2)$0`, fenced code block,
         etc.
 
-## v0.7 — Search + better git — [ ]
+## v0.7 — Search + better git — [~]
 
-**Status:** not started.
+**Status:** the **`:gl` pull command landed in the editor** (2026-07-11,
+host-tested) — `Effect::Pull` + a firmware stub; the on-device fetch +
+fast-forward is still to build. Search not started.
 
 - [ ] `/` forward search, `n N`
-- [ ] `:Gpull` (fetch + fast-forward only; refuse on conflict and surface it)
+- [~] `:gl` — pull: fetch + **fast-forward only**, refuse on divergence and
+      surface it (renamed from the planned `:Gpull`). Editor command +
+      `Effect::Pull` done 2026-07-11 (host-tested); the git-thread
+      fetch/fast-forward in `git_sync` remains (only push is wired today).
 
 ## v0.8 — Power: battery + sleep — [ ]
 

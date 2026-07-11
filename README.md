@@ -9,7 +9,7 @@ runs on it.
 > verified in spikes; SD mount and save are now wired into the app binary. No
 > release has shipped yet — v0.1's remaining gate is the boot splash and wiring
 > git publish (`Ctrl-G` → push) into the app binary. Live per-item status:
-> [`docs/roadmap.md`](docs/roadmap.md) · failure write-ups:
+> [`docs/macroplan.md`](docs/macroplan.md) · failure write-ups:
 > [`docs/postmortems/`](docs/postmortems/README.md).
 
 ---
@@ -98,22 +98,22 @@ around, not against:
 
 Releases are frequent, and every version is a usable artifact rather than a
 checkpoint. Per-version scope, current `[x]`/`[~]` marks, and the Macroplan
-source live in [`docs/roadmap.md`](docs/roadmap.md).
+source live in [`docs/macroplan.md`](docs/macroplan.md).
 
 | Version                                                 | Theme        | One-liner                                    |
 | ------------------------------------------------------- | ------------ | -------------------------------------------- |
-| [v0.1](docs/roadmap.md#v01--mvp-it-writes-it-pushes--)  | MVP          | Boots, edits one file, `Ctrl-G` pushes.      |
-| [v0.2](docs/roadmap.md#v02--vim-navigation--)           | Vim nav      | Normal/Insert, motions, line numbers.        |
-| [v0.2.5](docs/roadmap.md#v025--international-input--)   | Intl input   | US-Intl dead keys: à é ê ç, `'`+space = `'`. |
-| [v0.3](docs/roadmap.md#v03--vim-editing--)              | Vim edit     | `dd yy p`, undo/redo, counts.                |
-| [v0.4](docs/roadmap.md#v04--visual-mode--ex-commands--) | Visual + ex  | `v V`, `:w :q :e` command line.              |
-| [v0.5](docs/roadmap.md#v05--file-palette--multi-file--) | Files        | `Ctrl-P` over `/repo` + `/local`, buffers.   |
-| [v0.6](docs/roadmap.md#v06--markdown-affordances--)     | Markdown     | Headings, list continuation, soft-wrap.      |
-| [v0.7](docs/roadmap.md#v07--search--better-git--)       | Search + git | `/` search, `:Gpull`.                        |
-| [v0.8](docs/roadmap.md#v08--power-battery--sleep--)     | Power        | 18650 + sleep + lid switch.                  |
-| [v0.9](docs/roadmap.md#v09--robustness--)               | Robustness   | Crash-safe writes, reconnect, settings.      |
-| [v1.0](docs/roadmap.md#v10--polish--)                   | Polish       | Boot ≤ 3 s, fonts, themes, enclosure, guide. |
-| [v1.x](docs/roadmap.md#v1x--stretch--nice-to-have)      | Stretch      | 10.3″ panel, multi-remote, stats, BLE.       |
+| [v0.1](docs/macroplan.md#v01--mvp-it-writes-it-pushes--)  | MVP          | Boots, edits one file, `Ctrl-G` pushes.      |
+| [v0.2](docs/macroplan.md#v02--vim-navigation--)           | Vim nav      | Normal/Insert, motions, line numbers.        |
+| [v0.2.5](docs/macroplan.md#v025--international-input--)   | Intl input   | US-Intl dead keys: à é ê ç, `'`+space = `'`. |
+| [v0.3](docs/macroplan.md#v03--vim-editing--)              | Vim edit     | `dd yy p`, undo/redo, counts.                |
+| [v0.4](docs/macroplan.md#v04--visual-mode--ex-commands--) | Visual + ex  | `v V`, `:w :q :e` command line.              |
+| [v0.5](docs/macroplan.md#v05--file-palette--multi-file--) | Files        | `Ctrl-P` over `/repo` + `/local`, buffers.   |
+| [v0.6](docs/macroplan.md#v06--markdown-affordances--)     | Markdown     | Headings, list continuation, soft-wrap.      |
+| [v0.7](docs/macroplan.md#v07--search--better-git--)       | Search + git | `/` search, `:Gpull`.                        |
+| [v0.8](docs/macroplan.md#v08--power-battery--sleep--)     | Power        | 18650 + sleep + lid switch.                  |
+| [v0.9](docs/macroplan.md#v09--robustness--)               | Robustness   | Crash-safe writes, reconnect, settings.      |
+| [v1.0](docs/macroplan.md#v10--polish--)                   | Polish       | Boot ≤ 3 s, fonts, themes, enclosure, guide. |
+| [v1.x](docs/macroplan.md#v1x--stretch--nice-to-have)      | Stretch      | 10.3″ panel, multi-remote, stats, BLE.       |
 
 ---
 

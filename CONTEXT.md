@@ -15,7 +15,7 @@ by user-facing weight. References the terms in this file as canonical.
 surface, expressed in this vocabulary.
 [`docs/v0.1-mvp-technical.md`](docs/v0.1-mvp-technical.md) — how v0.1 is
 built.
-[`docs/roadmap.md`](docs/roadmap.md) — per-version scope, where new terms
+[`docs/macroplan.md`](docs/macroplan.md) — per-version scope, where new terms
 (e.g. multi-file **Buffer** concepts at v0.5) will enter this glossary.
 
 ## Language

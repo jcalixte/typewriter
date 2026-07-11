@@ -9,7 +9,7 @@
 > Notes index: [`README.md`](README.md). Docs index:
 > [`../README.md`](../README.md). Backs the boot-time acceptance criterion in
 > [`../v0.1-mvp-product.md`](../v0.1-mvp-product.md#acceptance-criteria) and the
-> v1.0 goal in [`../roadmap.md`](../roadmap.md). Refresh cost model:
+> v1.0 goal in [`../macroplan.md`](../macroplan.md). Refresh cost model:
 > [`../tradeoff-curves/epd-refresh-latency.md`](../tradeoff-curves/epd-refresh-latency.md).
 
 ## The waterfall

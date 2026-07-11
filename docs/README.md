@@ -14,7 +14,7 @@
 | [`adr.md`](adr.md) | Architecture Decision Records — the load-bearing technical choices and why. |
 | [`v0.1-mvp-product.md`](v0.1-mvp-product.md) | v0.1 product design — boot, type one file, `Ctrl-S` to save, `Ctrl-G` to publish. |
 | [`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) | v0.1 technical design — single Rust binary on `esp-idf-rs`, modules, threads, bring-up order. |
-| [`roadmap.md`](roadmap.md) | Version-by-version plan; each release is a usable artifact, not a checkpoint. |
+| [`macroplan.md`](macroplan.md) | Version-by-version plan; each release is a usable artifact, not a checkpoint. |
 | [`hardware.md`](hardware.md) | Part choices for the bench build and the rationale behind them. |
 
 ## Quality method

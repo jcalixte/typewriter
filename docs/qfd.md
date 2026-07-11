@@ -10,7 +10,7 @@ Scope: v0.1 MVP — see
 [`v0.1-mvp-product.md`](v0.1-mvp-product.md) for user-facing scope and
 [`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) for implementation —
 with the v0.2–v1.0 trajectory ([README](../README.md),
-[roadmap](roadmap.md)) in mind so we don't paint into a corner. Terminology
+[macroplan](macroplan.md)) in mind so we don't paint into a corner. Terminology
 (e.g. **Tracked**, **Local**, **Save**, **Publish**) follows the project
 glossary at [`../CONTEXT.md`](../CONTEXT.md).
 
@@ -592,17 +592,17 @@ What a user (= me) values about the device, with importance weights on a
 | W1  | Sub-second visible response to typing                                              |   10   | [product → Write](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium)               |
 | W2  | **Publishing** is one deliberate action away                                       |   9    | [product → Publish](v0.1-mvp-product.md#user-stories), [CONTEXT → Publish](../CONTEXT.md#user-facing-actions)                  |
 | W3  | Pulling power never corrupts the file                                              |   10   | [product → Recover](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)                   |
-| W4  | Provisioning never interrupts a writing session                                    |   7    | [product → Provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only), [roadmap → v0.9](roadmap.md#v09--robustness--) |
+| W4  | Provisioning never interrupts a writing session                                    |   7    | [product → Provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only), [macroplan → v0.9](macroplan.md#v09--robustness--) |
 | W5  | Quick boot to a writing cursor                                                     |   6    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s)                                                        |
 | W6  | Long sessions without crash / lag / drift                                          |   9    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak)                                                     |
 | W7  | Nothing on the device competes with prose                                          |   8    | [README → vision](../README.md#vision)                                                                                         |
 | W8  | The UI never moves except when I move it                                           |   7    | [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                                                    |
-| W9  | Codebase absorbs the planned roadmap without rewrite                               |   8    | [roadmap](roadmap.md)                                                                                                          |
+| W9  | Codebase absorbs the planned roadmap without rewrite                               |   8    | [macroplan](macroplan.md)                                                                                                          |
 | W10 | I can repair or fork it with hobbyist tools                                        |   5    | [README → vision](../README.md#vision)                                                                                         |
-| W11 | Multi-day battery life (v0.8 onward)                                               |   4    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--)                                                                       |
-| W12 | Local-only file scope coexists with git scope (v0.5+)                              |   5    | [README → scopes](../README.md#vision), [roadmap → v0.5](roadmap.md#v05--file-palette--multi-file--)                           |
-| W13 | Typography sets a writing-tool tone — typewriter or developer editor, never gadget |   7    | [roadmap → v1.0](roadmap.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                      |
-| W14 | I can carry the device and write away from a desk                                  |   8    | [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--), [README → hardware](../README.md#hardware)                           |
+| W11 | Multi-day battery life (v0.8 onward)                                               |   4    | [macroplan → v0.8](macroplan.md#v08--power-battery--sleep--)                                                                       |
+| W12 | Local-only file scope coexists with git scope (v0.5+)                              |   5    | [README → scopes](../README.md#vision), [macroplan → v0.5](macroplan.md#v05--file-palette--multi-file--)                           |
+| W13 | Typography sets a writing-tool tone — typewriter or developer editor, never gadget |   7    | [macroplan → v1.0](macroplan.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                      |
+| W14 | I can carry the device and write away from a desk                                  |   8    | [macroplan → v0.8](macroplan.md#v08--power-battery--sleep--), [README → hardware](../README.md#hardware)                           |
 
 ---
 

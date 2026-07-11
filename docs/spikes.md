@@ -8,7 +8,7 @@
 >
 > They ride on the `epd::Frame` `DrawTarget` and the Spike 5 partial-refresh
 > path. Project overview: [`../README.md`](../README.md). Vocabulary:
-> [`../CONTEXT.md`](../CONTEXT.md). Release sequence: [`roadmap.md`](roadmap.md).
+> [`../CONTEXT.md`](../CONTEXT.md). Release sequence: [`macroplan.md`](macroplan.md).
 
 These prove display/UX risks, not stack risks, so they sit outside the 1–7
 "prove before integration" gate. **Run Spike 8 first:** it partitions the panel
@@ -150,4 +150,4 @@ risk early.
     artifact-free full-refresh swap on every buffer change (leaning on Spike
     11). Latency is not the risk here; buffer-state and git-staging correctness
     are. (Feeds v0.5 multi-file, delete included — now authorized in
-    [roadmap](roadmap.md#v05--file-palette--multi-file--) v0.5.)
+    [macroplan](macroplan.md#v05--file-palette--multi-file--) v0.5.)

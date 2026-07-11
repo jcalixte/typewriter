@@ -3,7 +3,7 @@
 > **Decision:** `auto_sync` defaults to **10 min**, and is an *opportunistic,
 > rate-limited* push — not a wall-clock timer that wakes the device. See
 > [Policy](#policy). Backs the `.typoena.toml` `auto_sync` key in
-> [`../roadmap.md`](../roadmap.md) (v0.5), whose runtime timer lands in v0.7 and
+> [`../macroplan.md`](../macroplan.md) (v0.5), whose runtime timer lands in v0.7 and
 > must respect sleep (v0.8).
 >
 > Tradeoff-curves index: [`README.md`](README.md). Docs index:

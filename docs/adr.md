@@ -12,7 +12,7 @@ Format inspired by Michael Nygard's ADR template, kept short on purpose.
 [`../CONTEXT.md`](../CONTEXT.md) — project glossary: **Tracked**, **Local**,
 **Save**, **Publish**, plus the principles ("writing tool, not sync engine")
 that constrain [ADR-010] specifically.
-[`roadmap.md`](roadmap.md) — per-version scope (v0.1 → v1.x).
+[`macroplan.md`](macroplan.md) — per-version scope (v0.1 → v1.x).
 [`v0.1-mvp-product.md`](v0.1-mvp-product.md) — what the v0.1 device must do.
 [`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) — how v0.1 is built.
 [`qfd.md`](qfd.md) — Quality Function Deployment: requirements → functions →
@@ -180,7 +180,7 @@ as the price of those properties.
   do not promise "instant feedback."
 - Idle power on e-ink is structurally ~0, which makes the v0.8 battery
   sizing exercise straightforward — see [ADR-008] and
-  [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--).
+  [macroplan → v0.8](macroplan.md#v08--power-battery--sleep--).
 - 10.3" e-ink upgrade path is preserved by keeping the renderer
   resolution-agnostic. A _non_-e-ink swap (e.g. Sharp Memory LCD) would
   invalidate [ADR-002]'s dirty-rect strategy and force a fresh medium ADR.
@@ -277,7 +277,7 @@ card alone is not enough.
   [v0.1 product → provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only).
 - PAT is never logged. Validated in code review.
 - Rotation in v0.1 = wipe NVS and re-run setup. Proper rotation UI is v0.9
-  — see [roadmap → v0.9](roadmap.md#v09--robustness--).
+  — see [macroplan → v0.9](macroplan.md#v09--robustness--).
 - Revisit if we ever want to support multiple remotes per device with
   different credentials.
 
@@ -408,7 +408,7 @@ Sizing a battery before measuring is guessing.
   scope is in [v0.1 product → out of scope](v0.1-mvp-product.md#out-of-scope-for-v01).
 - We can decide cell capacity from real numbers in v0.8, not specs sheets.
 - Lid-close detection / deep sleep slips to v0.8 with the battery — see
-  [roadmap → v0.8](roadmap.md#v08--power-battery--sleep--).
+  [macroplan → v0.8](macroplan.md#v08--power-battery--sleep--).
 
 ---
 
