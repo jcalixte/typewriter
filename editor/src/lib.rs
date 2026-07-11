@@ -89,11 +89,13 @@ pub enum Effect {
     Pull,
 }
 
-/// A pending operator awaiting a motion or text object (`d`elete / `c`hange).
+/// A pending operator awaiting a motion or text object (`d`elete / `c`hange /
+/// `y`ank).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Op {
     Delete,
     Change,
+    Yank,
 }
 
 /// The editor state: buffer, caret, mode, viewport, and pending command state.
@@ -131,7 +133,41 @@ pub struct Editor {
     /// is fmt → save → commit → push. Defaults on; the v0.5 `.typoena.toml`
     /// `format_on_save` key will drive it.
     format_on_save: bool,
+    /// The unnamed register: the last yanked or deleted text, replayed by
+    /// `p`/`P`. `y`, `d`, `c`, and `x` all fill it (vim's unnamed register), so
+    /// `dd`…`p` moves a line. There is one register — no named registers yet.
+    register: String,
+    /// Whether [`register`](Self::register) holds whole **lines** (from `yy`/`dd`,
+    /// stored with a trailing `\n`) rather than a character span (`yw`/`x`). It
+    /// decides how `p`/`P` reinsert: linewise pastes open a new line, charwise
+    /// paste inline next to the caret.
+    register_linewise: bool,
+    /// Undo history: `(text, caret)` snapshots, one per change-group, oldest
+    /// first. We snapshot the whole buffer rather than journal diffs — prose
+    /// notes are small and PSRAM is ample (8 MB), so a full copy per edit is
+    /// cheap and far simpler to reason about. Bounded to [`UNDO_DEPTH`] groups.
+    undo: Vec<(String, usize)>,
+    /// Redo history: states popped by `u`, replayable with `Ctrl-r`. Cleared the
+    /// moment a fresh edit records a new undo baseline (a new branch of history).
+    redo: Vec<(String, usize)>,
+    /// The last completed change, as the exact key sequence that produced it —
+    /// replayed verbatim by `.`. Recording keystrokes (rather than a structured
+    /// op) is what lets `.` repeat an insert session like `ciwfoo<Esc>`.
+    dot: Vec<Key>,
+    /// The change currently being recorded, if one is in progress (from the
+    /// initiating key through the key that completes it). Committed to [`dot`] on
+    /// completion. `None` between changes.
+    dot_recording: Option<Vec<Key>>,
+    /// True while `.` is replaying [`dot`], so the replayed keys are neither
+    /// re-recorded nor able to re-trigger `.`.
+    replaying: bool,
 }
+
+/// Maximum undo depth (change-groups). A full-buffer snapshot per group means
+/// worst-case memory is `UNDO_DEPTH × buffer size`; for note-sized files on the
+/// 8 MB PSRAM this is negligible, and prose editing rarely nears 100 groups
+/// between saves anyway.
+const UNDO_DEPTH: usize = 100;
 
 /// One wrapped display line: its text and the buffer offset of its first char.
 struct Line {
@@ -155,6 +191,13 @@ impl Editor {
             keyboard_present: false,
             notice: None,
             format_on_save: true,
+            register: String::new(),
+            register_linewise: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            dot: Vec::new(),
+            dot_recording: None,
+            replaying: false,
         }
     }
 
@@ -221,7 +264,28 @@ impl Editor {
         // moment you move on — no timed repaint (which on e-ink would cost a
         // full ~630 ms flash just to erase text).
         self.notice = None;
-        match self.mode {
+
+        // `.` repeats the last change — intercepted before dispatch (in Normal,
+        // not mid-command, not already replaying) so the '.' keystroke itself is
+        // never inserted or recorded. In Insert mode '.' falls through as a
+        // literal character.
+        if !self.replaying
+            && self.mode == Mode::Normal
+            && self.pending_op.is_none()
+            && self.pending_obj.is_none()
+            && self.dot_recording.is_none()
+            && key == Key::Char('.')
+        {
+            self.repeat_last_change();
+            return Effect::None;
+        }
+
+        // State before dispatch, so `record_dot` can read the transition a key
+        // caused (entered Insert, started an operator, …).
+        let before_mode = self.mode;
+        let before_pending = self.pending_op.is_some() || self.pending_obj.is_some();
+
+        let effect = match self.mode {
             Mode::Insert => {
                 self.insert_key(key);
                 Effect::None
@@ -235,7 +299,64 @@ impl Editor {
                 Effect::None
             }
             Mode::Command => self.command_key(key),
+        };
+
+        if !self.replaying {
+            self.record_dot(key, before_mode, before_pending);
         }
+        effect
+    }
+
+    /// Record `key` into the in-progress change for `.`. Called after dispatch
+    /// with the mode/operator state as it was *before*. A change is recorded
+    /// from its initiating key (an edit `x`/`p`/`P`, an operator `d`/`c`, or any
+    /// key that enters Insert) through the key that completes it — an operator
+    /// resolving back to Normal, or `Esc` ending an insert session. Yank (`y`)
+    /// and pure motions never start a recording, so `.` ignores them. The leading
+    /// count is not captured (so `3x` then `.` deletes one), but a count *inside*
+    /// an operator is (`d2w` records in full).
+    fn record_dot(&mut self, key: Key, before_mode: Mode, before_pending: bool) {
+        if self.dot_recording.is_some() {
+            self.dot_recording.as_mut().unwrap().push(key);
+            if self.change_complete() {
+                self.dot = self.dot_recording.take().unwrap();
+            }
+            return;
+        }
+        // Not yet recording: does this key begin a change? Only from a clean
+        // Normal state (no operator already pending — that key belongs to an
+        // in-progress command we'd have been recording already).
+        if before_mode == Mode::Normal && !before_pending {
+            let starts = matches!(key, Key::Char('x') | Key::Char('p') | Key::Char('P'))
+                || self.mode == Mode::Insert
+                || matches!(self.pending_op, Some(Op::Delete) | Some(Op::Change));
+            if starts {
+                self.dot_recording = Some(vec![key]);
+                if self.change_complete() {
+                    self.dot = self.dot_recording.take().unwrap();
+                }
+            }
+        }
+    }
+
+    /// A recorded change is complete once we're back in Normal with no operator
+    /// still pending (an immediate edit, a resolved operator, or a finished
+    /// insert session).
+    fn change_complete(&self) -> bool {
+        self.mode == Mode::Normal && self.pending_op.is_none() && self.pending_obj.is_none()
+    }
+
+    /// `.` — replay the last recorded change. Sets [`replaying`](Self::replaying)
+    /// so the replayed keys are not themselves recorded and cannot recurse.
+    fn repeat_last_change(&mut self) {
+        if self.dot.is_empty() {
+            return;
+        }
+        self.replaying = true;
+        for k in self.dot.clone() {
+            self.handle(k);
+        }
+        self.replaying = false;
     }
 
     // --- Insert mode -------------------------------------------------------
@@ -250,8 +371,8 @@ impl Editor {
             Key::DeleteLine => self.delete_to_line_start(),
             // Half-page scroll is a navigation gesture — Normal/View only. In
             // Insert it's a no-op rather than yanking the caret off the text
-            // you're typing.
-            Key::HalfPageDown | Key::HalfPageUp => {}
+            // you're typing. Redo (Ctrl-r) is likewise Normal-only here.
+            Key::HalfPageDown | Key::HalfPageUp | Key::Redo => {}
             Key::Escape => {
                 self.mode = Mode::Normal;
                 // vim drops the caret onto the last inserted char.
@@ -278,6 +399,12 @@ impl Editor {
             Key::HalfPageUp => {
                 self.reset_pending();
                 self.move_display_rows(-(HALF_PAGE as isize));
+                return;
+            }
+            // Ctrl-r redo: like any non-motion key it abandons a pending command.
+            Key::Redo => {
+                self.reset_pending();
+                self.redo();
                 return;
             }
             // Esc and other non-character events cancel any pending command.
@@ -316,8 +443,13 @@ impl Editor {
                     self.count = 0;
                     return;
                 }
-                'd' if op == Op::Delete => (0..n).for_each(|_| self.delete_current_line()),
+                'd' if op == Op::Delete => {
+                    self.checkpoint(); // one snapshot for the whole `ndd`
+                    self.register_lines(n); // yank the lines before removing them
+                    (0..n).for_each(|_| self.delete_current_line());
+                }
                 'c' if op == Op::Change => self.change_current_line(),
+                'y' if op == Op::Yank => self.register_lines(n), // `yy` — caret stays put
                 'w' => {
                     let mut t = self.caret;
                     (0..n).for_each(|_| t = self.word_forward_pos(t));
@@ -374,7 +506,24 @@ impl Editor {
                 self.pending_g = true;
                 return;
             }
-            'x' => (0..n).for_each(|_| self.delete_at_caret()),
+            'x' => {
+                self.checkpoint();
+                // Yank the chars we're about to delete (charwise), so `x`…`p`
+                // works. `x` never crosses the line end.
+                let s = self.caret;
+                let le = self.line_end(s);
+                let mut e = s;
+                for _ in 0..n {
+                    if e >= le {
+                        break;
+                    }
+                    e = self.next_char(e);
+                }
+                self.register = self.text[s..e].to_string();
+                self.register_linewise = false;
+                (0..n).for_each(|_| self.delete_at_caret());
+            }
+            'u' => self.undo(),
             'd' => {
                 self.pending_op = Some(Op::Delete);
                 return;
@@ -383,25 +532,41 @@ impl Editor {
                 self.pending_op = Some(Op::Change);
                 return;
             }
-            'i' => self.mode = Mode::Insert,
+            'y' => {
+                self.pending_op = Some(Op::Yank);
+                return;
+            }
+            'p' => self.paste_after(n),
+            'P' => self.paste_before(n),
+            // Entering Insert snapshots once here; the whole session (up to Esc)
+            // is one undo group, so `u` reverts an entire typed run at a time.
+            'i' => {
+                self.checkpoint();
+                self.mode = Mode::Insert;
+            }
             'a' => {
+                self.checkpoint();
                 self.move_right_append();
                 self.mode = Mode::Insert;
             }
             'A' => {
+                self.checkpoint();
                 self.caret = self.line_end(self.caret);
                 self.mode = Mode::Insert;
             }
             'I' => {
+                self.checkpoint();
                 self.caret = self.line_start(self.caret);
                 self.mode = Mode::Insert;
             }
             'o' => {
+                self.checkpoint();
                 self.caret = self.line_end(self.caret);
                 self.insert_char('\n');
                 self.mode = Mode::Insert;
             }
             'O' => {
+                self.checkpoint();
                 let p = self.line_start(self.caret);
                 self.text.insert(p, '\n');
                 self.caret = p;
@@ -492,6 +657,7 @@ impl Editor {
     /// lines, strip trailing whitespace) and keep the caret on roughly the same
     /// line (buffer length changes, so exact restoration isn't possible).
     fn format_buffer(&mut self) {
+        self.checkpoint(); // `:fmt` (and format-on-save) is undoable
         let row = self.text[..self.caret].bytes().filter(|&b| b == b'\n').count();
         self.text = format_markdown(&self.text);
         // Land the caret at the start of the same logical line, clamped.
@@ -520,6 +686,55 @@ impl Editor {
         self.pending_op = None;
         self.pending_obj = None;
         self.pending_g = false;
+    }
+
+    // --- Undo / redo -------------------------------------------------------
+
+    /// Record the current `(text, caret)` as an undo baseline, at the *start* of
+    /// a change-group, and drop the redo history (a new edit forks the timeline).
+    /// Called once per change: on entering Insert (the whole session undoes
+    /// together), and before each Normal-mode edit (`x`, `dd`, operators, paste,
+    /// `:fmt`). If the buffer is unchanged since the last baseline it is a no-op,
+    /// so calling it more than once before a mutation records only one group.
+    fn checkpoint(&mut self) {
+        if self.undo.last().is_some_and(|(t, _)| t == &self.text) {
+            return; // nothing changed since the last baseline
+        }
+        self.undo.push((self.text.clone(), self.caret));
+        if self.undo.len() > UNDO_DEPTH {
+            self.undo.remove(0); // drop the oldest group
+        }
+        self.redo.clear();
+    }
+
+    /// `u` — restore the most recent undo baseline, pushing the current state to
+    /// the redo stack. Lands in Normal mode with the caret clamped onto a char
+    /// boundary. No-op with nothing to undo.
+    fn undo(&mut self) {
+        if let Some((text, caret)) = self.undo.pop() {
+            self.redo.push((self.text.clone(), self.caret));
+            self.restore(text, caret);
+        }
+    }
+
+    /// `Ctrl-r` — reapply the most recently undone state. No-op with nothing to
+    /// redo.
+    fn redo(&mut self) {
+        if let Some((text, caret)) = self.redo.pop() {
+            self.undo.push((self.text.clone(), self.caret));
+            self.restore(text, caret);
+        }
+    }
+
+    /// Swap in a snapshot's buffer + caret, landing in Normal on a char boundary.
+    fn restore(&mut self, text: String, caret: usize) {
+        self.text = text;
+        self.caret = caret.min(self.text.len());
+        while self.caret > 0 && !self.text.is_char_boundary(self.caret) {
+            self.caret -= 1;
+        }
+        self.mode = Mode::Normal;
+        self.reset_pending();
     }
 
     // --- View mode ---------------------------------------------------------
@@ -782,18 +997,100 @@ impl Editor {
 
     /// `cc` — clear the current line's text and drop into insert.
     fn change_current_line(&mut self) {
+        self.checkpoint();
         let ls = self.line_start(self.caret);
         let le = self.line_end(self.caret);
+        self.register = format!("{}\n", &self.text[ls..le]); // linewise, like dd
+        self.register_linewise = true;
         self.text.replace_range(ls..le, "");
         self.caret = ls;
         self.mode = Mode::Insert;
     }
 
+    /// Yank `n` logical lines from the caret's line into the register, linewise
+    /// (each line carries its trailing `\n`, synthesised for a final line that
+    /// lacks one). Backs both `yy`/`nyy` and `dd`/`ndd`'s register capture; does
+    /// not move the caret or change the buffer.
+    fn register_lines(&mut self, n: usize) {
+        let ls = self.line_start(self.caret);
+        let mut e = ls;
+        for _ in 0..n {
+            let le = self.line_end(e);
+            e = if le < self.text.len() { le + 1 } else { le };
+        }
+        let mut block = self.text[ls..e].to_string();
+        if !block.ends_with('\n') {
+            block.push('\n'); // the last line has no trailing newline; add one
+        }
+        self.register = block;
+        self.register_linewise = true;
+    }
+
+    /// `p` — paste the register `n` times after the caret. Linewise content
+    /// opens new line(s) below the current line (caret to the first pasted
+    /// line); charwise content goes in just after the caret char (caret on the
+    /// last pasted char). No-op on an empty register.
+    fn paste_after(&mut self, n: usize) {
+        if self.register.is_empty() {
+            return;
+        }
+        self.checkpoint();
+        let content = self.register.repeat(n);
+        if self.register_linewise {
+            let le = self.line_end(self.caret);
+            if le < self.text.len() {
+                let at = le + 1; // start of the following line
+                self.text.insert_str(at, &content);
+                self.caret = at;
+            } else {
+                // Last line has no trailing newline: prefix one, drop the
+                // block's trailing newline so we don't leave a blank line.
+                let block = content.strip_suffix('\n').unwrap_or(&content);
+                self.text.insert_str(le, &format!("\n{block}"));
+                self.caret = le + 1;
+            }
+        } else {
+            let at = if self.text.is_empty() { 0 } else { self.next_char(self.caret) };
+            self.text.insert_str(at, &content);
+            self.caret = self.prev_char(at + content.len()); // onto the last char
+        }
+    }
+
+    /// `P` — paste the register `n` times before the caret. Linewise content
+    /// opens new line(s) above the current line; charwise content goes in at the
+    /// caret (caret on the last pasted char). No-op on an empty register.
+    fn paste_before(&mut self, n: usize) {
+        if self.register.is_empty() {
+            return;
+        }
+        self.checkpoint();
+        let content = self.register.repeat(n);
+        if self.register_linewise {
+            let ls = self.line_start(self.caret);
+            self.text.insert_str(ls, &content);
+            self.caret = ls;
+        } else {
+            let at = self.caret;
+            self.text.insert_str(at, &content);
+            self.caret = self.prev_char(at + content.len()); // onto the last char
+        }
+    }
+
     /// Apply a pending operator over the buffer range `[start, end)` (order
-    /// independent). Delete removes it; Change removes it and enters insert.
+    /// independent). All three fill the unnamed register (charwise) with the
+    /// range. Yank copies and leaves the text; Delete removes it; Change removes
+    /// it and enters insert. Yank leaves the caret at the range start (vim `yw`),
+    /// the others land it there because the text collapses to that point.
     fn apply_op(&mut self, op: Op, start: usize, end: usize) {
         let s = start.min(end);
         let e = start.max(end).min(self.text.len());
+        self.register = self.text[s..e].to_string();
+        self.register_linewise = false;
+        if op == Op::Yank {
+            self.caret = s;
+            return;
+        }
+        self.checkpoint(); // Delete/Change mutate — snapshot for undo
         self.text.replace_range(s..e, "");
         self.caret = s.min(self.text.len());
         if op == Op::Change {
@@ -1236,6 +1533,7 @@ impl Editor {
             match self.pending_op {
                 Some(Op::Delete) => s.push('d'),
                 Some(Op::Change) => s.push('c'),
+                Some(Op::Yank) => s.push('y'),
                 None => {}
             }
             match self.pending_obj {
@@ -1856,6 +2154,281 @@ mod tests {
         e.handle(Key::DeleteLine);
         assert_eq!(e.cmdline, "");
         assert_eq!(e.mode(), Mode::Command);
+    }
+
+    // ---- Register + yank / paste (v0.3) ----
+
+    #[test]
+    fn yy_then_p_opens_a_copy_of_the_line_below() {
+        let mut e = Editor::with_text("foo\nbar".to_string());
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g')); // gg -> caret on line "foo"
+        e.handle(Key::Char('y'));
+        e.handle(Key::Char('y')); // yank the line, linewise
+        e.handle(Key::Char('p')); // paste it after the current line
+        assert_eq!(e.text(), "foo\nfoo\nbar");
+    }
+
+    #[test]
+    fn yy_then_capital_p_pastes_the_line_above() {
+        let mut e = Editor::with_text("foo\nbar".to_string()); // caret on line "bar"
+        e.handle(Key::Char('y'));
+        e.handle(Key::Char('y'));
+        e.handle(Key::Char('P'));
+        assert_eq!(e.text(), "foo\nbar\nbar");
+    }
+
+    #[test]
+    fn dd_then_p_moves_a_line_down() {
+        let mut e = Editor::with_text("one\ntwo\nthree".to_string());
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g')); // caret on "one"
+        e.handle(Key::Char('d'));
+        e.handle(Key::Char('d')); // cut "one" into the register
+        e.handle(Key::Char('p')); // paste after "two"
+        assert_eq!(e.text(), "two\none\nthree");
+    }
+
+    #[test]
+    fn count_dd_captures_all_lines_for_paste() {
+        let mut e = Editor::with_text("a\nb\nc\nd".to_string());
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('3'));
+        e.handle(Key::Char('d'));
+        e.handle(Key::Char('d')); // 3dd — cut three lines
+        assert_eq!(e.text(), "d");
+        e.handle(Key::Char('p')); // paste all three back below "d"
+        assert_eq!(e.text(), "d\na\nb\nc");
+    }
+
+    #[test]
+    fn x_then_p_replays_the_deleted_char_after_the_caret() {
+        let mut e = Editor::with_text("abc".to_string());
+        e.handle(Key::Char('0')); // caret on 'a'
+        e.handle(Key::Char('x')); // delete 'a' -> "bc", register = "a" (charwise)
+        e.handle(Key::Char('p')); // paste after 'b'
+        assert_eq!(e.text(), "bac");
+    }
+
+    #[test]
+    fn yw_yanks_charwise_and_p_inserts_after_the_caret() {
+        let mut e = Editor::with_text("foo bar".to_string());
+        e.handle(Key::Char('0'));
+        e.handle(Key::Char('y'));
+        e.handle(Key::Char('w')); // yank "foo " (word + trailing space), caret stays put
+        e.handle(Key::Char('p'));
+        assert_eq!(e.text(), "ffoo oo bar"); // charwise paste after the cursor char
+    }
+
+    #[test]
+    fn capital_p_pastes_a_char_before_the_caret() {
+        let mut e = Editor::with_text("abc".to_string());
+        e.handle(Key::Char('0'));
+        e.handle(Key::Char('x')); // register = "a", text "bc", caret on 'b'
+        e.handle(Key::Char('l')); // caret on 'c'
+        e.handle(Key::Char('P')); // paste "a" before 'c'
+        assert_eq!(e.text(), "bac");
+    }
+
+    #[test]
+    fn paste_with_an_empty_register_is_a_noop() {
+        let mut e = Editor::with_text("abc".to_string());
+        e.handle(Key::Char('p'));
+        e.handle(Key::Char('P'));
+        assert_eq!(e.text(), "abc");
+    }
+
+    // ---- Undo / redo (v0.3) ----
+
+    #[test]
+    fn undo_reverts_a_whole_insert_session_at_once() {
+        let mut e = Editor::new();
+        e.handle(Key::Char('i'));
+        for c in "hello".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Escape);
+        assert_eq!(e.text(), "hello");
+        e.handle(Key::Char('u'));
+        assert_eq!(e.text(), ""); // the entire typed run, not one char
+        assert_eq!(e.mode(), Mode::Normal); // undo always lands in Normal
+    }
+
+    #[test]
+    fn redo_reapplies_an_undone_change() {
+        let mut e = Editor::new();
+        e.handle(Key::Char('i'));
+        e.handle(Key::Char('x'));
+        e.handle(Key::Escape); // "x"
+        e.handle(Key::Char('u'));
+        assert_eq!(e.text(), "");
+        e.handle(Key::Redo); // Ctrl-r
+        assert_eq!(e.text(), "x");
+    }
+
+    #[test]
+    fn undo_reverts_dd() {
+        let mut e = Editor::with_text("one\ntwo".to_string());
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('d'));
+        e.handle(Key::Char('d'));
+        assert_eq!(e.text(), "two");
+        e.handle(Key::Char('u'));
+        assert_eq!(e.text(), "one\ntwo");
+    }
+
+    #[test]
+    fn undo_reverts_x_and_restores_the_caret() {
+        let mut e = Editor::with_text("abc".to_string()); // caret on 'c'
+        e.handle(Key::Char('x'));
+        assert_eq!(e.text(), "ab");
+        e.handle(Key::Char('u'));
+        assert_eq!(e.text(), "abc");
+        assert_eq!(e.caret, 2); // caret came back to where the change began
+    }
+
+    #[test]
+    fn undo_reverts_a_paste() {
+        let mut e = Editor::with_text("foo\nbar".to_string());
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('y'));
+        e.handle(Key::Char('y'));
+        e.handle(Key::Char('p'));
+        assert_eq!(e.text(), "foo\nfoo\nbar");
+        e.handle(Key::Char('u'));
+        assert_eq!(e.text(), "foo\nbar");
+    }
+
+    #[test]
+    fn a_fresh_edit_after_undo_clears_the_redo_history() {
+        let mut e = Editor::new();
+        e.handle(Key::Char('i'));
+        e.handle(Key::Char('a'));
+        e.handle(Key::Escape); // "a"
+        e.handle(Key::Char('u')); // -> ""
+        e.handle(Key::Char('i'));
+        e.handle(Key::Char('b'));
+        e.handle(Key::Escape); // new branch: "b"
+        e.handle(Key::Redo); // nothing to redo — the "a" branch is gone
+        assert_eq!(e.text(), "b");
+    }
+
+    #[test]
+    fn successive_undos_walk_the_history_back() {
+        let mut e = Editor::new();
+        e.handle(Key::Char('i'));
+        e.handle(Key::Char('a'));
+        e.handle(Key::Escape); // "a"
+        e.handle(Key::Char('A'));
+        e.handle(Key::Char('b'));
+        e.handle(Key::Escape); // "ab"
+        e.handle(Key::Char('u'));
+        assert_eq!(e.text(), "a");
+        e.handle(Key::Char('u'));
+        assert_eq!(e.text(), "");
+    }
+
+    #[test]
+    fn undo_with_empty_history_is_a_noop() {
+        let mut e = Editor::with_text("x".to_string());
+        e.handle(Key::Char('u'));
+        assert_eq!(e.text(), "x");
+        e.handle(Key::Redo);
+        assert_eq!(e.text(), "x");
+    }
+
+    // ---- `.` repeat (v0.3) ----
+
+    #[test]
+    fn dot_repeats_x() {
+        let mut e = Editor::with_text("abcde".to_string());
+        e.handle(Key::Char('0'));
+        e.handle(Key::Char('x')); // "bcde"
+        e.handle(Key::Char('.')); // "cde"
+        e.handle(Key::Char('.')); // "de"
+        assert_eq!(e.text(), "de");
+    }
+
+    #[test]
+    fn dot_repeats_dd() {
+        let mut e = Editor::with_text("a\nb\nc\nd".to_string());
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('d'));
+        e.handle(Key::Char('d')); // delete "a"
+        e.handle(Key::Char('.')); // delete "b"
+        assert_eq!(e.text(), "c\nd");
+    }
+
+    #[test]
+    fn dot_repeats_dw() {
+        let mut e = Editor::with_text("foo bar baz".to_string());
+        e.handle(Key::Char('0'));
+        e.handle(Key::Char('d'));
+        e.handle(Key::Char('w')); // "bar baz"
+        e.handle(Key::Char('.')); // "baz"
+        assert_eq!(e.text(), "baz");
+    }
+
+    #[test]
+    fn dot_repeats_a_change_operator_with_its_inserted_text() {
+        // The reason `.` records keystrokes: it must replay `ciw` *and* the text
+        // typed in the insert session that followed.
+        let mut e = Editor::with_text("foo bar".to_string());
+        e.handle(Key::Char('0'));
+        e.handle(Key::Char('c'));
+        e.handle(Key::Char('i'));
+        e.handle(Key::Char('w'));
+        e.handle(Key::Char('X'));
+        e.handle(Key::Escape); // "X bar"
+        assert_eq!(e.text(), "X bar");
+        e.handle(Key::Char('w')); // caret onto "bar"
+        e.handle(Key::Char('.')); // repeat: change that word to "X" too
+        assert_eq!(e.text(), "X X");
+    }
+
+    #[test]
+    fn dot_repeats_a_paste() {
+        let mut e = Editor::with_text("x\na\nb".to_string());
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('y'));
+        e.handle(Key::Char('y')); // yank line "x"
+        e.handle(Key::Char('p')); // "x\nx\na\nb"
+        e.handle(Key::Char('.')); // paste again below
+        assert_eq!(e.text(), "x\nx\nx\na\nb");
+    }
+
+    #[test]
+    fn dot_ignores_pure_motions() {
+        let mut e = Editor::with_text("abc".to_string());
+        e.handle(Key::Char('0'));
+        e.handle(Key::Char('l')); // motions only — nothing to repeat
+        e.handle(Key::Char('.'));
+        assert_eq!(e.text(), "abc");
+    }
+
+    #[test]
+    fn a_yank_does_not_become_the_dot_change() {
+        // `y` is not a `.`-repeatable change; the prior `x` must remain the dot.
+        let mut e = Editor::with_text("abcdef".to_string());
+        e.handle(Key::Char('0'));
+        e.handle(Key::Char('x')); // dot = x; "bcdef"
+        e.handle(Key::Char('y'));
+        e.handle(Key::Char('w')); // yank — must not overwrite the dot
+        e.handle(Key::Char('.')); // repeat the x, not the yank
+        assert_eq!(e.text(), "cdef");
+    }
+
+    #[test]
+    fn dot_in_insert_mode_is_a_literal_character() {
+        let mut e = Editor::new();
+        e.handle(Key::Char('i'));
+        e.handle(Key::Char('.'));
+        assert_eq!(e.text(), "."); // '.' only repeats from Normal
     }
 
     #[test]
