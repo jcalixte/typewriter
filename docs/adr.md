@@ -358,9 +358,16 @@ derived key.
 - **FatFS caveat (Spike 3, verified 2026-07-11):** FatFS's `f_rename` returns
   `FR_EXIST` on an existing destination — it does **not** replace like POSIX
   `rename(2)`. So the atomic save must `f_unlink` the target before renaming the
-  `*.tmp` over it, and pair that with **boot recovery**: a lingering `*.tmp` at
-  startup means the last save didn't finish → promote it (it is the newest
-  complete, fsync'd copy). See the
+  `*.tmp` over it, and pair that with **boot recovery** of a lingering `*.tmp`.
+  Recovery is *not* simply "promote the tmp": a crash *during* the tmp write
+  leaves a partial tmp, so the choice depends on whether the target survived —
+  - **tmp + target both present** → the crash could have been mid-write, so the
+    tmp is untrustworthy. Keep the committed target, discard the tmp (this is the
+    documented "you get the previous version" behaviour).
+  - **tmp only, target absent** → the target was already unlinked, so the tmp is
+    the newest complete, fsync'd copy and the only one left. Promote it.
+
+  Implemented in `firmware::persistence::Storage::{save,recover}`. See the
   [Spike 3 postmortem](postmortems/2026-07-05-spike3-sd-cmd59.md#resolution-2026-07-11).
 - **SD-card compatibility:** use a genuine card, ideally **≤32 GB (SDHC/FAT32)**.
   Large or counterfeit SDXC cards may reject `CMD59` (SPI-mode CRC) and fail to

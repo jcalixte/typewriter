@@ -66,13 +66,15 @@ of it. `sdkconfig.defaults` gains the full certificate bundle and a bigger main
 task stack for the mbedtls handshake — a one-time esp-idf reconfigure on the
 next build.
 
-**Spike 3 — SD card (FAT) on shared SPI2: verified 2026-07-11.** A separate
+**Spike 3 — SD card (FAT) on dedicated SPI3: verified 2026-07-11.** A separate
 binary — [`src/bin/sd_fat.rs`](src/bin/sd_fat.rs), flashed with `just flash-sd` —
-brings up the SD card, mounts FAT at `/sd`, and exercises the persistence
-module's atomic save (write `*.tmp` → fsync → rename → read-back). Per ADR-012
-the SD runs on its **own SPI3 host** — **SCK 14 · MOSI 15 · MISO 13 · SD CS 10**
-— leaving the EPD alone on SPI2. Verified on the dedicated SPI3 bus 2026-07-11
-(same mount + round-trip result as the initial shared-SPI2 bring-up).
+is now a thin on-device harness over the real
+[`firmware::persistence`](src/persistence.rs) module: it mounts the card, reports
+FAT usage, and round-trips an atomic save/load (write `*.tmp` → fsync → unlink →
+rename → read-back). Per ADR-012 the SD runs on its **own SPI3 host** —
+**SCK 14 · MOSI 15 · MISO 13 · SD CS 10** — leaving the EPD alone on SPI2.
+Verified on the dedicated SPI3 bus 2026-07-11 (same mount + round-trip result as
+the initial shared-SPI2 bring-up).
 
 Bench result (genuine 32 GB SDHC card): mounts at 10 MHz, `29806 MiB total`,
 atomic round-trip byte-identical. Two findings baked into the code:
@@ -82,8 +84,11 @@ atomic round-trip byte-identical. Two findings baked into the code:
   with a swap-the-card message rather than run over an unchecked bus. See the
   [Spike 3 postmortem](../docs/postmortems/2026-07-05-spike3-sd-cmd59.md).
 - **FatFS rename ≠ POSIX rename.** `f_rename` won't overwrite an existing
-  target (returns `FR_EXIST`), so the atomic save unlinks the destination first;
-  the real persistence module must add `*.tmp` boot-recovery. Long filenames
+  target (returns `FR_EXIST`), so the atomic save unlinks the destination first.
+  `firmware::persistence` pairs this with `*.tmp` boot-recovery
+  (`Storage::recover`): if a `*.tmp` is found *alongside* the target the crash
+  may have been mid-write, so it keeps the committed file and discards the tmp;
+  it only promotes the tmp when the target was already unlinked. Long filenames
   (`CONFIG_FATFS_LFN_HEAP`) are required for the two-dot `*.md.tmp` name.
 
 **Arbitration resolved (ADR-012):** the EPD driver holds an exclusive SPI2 lock
