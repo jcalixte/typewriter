@@ -80,7 +80,7 @@ Implementation notes that carry into the real module:
 
 ## What it does *not* prove — the next gate
 
-The risk moved **with** the kill-switch, and arguably got harder. ADR-004 chose
+The risk moved **with** the kill-switch and got harder. ADR-004 chose
 gix *specifically to avoid* libgit2's C cross-compile to xtensa; falling back to
 libgit2 re-introduces exactly that. The open question is now:
 

@@ -245,28 +245,27 @@ engine remain (snippets are net-new scope, added 2026-07-08).
       (Zed-inspired, but no completion popup: e-ink's ~630 ms refresh rules out
       a live filtering menu, and it fights the distraction-free premise). Shape,
       mirroring the existing `list_marker` insert-transform:
-  - [ ] **Trigger:** Tab in Insert mode. If the word immediately before the
-        caret matches a snippet prefix, expand it; otherwise insert spaces as
-        today (`expand_snippet(word) -> Option<(body, stops)>`, alongside
+  - [ ] Tab in Insert mode triggers expansion: if the word immediately before
+        the caret matches a snippet prefix, expand it; otherwise insert spaces
+        as today (`expand_snippet(word) -> Option<(body, stops)>`, alongside
         `list_marker`).
-  - [ ] **Body syntax:** literal text + numbered empty tab stops `$1 … $n` and a
-        final `$0`. **No placeholder text** (`${1:label}`) — the editor has no
-        selection/overtype model, so a placeholder would just be text to delete.
-        **No dynamic/computed values** (e.g. no `date` — there's no RTC; the
-        wall clock is valid only after Wi-Fi+SNTP, so it'd stamp 1970 on a cold
-        boot).
-  - [ ] **Tab-stop session:** after expansion the caret lands on `$1`; Tab
-        advances to the next stop, **forward only** (no Shift-Tab). Stored stop
-        offsets shift with edits at the caret (all pending stops are always
-        after it). Session auto-aborts on Esc, a mode change, or a motion that
-        leaves the stops.
-  - [ ] **Indicator:** on a typing pause (same throttle as the insert cursor /
-        word-count refresh — the panel never repaints per keystroke), if the
-        word before the caret is a snippet prefix, the **side panel** shows the
-        hint (the target expansion). Quiet while typing; hint appears on pause.
-  - [ ] **Source:** snippet table hard-coded in the binary to start; a
-        git-syncable file on SD (`/sd/repo/.snippets`) is a later option,
-        deferred while SD is still blocked.
+  - [ ] A snippet body is literal text plus numbered empty tab stops `$1 … $n`
+        and a final `$0`. There is no placeholder text (`${1:label}`) — the
+        editor has no selection/overtype model, so a placeholder would just be
+        text to delete. There are no dynamic or computed values either (e.g. no
+        `date` — there's no RTC; the wall clock is valid only after Wi-Fi+SNTP,
+        so it'd stamp 1970 on a cold boot).
+  - [ ] After expansion the caret lands on `$1`; Tab advances to the next stop,
+        forward only (no Shift-Tab). Stored stop offsets shift with edits at the
+        caret (all pending stops are always after it). The session auto-aborts
+        on Esc, a mode change, or a motion that leaves the stops.
+  - [ ] On a typing pause (same throttle as the insert cursor / word-count
+        refresh — the panel never repaints per keystroke), if the word before
+        the caret is a snippet prefix, the side panel shows the hint (the target
+        expansion). Quiet while typing; the hint appears on pause.
+  - [ ] The snippet table is hard-coded in the binary to start; a git-syncable
+        file on SD (`/sd/repo/.snippets`) is a later option, deferred while SD
+        is still blocked.
   - [ ] Starter set: link `[$1]($2)$0`, image `![$1]($2)$0`, fenced code block,
         etc.
 

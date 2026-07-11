@@ -17,7 +17,7 @@ Sitting with that, here's the concern I couldn't shake:
 
 The reframing question: **what is the user actually waiting for?** For `Ctrl-S`, the moment that matters is "my work is saved" — and the SD card completes the write in 50–200 ms. Save = safe. Same instant.
 
-For `Ctrl-G`, the equivalent moment isn't "push complete." It's "commit landed locally" — which happens at ~0.2 seconds, well before the push even starts. From that moment on, your work is preserved across power loss, SD removal, the apocalypse — everything except remote delivery. The remaining 5–10 seconds is _transport of an already-safe thing_.
+For `Ctrl-G`, the equivalent moment isn't "push complete." It's "commit landed locally" — which happens at ~0.2 seconds, well before the push even starts. From that moment on, your work is preserved across power loss and SD removal — everything except remote delivery. The remaining 5–10 seconds is _transport of an already-safe thing_.
 
 Surface that moment in the side panel at ~0.2 seconds (`✓ committed abc1234 · pushing…`) and the perceived latency of `Ctrl-G` collapses from 10 seconds to roughly 200 milliseconds. The gap with `Ctrl-S` disappears.
 

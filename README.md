@@ -91,9 +91,9 @@ around, not against:
 
 ## Roadmap
 
-Frequent releases. Each version is a usable artifact, not a checkpoint.
-Per-version scope, current `[x]`/`[~]` marks, and the Macroplan source live in
-[`docs/roadmap.md`](docs/roadmap.md).
+Releases are frequent, and every version is a usable artifact rather than a
+checkpoint. Per-version scope, current `[x]`/`[~]` marks, and the Macroplan
+source live in [`docs/roadmap.md`](docs/roadmap.md).
 
 | Version                                                 | Theme        | One-liner                                    |
 | ------------------------------------------------------- | ------------ | -------------------------------------------- |
