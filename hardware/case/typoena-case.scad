@@ -20,9 +20,11 @@
 //    "print_plate" – all printed parts laid out side by side
 //    "section"     – vertical cross-section: how the screen is trapped
 //    "plan"        – exploded horizontal section: deck lifted off the cavity
+//    "plan_up"     – just the top half (deck / screen / bracket)
+//    "plan_down"   – just the bottom half (cavity: standoffs, posts, ports)
 // ============================================================================
 
-show = "plan";
+show = "plan_up";
 $fn = 48;
 
 // ---- body envelope --------------------------------------------------------
@@ -108,6 +110,10 @@ C_plate  = "#C9C3B2";
 C_bracket= "#2B2B2B";
 C_screen = "#F7F4EA";
 C_foam   = "#8a8f94";
+
+// ---- cutaway sections -----------------------------------------------------
+plan_z       = 22;   // height of the horizontal "plan" cut
+plan_explode = 62;   // gap between the halves in the exploded "plan" view
 
 // ===========================================================================
 //  helpers
@@ -281,13 +287,26 @@ module placed_foam() {
     on_deck() translate([screen_off, screen_cy+screen_off, -lip_t-G_t-foam_t])
         color(C_foam) foam();
 }
-// full coloured assembly, reused by the exploded plan section
+// full coloured assembly, reused by the plan sections
 module plan_assembly() {
     color(C_body)   case_body();
     ghost_screen();
     placed_foam();
     placed_bracket();
     translate([0,0,-0.01]) color(C_plate) baseplate();
+}
+// the two halves of the horizontal cut at plan_z
+module plan_down() {     // bottom: the cavity (standoffs, posts, ports)
+    intersection() {
+        plan_assembly();
+        translate([-60, -60, plan_z-200]) cube([W+120, D+120, 200]);
+    }
+}
+module plan_up() {       // top: the deck / lid (screen, bracket)
+    intersection() {
+        plan_assembly();
+        translate([-60, -60, plan_z]) cube([W+120, D+120, 200]);
+    }
 }
 
 if (show == "assembled") {
@@ -319,17 +338,11 @@ if (show == "assembled") {
         translate([W/2, -30, -70]) cube([W, D+60, 220]);
     }
 } else if (show == "plan") {
-    // HORIZONTAL slice at plan_z, shown EXPLODED: the bottom half (cavity —
-    // baseplate standoffs, corner posts, back-wall ports) stays put; the top
-    // half (deck, screen, bracket) lifts up so you see both sides of the cut.
-    plan_z  = 30;
-    explode = 62;
-    intersection() {                                   // bottom: the cavity
-        plan_assembly();
-        translate([-60, -60, plan_z-200]) cube([W+120, D+120, 200]);
-    }
-    translate([0, 0, explode]) intersection() {        // top: the deck, lifted
-        plan_assembly();
-        translate([-60, -60, plan_z]) cube([W+120, D+120, 200]);
-    }
+    // EXPLODED horizontal section: deck/lid half lifted off the cavity half
+    plan_down();
+    translate([0, 0, plan_explode]) plan_up();
+} else if (show == "plan_up") {
+    plan_up();       // just the top half — deck, screen, bracket
+} else if (show == "plan_down") {
+    plan_down();     // just the bottom half — cavity, standoffs, ports
 }
