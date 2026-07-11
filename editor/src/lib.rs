@@ -127,6 +127,10 @@ pub struct Editor {
     /// (save/publish result). Shown until the next keystroke dismisses it
     /// (cleared in [`Editor::handle`]); `None` means nothing to show.
     notice: Option<String>,
+    /// Run `:fmt` on the buffer before persisting on `:w`/`:sync`, so `:sync`
+    /// is fmt → save → commit → push. Defaults on; the v0.5 `.typoena.toml`
+    /// `format_on_save` key will drive it.
+    format_on_save: bool,
 }
 
 /// One wrapped display line: its text and the buffer offset of its first char.
@@ -150,6 +154,7 @@ impl Editor {
             shown_words: 0,
             keyboard_present: false,
             notice: None,
+            format_on_save: true,
         }
     }
 
@@ -464,8 +469,20 @@ impl Editor {
                 self.format_buffer();
                 Effect::None
             }
-            "w" | "wq" | "x" => Effect::Save,
-            "sync" => Effect::Publish,
+            "w" | "wq" | "x" => {
+                if self.format_on_save {
+                    self.format_buffer();
+                }
+                Effect::Save
+            }
+            "sync" => {
+                // fmt → save → commit → push: format in-core here, then the host
+                // persists and publishes the already-formatted buffer.
+                if self.format_on_save {
+                    self.format_buffer();
+                }
+                Effect::Publish
+            }
             "gl" => Effect::Pull,
             _ => Effect::None,
         }
@@ -1624,6 +1641,30 @@ mod tests {
     #[test]
     fn gl_command_signals_pull() {
         assert_eq!(command("gl").1, Effect::Pull);
+    }
+
+    #[test]
+    fn sync_formats_the_buffer_before_publishing() {
+        // fmt → save → commit → push: `:sync` runs :fmt in-core first (default on).
+        let mut e = Editor::with_text("hello   \nworld".to_string()); // trailing spaces
+        e.handle(Key::Char(':'));
+        for c in "sync".chars() {
+            e.handle(Key::Char(c));
+        }
+        let eff = e.handle(Key::Enter);
+        assert_eq!(eff, Effect::Publish);
+        assert_eq!(e.text(), "hello\nworld"); // :fmt stripped the trailing whitespace
+    }
+
+    #[test]
+    fn format_on_save_off_leaves_the_buffer_untouched() {
+        let mut e = Editor::with_text("hello   \nworld".to_string());
+        e.format_on_save = false;
+        e.handle(Key::Char(':'));
+        e.handle(Key::Char('w'));
+        let eff = e.handle(Key::Enter);
+        assert_eq!(eff, Effect::Save);
+        assert_eq!(e.text(), "hello   \nworld"); // unchanged when the pref is off
     }
 
     #[test]
