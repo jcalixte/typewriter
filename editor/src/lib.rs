@@ -431,7 +431,20 @@ impl Editor {
                 self.cmdline.clear();
                 self.mode = Mode::Normal;
             }
-            // Word/line deletes and Tab aren't meaningful on a short command line.
+            Key::DeleteWord => {
+                // Readline Ctrl-W: drop trailing spaces, then the word before the
+                // caret — editing the `:` command line while typing it. Unlike
+                // Backspace, emptying the line does not cancel back to Normal.
+                while self.cmdline.ends_with(' ') {
+                    self.cmdline.pop();
+                }
+                while !self.cmdline.is_empty() && !self.cmdline.ends_with(' ') {
+                    self.cmdline.pop();
+                }
+            }
+            // Cmd+Backspace: clear the whole command line, staying in Command.
+            Key::DeleteLine => self.cmdline.clear(),
+            // Tab isn't meaningful on a short command line.
             _ => {}
         }
         Effect::None
@@ -1756,6 +1769,42 @@ mod tests {
     fn draw_with_gutter_produces_a_full_frame() {
         let mut e = Editor::with_text("line one\nline two\nline three".to_string());
         assert_eq!(e.draw(true).bytes().len(), display::FB_BYTES);
+    }
+
+    // ---- Command-line editing (Ctrl-W / Cmd-Backspace while typing `:`) ----
+
+    #[test]
+    fn ctrl_w_deletes_the_last_word_of_the_command_line() {
+        let mut e = Editor::new();
+        e.handle(Key::Char(':'));
+        for c in "sync now".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::DeleteWord);
+        assert_eq!(e.cmdline, "sync ");
+        assert_eq!(e.mode(), Mode::Command); // stays on the command line
+    }
+
+    #[test]
+    fn ctrl_w_on_a_one_word_command_does_not_cancel() {
+        let mut e = Editor::new();
+        e.handle(Key::Char(':'));
+        e.handle(Key::Char('w'));
+        e.handle(Key::DeleteWord);
+        assert_eq!(e.cmdline, "");
+        assert_eq!(e.mode(), Mode::Command); // unlike Backspace, does not exit
+    }
+
+    #[test]
+    fn cmd_backspace_clears_the_command_line() {
+        let mut e = Editor::new();
+        e.handle(Key::Char(':'));
+        for c in "fmt".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::DeleteLine);
+        assert_eq!(e.cmdline, "");
+        assert_eq!(e.mode(), Mode::Command);
     }
 
     #[test]
