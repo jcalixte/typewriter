@@ -182,6 +182,34 @@ cargo build --release
 The first build is slow (the esp-idf C sources are checked out and built
 under `.embuild/`). Subsequent builds are incremental.
 
+### Build modes — light (default) vs git
+
+The editor firmware builds **light by default** — no git. Publishing (`:sync` →
+git push) is expensive to build: it drags in libgit2 + mbedTLS (compiled as an
+esp-idf component) and the `git2` crate. So it sits behind a switch, and the
+nominal build leaves it off — ideal for iterating on the editor, EPD, USB, or
+SD without paying for libgit2:
+
+| Build | Command | libgit2 component | `git2` crate | `:sync` |
+| ----- | ------- | ----------------- | ------------ | ------- |
+| **Light** (default) | `just build` / `just flash` | not compiled (empty no-op) | not linked | saves locally, skips push |
+| **Full (git)** | `just build-firmware-git` / `just flash-firmware-git` | compiled | linked | save → push |
+
+Two independent switches make this work, and the justfile flips them together:
+
+1. **`git` Cargo feature** (`--features git`) — pulls the `git2` crate and
+   turns on the `#[cfg(feature = "git")]` publish path in
+   [`src/main.rs`](src/main.rs) (`publish()`). Off by default.
+2. **`LIBGIT2_SRC` env** — the [libgit2 component](components/libgit2/CMakeLists.txt)
+   only compiles its sources when this points at the vendored tree; unset, it
+   registers an *empty* component. Only the `*-git` justfile recipes set it.
+
+Because git code in the firmware binary is only ever compiled under
+`--features git`, an ordinary `just build` can never accidentally drag libgit2
+in. (Git isn't wired into `main.rs` yet, so `flash-firmware-git` currently just
+builds slower and behaves like the light build — the seam is in place ahead of
+the integration.)
+
 ## Flash (when hardware is on the bench)
 
 `cargo run --release` triggers `espflash flash --monitor` via the runner
