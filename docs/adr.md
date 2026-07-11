@@ -355,6 +355,18 @@ derived key.
   atomic-rename writes (see
   [v0.1 technical → `persistence`](v0.1-mvp-technical.md#module-breakdown)
   and [file layout](v0.1-mvp-technical.md#file-layout)).
+- **FatFS caveat (Spike 3, verified 2026-07-11):** FatFS's `f_rename` returns
+  `FR_EXIST` on an existing destination — it does **not** replace like POSIX
+  `rename(2)`. So the atomic save must `f_unlink` the target before renaming the
+  `*.tmp` over it, and pair that with **boot recovery**: a lingering `*.tmp` at
+  startup means the last save didn't finish → promote it (it is the newest
+  complete, fsync'd copy). See the
+  [Spike 3 postmortem](postmortems/2026-07-05-spike3-sd-cmd59.md#resolution-2026-07-11).
+- **SD-card compatibility:** use a genuine card, ideally **≤32 GB (SDHC/FAT32)**.
+  Large or counterfeit SDXC cards may reject `CMD59` (SPI-mode CRC) and fail to
+  mount; we keep CRC required rather than run the user's writing over an
+  unchecked bus. The device reports a swap-the-card message instead of a hex
+  code.
 
 ---
 

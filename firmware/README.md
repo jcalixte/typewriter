@@ -66,6 +66,30 @@ of it. `sdkconfig.defaults` gains the full certificate bundle and a bigger main
 task stack for the mbedtls handshake — a one-time esp-idf reconfigure on the
 next build.
 
+**Spike 3 — SD card (FAT) on shared SPI2: verified 2026-07-11.** A separate
+binary — [`src/bin/sd_fat.rs`](src/bin/sd_fat.rs), flashed with `just flash-sd` —
+brings up the SD card on the EPD's SPI2 bus, mounts FAT at `/sd`, and exercises
+the persistence module's atomic save (write `*.tmp` → fsync → rename →
+read-back). Wiring: **SCK 12 · MOSI 11** (shared with the EPD) **· MISO 13**
+(new; the write-only EPD never used it) **· SD CS 10** (EPD CS is 7).
+
+Bench result (genuine 32 GB SDHC card): mounts at 10 MHz, `29806 MiB total`,
+atomic round-trip byte-identical. Two findings baked into the code:
+
+- **Card compatibility.** A 133 GB SDXC card failed init at `CMD59` (SPI-mode
+  CRC); a genuine ≤32 GB card works. We keep CRC required and reject bad cards
+  with a swap-the-card message rather than run over an unchecked bus. See the
+  [Spike 3 postmortem](../docs/postmortems/2026-07-05-spike3-sd-cmd59.md).
+- **FatFS rename ≠ POSIX rename.** `f_rename` won't overwrite an existing
+  target (returns `FR_EXIST`), so the atomic save unlinks the destination first;
+  the real persistence module must add `*.tmp` boot-recovery. Long filenames
+  (`CONFIG_FATFS_LFN_HEAP`) are required for the two-dot `*.md.tmp` name.
+
+Still open before persistence lands in `main.rs`: the **shared-bus arbitration**
+question — the EPD driver holds an exclusive SPI2 lock for its lifetime, so the
+EPD and an arbitrated SD device can't both be live on one host yet (release/
+re-acquire around EPD ops, or give the SD its own SPI3). This spike ran SD-only.
+
 **Spike 5 — partial refresh + typing: verified 2026-07-04.** `main.rs` wires
 the keyboard to the panel: [`src/usb_kbd.rs`](src/usb_kbd.rs) feeds decoded
 key-downs (US layout, edge-detected) into a queue, and the main loop keeps a
@@ -118,8 +142,8 @@ reseat the jumpers (CS first) before debugging code.
 
 Next up per
 [`docs/v0.1-mvp-technical.md`](../docs/v0.1-mvp-technical.md#hardware-bring-up-order):
-Wi-Fi/TLS (Spike 6, implemented above), then gitoxide push (Spike 7); SD is
-deferred.
+Wi-Fi/TLS (Spike 6, implemented above), then git push (Spike 7), then SD
+(Spike 3) — all verified.
 
 **Spike 1 — Blink: verified 2026-07-04.** GPIO 2 + on-board WS2812 toggled
 at 1 Hz with `blink N` on USB-serial, proving toolchain, esp-idf link, and
