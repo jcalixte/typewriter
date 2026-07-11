@@ -18,10 +18,11 @@
 //    "bracket"     – the screen retaining frame (print flat)
 //    "baseplate"   – the chassis / bottom cover (print flat)
 //    "print_plate" – all printed parts laid out side by side
-//    "section"     – midline cross-section: how the screen is trapped
+//    "section"     – vertical cross-section: how the screen is trapped
+//    "plan"        – exploded horizontal section: deck lifted off the cavity
 // ============================================================================
 
-show = "section";
+show = "plan";
 $fn = 48;
 
 // ---- body envelope --------------------------------------------------------
@@ -280,6 +281,14 @@ module placed_foam() {
     on_deck() translate([screen_off, screen_cy+screen_off, -lip_t-G_t-foam_t])
         color(C_foam) foam();
 }
+// full coloured assembly, reused by the exploded plan section
+module plan_assembly() {
+    color(C_body)   case_body();
+    ghost_screen();
+    placed_foam();
+    placed_bracket();
+    translate([0,0,-0.01]) color(C_plate) baseplate();
+}
 
 if (show == "assembled") {
     color(C_body)   case_body();
@@ -297,7 +306,7 @@ if (show == "assembled") {
     translate([W+30, 0, 0])           color(C_plate)   baseplate();
     translate([W+30, D+30, foot_h])   color(C_bracket) bracket();
 } else if (show == "section") {
-    // slice away the +X half: the cut face shows the screen clamp, and the
+    // VERTICAL slice (remove +X half): cut face shows the screen clamp, and the
     // retained LEFT half exposes the internal FPC clearance behind the bezel
     difference() {
         union() {
@@ -308,5 +317,19 @@ if (show == "assembled") {
             translate([0,0,-0.01]) color(C_plate) baseplate();
         }
         translate([W/2, -30, -70]) cube([W, D+60, 220]);
+    }
+} else if (show == "plan") {
+    // HORIZONTAL slice at plan_z, shown EXPLODED: the bottom half (cavity —
+    // baseplate standoffs, corner posts, back-wall ports) stays put; the top
+    // half (deck, screen, bracket) lifts up so you see both sides of the cut.
+    plan_z  = 30;
+    explode = 62;
+    intersection() {                                   // bottom: the cavity
+        plan_assembly();
+        translate([-60, -60, plan_z-200]) cube([W+120, D+120, 200]);
+    }
+    translate([0, 0, explode]) intersection() {        // top: the deck, lifted
+        plan_assembly();
+        translate([-60, -60, plan_z]) cube([W+120, D+120, 200]);
     }
 }
