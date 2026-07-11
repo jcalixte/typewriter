@@ -101,7 +101,7 @@ foam+bracket; the bracket is what stops it dropping _into_ the cavity
 
 ![Midline section: glass clamped between the front lip and the rear foam + bracket; the internal FPC clearance is hidden below the left bezel, standoffs on the cavity floor](renders/section.png)
 
-![The screwed bracket — four corner holes, window clears the active area](renders/bracket.png)
+![The screwed bracket — four corner holes, window clears the active area, and a gap in the left edge lets the FPC fold back into the cavity](renders/bracket.png)
 
 ### Boards (the baseplate is the chassis)
 
