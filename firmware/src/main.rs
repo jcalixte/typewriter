@@ -113,6 +113,10 @@ fn main() -> anyhow::Result<()> {
     let mut updates: u32 = 0;
     let mut cursor_shown = true; // the initial render includes the caret
     let mut last_activity = Instant::now();
+    // Set when a paint fails (see the refresh block below): the next paint then
+    // does a full refresh to re-establish both RAM banks, since a partial that
+    // died mid-transfer may have left them inconsistent.
+    let mut force_full = false;
 
     // Keyboard attach/detach state drives the panel's disconnect flag; seed it
     // (and the word-count snapshot) before the first render.
@@ -202,7 +206,11 @@ fn main() -> anyhow::Result<()> {
                     Failed(reason) => reason,
                 });
                 let f = ed.draw(true);
-                epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT)?;
+                if let Err(e) = epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT) {
+                    log::warn!("sync-notice repaint FAILED ({e}); full refresh next");
+                    force_full = true;
+                    continue;
+                }
                 shown = f;
                 cursor_shown = true;
                 continue;
@@ -211,7 +219,11 @@ fn main() -> anyhow::Result<()> {
             // no keystroke will arrive to trigger it otherwise.
             if kbd_changed {
                 let f = ed.draw(true);
-                epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT)?;
+                if let Err(e) = epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT) {
+                    log::warn!("kbd-flag repaint FAILED ({e}); full refresh next");
+                    force_full = true;
+                    continue;
+                }
                 shown = f;
                 cursor_shown = true;
                 log::info!("keyboard {}", if kbd { "connected" } else { "disconnected" });
@@ -226,10 +238,14 @@ fn main() -> anyhow::Result<()> {
             {
                 ed.refresh_stats();
                 let f = ed.draw(true);
-                epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT)?;
-                shown = f;
-                cursor_shown = true;
-                log::info!("caret shown");
+                if let Err(e) = epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT) {
+                    log::warn!("caret repaint FAILED ({e}); full refresh next");
+                    force_full = true;
+                } else {
+                    shown = f;
+                    cursor_shown = true;
+                    log::info!("caret shown");
+                }
             } else {
                 FreeRtos::delay_ms(8);
             }
@@ -273,17 +289,29 @@ fn main() -> anyhow::Result<()> {
             && only_adds_ink(shown.bytes(), frame.bytes(), y0, y1);
 
         let t0 = Instant::now();
-        let refresh = if periodic {
-            epd.display_frame(frame.bytes())?;
-            "FULL"
+        // `force_full` promotes to a full refresh after a failed paint: it
+        // rewrites both RAM banks, recovering from a partial that may have died
+        // mid-transfer and desynced them.
+        let (result, refresh) = if periodic || force_full {
+            (epd.display_frame(frame.bytes()), "FULL")
         } else if additive {
-            epd.display_frame_partial_window(frame.bytes(), y0, y1 - y0 + 1)?;
-            "windowed"
+            (epd.display_frame_partial_window(frame.bytes(), y0, y1 - y0 + 1), "windowed")
         } else {
-            epd.display_frame_partial_window(frame.bytes(), 0, epd::HEIGHT)?;
-            "full-area"
+            (epd.display_frame_partial_window(frame.bytes(), 0, epd::HEIGHT), "full-area")
         };
         let ms = t0.elapsed().as_millis();
+        if let Err(e) = result {
+            // Never fatal — the buffer is the source of truth and safe in RAM,
+            // exactly like a failed `save_note`. Drop this frame, leave `shown`
+            // untouched so the next paint repaints the same diff, and force a
+            // clean full refresh then. Typical cause: internal DMA-capable RAM
+            // briefly starved by Wi-Fi/TLS during a background `:sync`; it frees
+            // the moment the push finishes.
+            log::warn!("{refresh} refresh #{updates} FAILED ({e}); frame dropped, full refresh next");
+            force_full = true;
+            continue;
+        }
+        force_full = false;
         log::info!(
             "{refresh} refresh #{updates} [{:?}]: {ms} ms (rows {y0}..={y1}, {keys} key(s))",
             ed.mode()
