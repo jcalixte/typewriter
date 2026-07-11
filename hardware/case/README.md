@@ -42,7 +42,8 @@ openscad -o body.stl -D 'show="body"' typoena-case.scad
 ```
 
 `show` accepts `assembled` · `body` · `bracket` · `baseplate` · `print_plate` ·
-`section` (vertical cut) · `plan` (horizontal cut into the cavity).
+`section` (vertical cut) · `plan` (exploded horizontal) · `plan_up` / `plan_down`
+(each half on its own).
 
 ## Dimensions
 
@@ -125,6 +126,12 @@ standoffs left under the FPC exit, the two back corner posts, and the three
 port openings in the back wall.
 
 ![Exploded plan section: deck/screen half lifted above the cavity half — standoffs, corner posts, back-wall ports](renders/plan.png)
+
+Or inspect each half alone — `plan_up` (the deck/lid, shown from below) and
+`plan_down` (the cavity):
+
+![Top half (plan_up) — deck underside: the screen in its recess and the bracket bosses](renders/plan-up.png)
+![Bottom half (plan_down) — the cavity: standoffs, corner posts, back-wall ports](renders/plan-down.png)
 
 ### Assembly order
 
