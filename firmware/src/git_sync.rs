@@ -188,34 +188,80 @@ fn publish_cycle(
     let t_publish = Instant::now();
     let outcome = publish_once()?;
     log::info!(
-        ":sync timing — wifi {wifi_ms}ms, clock {clock_ms}ms, tls {tls_ms}ms, publish(fetch+commit+push) {}ms, total {}ms",
+        ":sync timing — wifi {wifi_ms}ms, clock {clock_ms}ms, tls {tls_ms}ms, publish(commit+push) {}ms, total {}ms",
         t_publish.elapsed().as_millis(),
         t_total.elapsed().as_millis(),
     );
     Ok(outcome)
 }
 
-/// Open `/sd/repo`, stage the working tree, commit on top of the current branch,
-/// and fast-forward push. Never clones or wipes: a `/sd/repo` that isn't a valid
-/// repo is a provisioning error, surfaced as such.
+/// Open `/sd/repo`, commit the working tree on the current branch, and push.
+///
+/// Optimistic: it pushes onto the current tip *without* a pre-fetch, so the
+/// common case (nothing else touched the remote) costs a single TLS handshake.
+/// If the remote has moved under us — a foreign push, e.g. maintenance — the push
+/// is rejected non-fast-forward; we then reconcile onto origin, replay our note on
+/// the new tip, and retry once.
+///
+/// Never clones or wipes: a `/sd/repo` that isn't a valid repo is a provisioning
+/// error, surfaced as such.
 fn publish_once() -> Result<PublishOutcome> {
     log::info!("publish started — free heap {}", free_heap());
     let repo = Repository::open(REPO_DIR).with_context(|| {
         format!("opening git repo at {REPO_DIR} — provision the card with a clone (just init) whose origin is your remote")
     })?;
 
-    // Absorb any foreign push before committing, so a remote that has moved ahead
-    // (e.g. a maintenance commit) fast-forwards cleanly instead of diverging when
-    // we push. Committing first and reconciling later can't undo a divergence.
-    fast_forward_before_commit(&repo).context("pre-commit fast-forward")?;
+    let Some(mut oid) = stage_and_commit(&repo)? else {
+        return Ok(PublishOutcome::UpToDate);
+    };
+    let branch = repo
+        .head()?
+        .shorthand()
+        .context("HEAD has no branch shorthand")?
+        .to_string();
+    let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
 
-    // Stage everything (add --all also stages deletions, for a future note-delete)
-    // and build the tree from what the editor saved. The per-path filter drops
-    // macOS AppleDouble sidecars (`._name`) and `.DS_Store` that Finder/Spotlight
-    // sprinkle onto the FAT card whenever it's mounted on a Mac — without it, a
-    // blind add --all sweeps them into the commit (it did once: 07d87772 shipped
-    // `._.git`, `._README.md`, `._notes.md`). Filtering here fixes it for *every*
-    // repo at the device level, so no per-repo `.gitignore` is needed.
+    // Optimistic push. A non-fast-forward rejection means the remote moved under
+    // us: reconcile onto origin and replay the note on the new tip, then retry
+    // once. reconcile_onto_origin mixed-resets, so the just-saved note survives in
+    // the working tree and stage_and_commit lands it on top of origin.
+    if let Err(first) = try_push(&repo, &refspec) {
+        log::warn!("push rejected ({first}); reconciling onto origin and replaying the note");
+        reconcile_onto_origin(&repo, &branch).context("reconciling after a rejected push")?;
+        match stage_and_commit(&repo)? {
+            Some(replayed) => {
+                oid = replayed;
+                try_push(&repo, &refspec).context("push after reconcile")?;
+            }
+            // The note was already on origin (nothing to replay) — treat as done.
+            None => {
+                log::info!("nothing to replay after reconcile — already up to date");
+                return Ok(PublishOutcome::UpToDate);
+            }
+        }
+    }
+
+    log::info!(
+        "push done — free heap {}, min-ever {}",
+        free_heap(),
+        min_free_heap()
+    );
+    Ok(PublishOutcome::Pushed(short(oid)))
+}
+
+/// Stage the working tree and commit it on top of the current branch tip.
+/// Returns the new commit id, or `None` when the tree already matches the parent
+/// (nothing to publish). Called on the first attempt and again to replay the note
+/// after a reconcile.
+///
+/// `add_all` runs a per-path filter that drops macOS AppleDouble sidecars
+/// (`._name`) and `.DS_Store` that Finder/Spotlight sprinkle onto the FAT card
+/// whenever it's mounted on a Mac — without it, a blind add --all sweeps them into
+/// the commit (it did once: 07d87772 shipped `._.git`, `._README.md`,
+/// `._notes.md`). Filtering here fixes it for *every* repo at the device level, so
+/// no per-repo `.gitignore` is needed. (add --all also stages deletions, for a
+/// future note-delete.)
+fn stage_and_commit(repo: &Repository) -> Result<Option<git2::Oid>> {
     let mut index = repo.index().context("opening index")?;
     let mut skip_macos_cruft = |path: &Path, _matched: &[u8]| -> i32 {
         match path.file_name().and_then(|n| n.to_str()) {
@@ -231,12 +277,10 @@ fn publish_once() -> Result<PublishOutcome> {
 
     // Commit on top of the current branch tip (None on an empty/unborn remote).
     let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
-
-    // Nothing-to-publish short-circuit: staged tree identical to the parent's.
     if let Some(p) = &parent {
         if p.tree_id() == tree.id() {
             log::info!("nothing to publish — tree unchanged @ {}", short(p.id()));
-            return Ok(PublishOutcome::UpToDate);
+            return Ok(None);
         }
     }
 
@@ -246,38 +290,8 @@ fn publish_once() -> Result<PublishOutcome> {
     let oid = repo
         .commit(Some("HEAD"), &sig, &sig, &message, &tree, &parents)
         .context("creating commit")?;
-    let branch = repo
-        .head()?
-        .shorthand()
-        .context("HEAD has no branch shorthand")?
-        .to_string();
-    log::info!("committed {} to {branch} — free heap {}", short(oid), free_heap());
-
-    push_with_retry(&repo, &branch)?;
-
-    log::info!(
-        "push done — free heap {}, min-ever {}",
-        free_heap(),
-        min_free_heap()
-    );
-    Ok(PublishOutcome::Pushed(short(oid)))
-}
-
-/// Push `branch` to origin; on a rejected push, fetch origin and reconcile, then
-/// retry once. A true divergence (two writers) needs a merge commit and is
-/// deferred to increment B — `fetch_and_integrate` bails there. A single-writer
-/// appliance always fast-forwards, so the happy path never hits it.
-fn push_with_retry(repo: &Repository, branch: &str) -> Result<()> {
-    let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
-    match try_push(repo, &refspec) {
-        Ok(()) => Ok(()),
-        Err(first) => {
-            log::warn!("push rejected ({first}); fetching origin to reconcile");
-            fetch_and_integrate(repo, branch).context("reconciling after a rejected push")?;
-            log::info!("reconciled with origin; retrying push");
-            try_push(repo, &refspec).context("push after reconcile")
-        }
-    }
+    log::info!("committed {} — free heap {}", short(oid), free_heap());
+    Ok(Some(oid))
 }
 
 /// One push attempt over HTTPS. Binds the PAT credential + the cert-verify
@@ -311,60 +325,19 @@ fn try_push(repo: &Repository, refspec: &str) -> Result<()> {
     Ok(())
 }
 
-/// Before committing, fetch origin and fast-forward the local branch if it has
-/// fallen behind — so the device self-heals from a *foreign* push (a maintenance
-/// commit, another tool) instead of stacking a commit on a stale base and
-/// diverging at push time (the `07d87772` cleanup was exactly such a push).
+/// Fetch origin and mixed-reset the local branch onto it, so our just-made commit
+/// can be replayed on the current tip. Only runs after a non-fast-forward push
+/// rejection — i.e. the remote moved under us.
 ///
-/// Uses a **MIXED** reset, not the force checkout `fetch_and_integrate` uses: the
-/// note the editor just saved is in the working tree but not yet committed, so the
-/// branch ref and index move to origin while the working tree is left untouched —
-/// no un-synced writing is lost, and the next `add_all` re-stages it on top of the
-/// updated tip. Best-effort: transient fetch failures fall through to the existing
-/// optimistic commit → push → retry path; only a genuine divergence hard-stops.
-fn fast_forward_before_commit(repo: &Repository) -> Result<()> {
-    // Unborn HEAD (first commit into an empty remote): nothing to reconcile.
-    let Ok(head) = repo.head() else {
-        return Ok(());
-    };
-    let Some(branch) = head.shorthand().map(str::to_string) else {
-        return Ok(()); // detached HEAD — not a case this appliance produces
-    };
-
-    let mut remote = repo.find_remote("origin")?;
-    let mut fo = FetchOptions::new();
-    fo.remote_callbacks(auth_callbacks());
-    if let Err(e) = remote.fetch(&[branch.as_str()], Some(&mut fo), None) {
-        log::warn!("pre-commit fetch skipped ({e}); committing optimistically");
-        return Ok(());
-    }
-
-    let Ok(fetch_head) = repo.find_reference("FETCH_HEAD") else {
-        return Ok(()); // remote has no such branch yet
-    };
-    let theirs = repo.reference_to_annotated_commit(&fetch_head)?;
-    let (analysis, _) = repo.merge_analysis(&[&theirs])?;
-
-    if analysis.is_up_to_date() {
-        return Ok(()); // local is at or ahead of origin — commit as-is
-    }
-    if analysis.is_fast_forward() {
-        log::info!(
-            "pre-commit: local {branch} is behind origin — fast-forwarding to {} (mixed, keeps the unsaved note)",
-            short(theirs.id())
-        );
-        let their_obj = repo.find_object(theirs.id(), None)?;
-        repo.reset(&their_obj, git2::ResetType::Mixed, None)
-            .context("mixed reset to origin during pre-commit fast-forward")?;
-        return Ok(());
-    }
-    bail!("origin/{branch} diverged from local before commit — needs a real merge (increment B, deferred)")
-}
-
-/// Fetch origin and integrate `branch` into the local branch. Handles up-to-date
-/// and fast-forward (the common single-writer cases). A real divergence needs a
-/// merge commit written to FATFS — deferred to increment B — so it bails.
-fn fetch_and_integrate(repo: &Repository, branch: &str) -> Result<()> {
+/// **MIXED**, deliberately not a force checkout: the note we're publishing lives
+/// in the working tree, and a force checkout would clobber it. Mixed moves the
+/// branch ref + index onto origin but leaves the working tree, so the note
+/// survives and `stage_and_commit` replays it on top. For a single-writer
+/// appliance this resolves last-writer-wins — a concurrent remote *edit* to the
+/// same note loses to ours, and a remote-only *added* file the card doesn't have
+/// is dropped by the replay's add --all. Both need a real merge (increment B) and
+/// don't arise from this device's own use.
+fn reconcile_onto_origin(repo: &Repository, branch: &str) -> Result<()> {
     let mut remote = repo.find_remote("origin")?;
     let mut fo = FetchOptions::new();
     fo.remote_callbacks(auth_callbacks());
@@ -372,24 +345,18 @@ fn fetch_and_integrate(repo: &Repository, branch: &str) -> Result<()> {
         .fetch(&[branch], Some(&mut fo), None)
         .context("fetch origin")?;
 
-    let fetch_head = repo.find_reference("FETCH_HEAD")?;
+    let fetch_head = repo
+        .find_reference("FETCH_HEAD")
+        .context("no FETCH_HEAD after fetch")?;
     let theirs = repo.reference_to_annotated_commit(&fetch_head)?;
-    let (analysis, _) = repo.merge_analysis(&[&theirs])?;
-
-    if analysis.is_up_to_date() {
-        log::info!("already up to date with origin/{branch}");
-        return Ok(());
-    }
-    if analysis.is_fast_forward() {
-        log::info!("fast-forwarding local {branch} to origin");
-        let refname = format!("refs/heads/{branch}");
-        repo.find_reference(&refname)?
-            .set_target(theirs.id(), "fast-forward to origin")?;
-        repo.set_head(&refname)?;
-        repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))?;
-        return Ok(());
-    }
-    bail!("origin/{branch} diverged from local — a real merge commit is needed (increment B, deferred)")
+    log::info!(
+        "reconcile: resetting local {branch} onto origin @ {} (mixed, keeps the note)",
+        short(theirs.id())
+    );
+    let their_obj = repo.find_object(theirs.id(), None)?;
+    repo.reset(&their_obj, git2::ResetType::Mixed, None)
+        .context("mixed reset onto origin")?;
+    Ok(())
 }
 
 /// Auth + cert callbacks shared by fetch and push. Captures only the baked
