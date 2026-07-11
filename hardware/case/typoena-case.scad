@@ -25,7 +25,7 @@
 // ============================================================================
 
 show = "assembled";
-$fn = 48;
+$fn = 20;
 
 // ---- body envelope --------------------------------------------------------
 W        = 176;   // width  (X)  — screen 150.9 + bezel + walls
@@ -230,14 +230,19 @@ module case_body() {
 // ===========================================================================
 module bracket() {
     ow = P_w + 18; oh = P_h + 18;
-    // Solid frame — no FPC notch on purpose. The flex U-turns off the glass's
-    // left edge and returns INBOARD through the ~1 mm foam gap ABOVE this bracket
-    // (the bracket starts 1 mm deeper), then drops into the cavity through the
-    // open aperture to the breakout — it never crosses the bracket plane. The
-    // only FPC relief lives in the body's left pocket wall (see screen_cuts()).
+    // FPC U-turn clearance: a gap in the LEFT frame member. The flex leaves the
+    // glass's back plane and folds ~180° to dive into the cavity toward the
+    // breakout; a safe bend radius (~1.5-2 mm) makes that loop ~4 mm deep, too
+    // deep for the 1 mm foam gap, so it fouls this rigid frame unless relieved
+    // here. Lines up with the body's FPC slot (screen_cuts) and the foam relief.
     difference() {
         linear_extrude(bracket_t)
-            difference() { rrect(ow, oh, 4); rrect(A_ap_w+2, A_ap_h+2, 2); }
+            difference() {
+                rrect(ow, oh, 4);
+                rrect(A_ap_w+2, A_ap_h+2, 2);
+                translate([-(ow + A_ap_w+2)/4, 0])
+                    square([(ow - (A_ap_w+2))/2 + 4, fpc_w], center=true);
+            }
         for (bx=[-(P_w/2+5), P_w/2+5], by=[-(P_h/2+5), P_h/2+5])
             translate([bx, by, -1]) cylinder(h=bracket_t+2, r=1.45);   // M2 clear
     }
@@ -283,10 +288,16 @@ module placed_bracket() {
                          -lip_t-G_t-foam_t-bracket_t])
         color(C_bracket) bracket();
 }
-// foam gasket (non-adhesive) — a border frame between glass and bracket
+// foam gasket (non-adhesive) — a border frame between glass and bracket, with
+// its LEFT border opened over the FPC span so the U-turning flex isn't clamped
 module foam() {
     linear_extrude(foam_t)
-        difference() { rrect(P_w+4, P_h+4, 3); rrect(A_ap_w, A_ap_h, 2); }
+        difference() {
+            rrect(P_w+4, P_h+4, 3);
+            rrect(A_ap_w, A_ap_h, 2);
+            translate([-((P_w+4) + A_ap_w)/4, 0])
+                square([((P_w+4) - A_ap_w)/2 + 4, fpc_w], center=true);
+        }
 }
 module placed_foam() {
     on_deck() translate([screen_off, screen_cy+screen_off, -lip_t-G_t-foam_t])
