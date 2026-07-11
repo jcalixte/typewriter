@@ -230,17 +230,14 @@ module case_body() {
 // ===========================================================================
 module bracket() {
     ow = P_w + 18; oh = P_h + 18;
+    // Solid frame — no FPC notch on purpose. The flex U-turns off the glass's
+    // left edge and returns INBOARD through the ~1 mm foam gap ABOVE this bracket
+    // (the bracket starts 1 mm deeper), then drops into the cavity through the
+    // open aperture to the breakout — it never crosses the bracket plane. The
+    // only FPC relief lives in the body's left pocket wall (see screen_cuts()).
     difference() {
         linear_extrude(bracket_t)
-            difference() {
-                rrect(ow, oh, 4);
-                rrect(A_ap_w+2, A_ap_h+2, 2);
-                // ribbon (FPC) relief: a gap in the LEFT frame member, lined up
-                // with the body's FPC clearance so the flex can fold back through
-                // the bracket plane into the cavity instead of being pinched
-                translate([-(ow + A_ap_w+2)/4, 0])
-                    square([(ow - (A_ap_w+2))/2 + 4, fpc_w], center=true);
-            }
+            difference() { rrect(ow, oh, 4); rrect(A_ap_w+2, A_ap_h+2, 2); }
         for (bx=[-(P_w/2+5), P_w/2+5], by=[-(P_h/2+5), P_h/2+5])
             translate([bx, by, -1]) cylinder(h=bracket_t+2, r=1.45);   // M2 clear
     }
