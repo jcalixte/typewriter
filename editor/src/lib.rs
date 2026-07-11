@@ -25,12 +25,17 @@ use keymap::Key;
 /// FONT_10X20 cell size (writing column) and the grid it tiles into.
 pub const CW: i32 = 10;
 pub const CH: i32 = 20;
-/// Writing-column width, in characters. The panel is split into a left
-/// **writing column** (this wide) and a right **side panel** for metadata (see
-/// CONTEXT.md § Screen regions). 60 cols × 10 px = 600 px of text; the driver's
-/// `x = 396` seam runs through it invisibly. The remaining 192 px sit entirely
-/// in the master half (right of the seam) and hold the side panel.
-const WRITE_COLS: usize = 60;
+/// Writing-region width, in characters: the left region holding the
+/// line-number gutter **and** the text column (the gutter steals from it — see
+/// [`Editor::text_cols`]). The right **side panel** holds metadata (see
+/// CONTEXT.md § Screen regions). 63 cols × 10 px = 630 px; the driver's
+/// `x = 396` seam runs through it invisibly. The remaining 162 px (right of the
+/// divider) hold the ~25-col side panel. Widened from 60 so the gutter doesn't
+/// narrow the text: a ≤ 99-line file keeps a full 60-col text column.
+const WRITE_COLS: usize = 63;
+/// Minimum digit columns in the line-number gutter (before the 1-col separator).
+/// Files up to 99 lines still get a 2-wide gutter so short notes don't jitter.
+const GUTTER_MIN_DIGITS: usize = 2;
 /// Visible writing rows. 13 × 20 px = 260 px; the bottom 12 px is the transient
 /// `:` command line (the only thing left of the old status band).
 const ROWS: usize = (HEIGHT / 20) as usize; // 13
@@ -40,12 +45,12 @@ const ROWS: usize = (HEIGHT / 20) as usize; // 13
 const HALF_PAGE: usize = ROWS / 2; // 6
 /// x of the 1 px rule dividing writing column from side panel, and the left edge
 /// of panel text (a small gutter past the rule).
-const DIVIDER_X: i32 = WRITE_COLS as i32 * CW; // 600
-const PANEL_X: i32 = DIVIDER_X + 8; // 608
+const DIVIDER_X: i32 = WRITE_COLS as i32 * CW; // 630
+const PANEL_X: i32 = DIVIDER_X + 8; // 638
 /// Side-panel text width in 6 px (`FONT_6X10`) columns, for clamping panel
 /// strings — the snackbar notice, word count — so they never draw past the
 /// right edge of the panel.
-const PANEL_COLS: usize = (WIDTH as usize - PANEL_X as usize) / 6; // 30
+const PANEL_COLS: usize = (WIDTH as usize - PANEL_X as usize) / 6; // 25
 /// Tab stop, in spaces. Tabs never enter the buffer — they expand on insert so
 /// the buffer stays 1 char = 1 column.
 const TAB: &str = "    ";
@@ -919,14 +924,39 @@ impl Editor {
 
     // --- Rendering ---------------------------------------------------------
 
+    /// Number of logical lines in the buffer (1 + newline count). Used to size
+    /// the line-number gutter.
+    fn logical_lines(&self) -> usize {
+        self.text.bytes().filter(|&b| b == b'\n').count() + 1
+    }
+
+    /// Width of the absolute line-number gutter, in display columns: enough
+    /// digits for the buffer's largest line number (min [`GUTTER_MIN_DIGITS`])
+    /// plus a 1-column separator before the text. Sized from the *total* line
+    /// count, not the visible range, so it stays fixed while scrolling — only
+    /// crossing a power of ten (100, 1000, …) reflows the wrap, which is rare.
+    fn gutter_cols(&self) -> usize {
+        let digits = self.logical_lines().to_string().len().max(GUTTER_MIN_DIGITS);
+        digits + 1
+    }
+
+    /// Character columns left for text once the gutter is reserved. The writing
+    /// region is fixed at [`WRITE_COLS`]; the gutter steals from it, so text
+    /// soft-wraps narrower.
+    fn text_cols(&self) -> usize {
+        WRITE_COLS - self.gutter_cols()
+    }
+
     /// Wrap the buffer into display lines, tracking each line's buffer offset.
-    /// Soft-wrap at word boundaries: a logical line too long for `WRITE_COLS`
-    /// breaks at the last space that fits, so words are never split — except a
-    /// single word wider than the writing column, hard-broken at `WRITE_COLS`.
+    /// Soft-wrap at word boundaries: a logical line too long for [`text_cols`]
+    /// (the writing width left after the line-number gutter) breaks at the last
+    /// space that fits, so words are never split — except a single word wider
+    /// than the column, hard-broken at [`text_cols`].
     /// Wrapping counts characters (one per display cell), while `Line.start` is
     /// a byte offset into the buffer, so caret math stays correct for multi-byte
     /// (accented) characters.
     fn layout(&self) -> Vec<Line> {
+        let cols = self.text_cols(); // writing width after the gutter is reserved
         let mut lines: Vec<Line> = Vec::new();
         let mut base = 0usize; // byte offset of the current logical line's start
         for logical in self.text.split('\n') {
@@ -938,12 +968,12 @@ impl Editor {
                 let mut byte = 0usize; // byte offset of chars[c] within `logical`
                 while c < chars.len() {
                     let remaining = chars.len() - c;
-                    let take = if remaining <= WRITE_COLS {
+                    let take = if remaining <= cols {
                         remaining
                     } else {
                         // Break at the last space within the COLS-wide window;
                         // include that space on this line. No space → hard break.
-                        let window = c + WRITE_COLS;
+                        let window = c + cols;
                         let mut brk = None;
                         let mut p = window;
                         while p > c {
@@ -955,7 +985,7 @@ impl Editor {
                         }
                         match brk {
                             Some(sp) if sp > c => sp + 1 - c,
-                            _ => WRITE_COLS,
+                            _ => cols,
                         }
                     };
                     lines.push(Line {
@@ -1031,24 +1061,47 @@ impl Editor {
 
         let mut f = Frame::new_white();
         let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+        let gutter = self.gutter_cols();
+        let cols = WRITE_COLS - gutter; // text columns after the gutter
+        let gx = gutter as i32 * CW; // text (and cursor) x-origin, past the gutter
+        let digits = gutter - 1; // number field width; the last col is the separator
         let end = (self.scroll_top + ROWS).min(lay.len());
+        // Absolute line number of the first visible row's logical line, then
+        // bumped as later logical lines scroll into view.
+        let mut line_no = self.text.as_bytes()[..lay[self.scroll_top.min(lay.len() - 1)].start]
+            .iter()
+            .filter(|&&b| b == b'\n')
+            .count()
+            + 1;
         for (vis, li) in (self.scroll_top..end).enumerate() {
             let y = vis as i32 * CH;
-            Text::with_baseline(&lay[li].text, Point::new(0, y), text_style, Baseline::Top)
+            // Number a logical line only on its first display row; wrapped
+            // continuation rows leave the gutter blank.
+            let first_row = lay[li].start == self.line_start(lay[li].start);
+            if li > self.scroll_top && first_row {
+                line_no += 1;
+            }
+            if first_row {
+                let label = format!("{line_no:>digits$}");
+                Text::with_baseline(&label, Point::new(0, y), text_style, Baseline::Top)
+                    .draw(&mut f)
+                    .unwrap();
+            }
+            Text::with_baseline(&lay[li].text, Point::new(gx, y), text_style, Baseline::Top)
                 .draw(&mut f)
                 .unwrap();
             // Markdown heading (`#`..`######` + space): faux-bold by double-
             // striking the whole display line 1px to the right (no bold Latin-9
             // font exists). Checks the logical line so wrapped headings stay bold.
             if self.is_heading_at(self.line_start(lay[li].start)) {
-                Text::with_baseline(&lay[li].text, Point::new(1, y), text_style, Baseline::Top)
+                Text::with_baseline(&lay[li].text, Point::new(gx + 1, y), text_style, Baseline::Top)
                     .draw(&mut f)
                     .unwrap();
             }
         }
 
         if crow >= self.scroll_top && crow < self.scroll_top + ROWS {
-            let x = ccol.min(WRITE_COLS - 1) as i32 * CW;
+            let x = gx + ccol.min(cols - 1) as i32 * CW;
             let y = (crow - self.scroll_top) as i32 * CH;
             match self.mode {
                 Mode::Normal if cursor_on => {
@@ -1592,10 +1645,11 @@ mod tests {
     /// within the single line at all.
     #[test]
     fn half_page_down_steps_display_rows_within_a_wrapped_line() {
-        let mut e = Editor::with_text("a".repeat(WRITE_COLS * 10)); // 10 wrapped rows
+        let mut e = Editor::with_text("a".repeat(WRITE_COLS * 10)); // one long wrapped line
+        let cols = e.text_cols(); // wrap width shrinks by the gutter
         e.caret = 0;
         e.handle(Key::HalfPageDown);
-        assert_eq!(e.caret, WRITE_COLS * HALF_PAGE); // down HALF_PAGE display rows
+        assert_eq!(e.caret, cols * HALF_PAGE); // down HALF_PAGE *display* rows
 
         // Contrast: `j` on the same single logical line is a no-op.
         let mut j = Editor::with_text("a".repeat(WRITE_COLS * 10));
@@ -1608,7 +1662,7 @@ mod tests {
     #[test]
     fn half_page_up_is_the_inverse_within_a_wrapped_line() {
         let mut e = Editor::with_text("a".repeat(WRITE_COLS * 10));
-        e.caret = WRITE_COLS * HALF_PAGE;
+        e.caret = e.text_cols() * HALF_PAGE; // start on a display-row boundary
         e.handle(Key::HalfPageUp);
         assert_eq!(e.caret, 0);
     }
@@ -1669,6 +1723,39 @@ mod tests {
         e.handle(Key::HalfPageDown);
         assert_eq!(e.caret, 0);
         assert_eq!(e.mode(), Mode::Insert);
+    }
+
+    // ---- Absolute line-number gutter (v0.2) ----
+
+    #[test]
+    fn gutter_is_two_digits_plus_separator_for_small_files() {
+        let e = Editor::with_text("one\ntwo\nthree".to_string()); // 3 logical lines
+        assert_eq!(e.logical_lines(), 3);
+        assert_eq!(e.gutter_cols(), 3); // 2 digit cols + 1 separator
+        assert_eq!(e.text_cols(), WRITE_COLS - 3);
+    }
+
+    #[test]
+    fn gutter_widens_past_ninety_nine_lines() {
+        let e = Editor::with_text("x\n".repeat(120)); // 121 logical lines
+        assert_eq!(e.gutter_cols(), 4); // 3 digit cols + 1 separator
+        assert_eq!(e.text_cols(), WRITE_COLS - 4);
+    }
+
+    #[test]
+    fn gutter_narrows_the_soft_wrap_width() {
+        let e = Editor::with_text("a".repeat(WRITE_COLS)); // 60 chars, one logical line
+        let cols = e.text_cols();
+        assert!(cols < WRITE_COLS); // the gutter stole columns
+        let lay = e.layout();
+        assert_eq!(lay[0].text.chars().count(), cols); // first row fills the text width
+        assert!(lay.len() >= 2); // 60 chars no longer fit one row
+    }
+
+    #[test]
+    fn draw_with_gutter_produces_a_full_frame() {
+        let mut e = Editor::with_text("line one\nline two\nline three".to_string());
+        assert_eq!(e.draw(true).bytes().len(), display::FB_BYTES);
     }
 
     #[test]
