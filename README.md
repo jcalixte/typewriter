@@ -43,7 +43,8 @@ host · **microSD over SPI** · **USB-C wall power** for the MVP, battery in
 v0.8.
 
 Full part table, rationale, and bench status:
-[`docs/hardware.md`](docs/hardware.md).
+[`docs/hardware.md`](docs/hardware.md). Enclosure — a parametric,
+3D-printable typewriter-body case (OpenSCAD): [`hardware/case/`](hardware/case/).
 
 ---
 
@@ -129,6 +130,7 @@ Per-version scope, current `[x]`/`[~]` marks, and the Macroplan source live in
 /spikes                   desktop spikes (spike7 git push proof, pre-device)
 /docs                     ADRs, QFD, hardware, roadmap, per-version specs,
                           spikes.md, postmortems/, notes/
+/hardware                 enclosure — parametric OpenSCAD case (case/) + renders
 CONTEXT.md                project glossary — Tracked / Local / Save / Publish, and
                           the principles that fall out of them
 GLOSSARY.md               methodology glossary — the WHAT / Function /
