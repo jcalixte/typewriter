@@ -68,8 +68,17 @@ fn main() -> anyhow::Result<()> {
     // Bring up the USB keyboard in the background; keys arrive via next_key().
     usb_kbd::start()?;
 
-    // Seed the editor from the saved note (caret at the end, ready to type on).
+    // Seed the editor from the saved note. Boots in Normal mode with the caret
+    // on the last character (the resume point) — press `i`/`a`/`o` to write.
     let mut ed = Editor::with_text(saved);
+    // Confirm the boot-load on the panel (no serial console in normal use):
+    // "loaded <name>" using the note's filename without its suffix (notes.md ->
+    // notes). Cleared by the first keystroke, like any snackbar.
+    let name = std::path::Path::new(NOTES)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("notes");
+    ed.set_notice(format!("loaded {name}"));
     let mut updates: u32 = 0;
     let mut cursor_shown = true; // the initial render includes the caret
     let mut last_activity = Instant::now();
@@ -104,8 +113,8 @@ fn main() -> anyhow::Result<()> {
         // no libgit2 / git2 at all — see the note on `publish`.
         match effect {
             Effect::None => {}
-            Effect::Save => save_note(&storage, &ed),
-            Effect::Publish => publish(&storage, &ed),
+            Effect::Save => save_note(&storage, &mut ed),
+            Effect::Publish => publish(&storage, &mut ed),
         }
 
         // Keyboard attach/detach feeds the panel's disconnect flag.
@@ -248,10 +257,17 @@ fn show_message(epd: &mut Epd, msg: &str) -> anyhow::Result<()> {
 /// Persist the buffer to SD. Errors are logged, never propagated: the in-RAM
 /// buffer is the source of truth and must survive a failed write (e.g. a card
 /// pulled mid-session) so the user can fix the card and retry `:w`.
-fn save_note(storage: &Storage, ed: &Editor) {
+fn save_note(storage: &Storage, ed: &mut Editor) {
+    let n = ed.text().len();
     match storage.save(ed.text()) {
-        Ok(()) => log::info!(":w — saved {} bytes to {NOTES}", ed.text().len()),
-        Err(e) => log::error!(":w — save FAILED ({e:#}); buffer kept in RAM, retry :w"),
+        Ok(()) => {
+            log::info!(":w — saved {n} bytes to {NOTES}");
+            ed.set_notice("saved");
+        }
+        Err(e) => {
+            log::error!(":w — save FAILED ({e:#}); buffer kept in RAM, retry :w");
+            ed.set_notice("save FAILED - retry :w");
+        }
     }
 }
 
@@ -265,8 +281,10 @@ fn save_note(storage: &Storage, ed: &Editor) {
 /// This `#[cfg]` is the seam that keeps the light build light: the git-only code
 /// path is only ever compiled under `--features git`, so wiring publish in later
 /// can never drag libgit2 into a light build.
-fn publish(storage: &Storage, ed: &Editor) {
+fn publish(storage: &Storage, ed: &mut Editor) {
     // Publishing an unsaved buffer is meaningless, so save first in both builds.
+    // (`save_note` posts the "saved N B" snackbar; the git path will overwrite it
+    // with a push result once wired.)
     save_note(storage, ed);
 
     #[cfg(feature = "git")]
