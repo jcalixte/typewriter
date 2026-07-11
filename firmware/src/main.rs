@@ -12,6 +12,7 @@ use esp_idf_svc::hal::units::FromValueType;
 
 use editor::{Editor, Effect, Mode, CH};
 use epd::Epd;
+use firmware::persistence::{Storage, NOTES};
 
 /// Injected by build.rs so serial output identifies the exact build.
 const BUILD_TAG: &str = concat!("build ", env!("BUILD_TIME"), " @", env!("BUILD_GIT"));
@@ -57,10 +58,18 @@ fn main() -> anyhow::Result<()> {
     epd.init()?;
     epd.clear_screen(0xFF)?; // white baseline; establishes the previous bank
 
+    // Mount the SD and load the saved note. We bring the SD up *after* the EPD —
+    // the doc's boot order is SD-first, but a dead panel can't explain a missing
+    // card — and treat a missing card / repo / unreadable note as fatal: a
+    // writing appliance that silently started empty would clobber the note on
+    // the next `:w`. See docs/v0.1-mvp-technical.md, boot sequence.
+    let (storage, saved) = boot_storage(&mut epd);
+
     // Bring up the USB keyboard in the background; keys arrive via next_key().
     usb_kbd::start()?;
 
-    let mut ed = Editor::new();
+    // Seed the editor from the saved note (caret at the end, ready to type on).
+    let mut ed = Editor::with_text(saved);
     let mut updates: u32 = 0;
     let mut cursor_shown = true; // the initial render includes the caret
     let mut last_activity = Instant::now();
@@ -89,16 +98,22 @@ fn main() -> anyhow::Result<()> {
             keys += 1;
         }
 
-        // Carry out any host-side effect a `:` command asked for. The SD write
-        // and git-push paths aren't wired into the main loop yet (v0.1 gate —
-        // see src/bin/git_sync.rs for the persistent-clone push, git_push.rs
-        // for the TLS trust store). Both block for seconds, so the real version
-        // must run off this task (dedicated git thread, as the spike does) and
-        // surface status on the panel; for now we log the intent.
+        // Carry out any host-side effect a `:` command asked for. The SD save is
+        // wired (fast, inline). The git-push half of `:sync` is not yet: it must
+        // run off this task on a dedicated git thread with on-demand Wi-Fi (see
+        // src/bin/git_sync.rs for the persistent-clone push, git_push.rs for the
+        // TLS trust store), which is its own integration step — for now `:sync`
+        // saves and logs that push is pending.
         match effect {
             Effect::None => {}
-            Effect::Save => log::info!(":w — save requested (TODO v0.1: write buffer to SD)"),
-            Effect::Publish => log::info!(":sync — publish requested (TODO v0.1: save + git push)"),
+            Effect::Save => save_note(&storage, &ed),
+            Effect::Publish => {
+                save_note(&storage, &ed);
+                log::info!(
+                    ":sync — note saved; git push not wired yet (needs git_sync \
+                     graduated into a module + on-demand Wi-Fi on the git thread)"
+                );
+            }
         }
 
         // Keyboard attach/detach feeds the panel's disconnect flag.
@@ -191,6 +206,60 @@ fn main() -> anyhow::Result<()> {
         );
         shown = frame;
         cursor_shown = ed.mode() != Mode::Insert;
+    }
+}
+
+/// Mount the SD card and load the saved note, or halt with the reason on the
+/// panel. Everything here is fatal by design (see the boot-sequence comment in
+/// `main`): the note is the whole point of the appliance, so we refuse to run
+/// in a state where the next save could destroy it.
+fn boot_storage(epd: &mut Epd) -> (Storage, String) {
+    let storage = match Storage::mount() {
+        Ok(s) => s,
+        Err(e) => boot_halt(epd, "SD card not ready", &format!("{e:#}")),
+    };
+    if !storage.repo_present() {
+        boot_halt(
+            epd,
+            "No repo on the SD card",
+            "Provision it on your computer (just init) and reboot.",
+        );
+    }
+    let note = match storage.load() {
+        Ok(text) => text,
+        Err(e) => boot_halt(epd, "Could not read your note", &format!("{e:#}")),
+    };
+    log::info!("boot: loaded {} bytes from {NOTES}", note.len());
+    (storage, note)
+}
+
+/// Show a terminal boot error on the panel and idle forever. Rebooting into the
+/// same missing card would just thrash, so we stop and explain instead.
+fn boot_halt(epd: &mut Epd, headline: &str, detail: &str) -> ! {
+    log::error!("boot halt — {headline}: {detail}");
+    if let Err(e) = show_message(epd, &format!("{headline}\n\n{detail}\n")) {
+        log::error!("(could not paint the boot error either: {e:#})");
+    }
+    loop {
+        FreeRtos::delay_ms(1000);
+    }
+}
+
+/// Render a plain full-frame message by borrowing the editor purely as a
+/// text-layout engine, so boot failures surface on the panel, not a dead screen.
+fn show_message(epd: &mut Epd, msg: &str) -> anyhow::Result<()> {
+    let frame = Editor::with_text(msg.to_string()).draw(false);
+    epd.display_frame(frame.bytes())?;
+    Ok(())
+}
+
+/// Persist the buffer to SD. Errors are logged, never propagated: the in-RAM
+/// buffer is the source of truth and must survive a failed write (e.g. a card
+/// pulled mid-session) so the user can fix the card and retry `:w`.
+fn save_note(storage: &Storage, ed: &Editor) {
+    match storage.save(ed.text()) {
+        Ok(()) => log::info!(":w — saved {} bytes to {NOTES}", ed.text().len()),
+        Err(e) => log::error!(":w — save FAILED ({e:#}); buffer kept in RAM, retry :w"),
     }
 }
 
