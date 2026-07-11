@@ -148,8 +148,15 @@ fn publish_cycle(
         bail!("git config missing — set TW_WIFI_SSID / TW_REMOTE_URL / TW_GH_USER / TW_PAT in firmware/.env and rebuild");
     }
 
+    // Phases are timed so a cold :sync reports where the seconds go. Wi-Fi, clock
+    // and TLS run only on the first sync of a session; a warm sync skips them, so
+    // they read 0 ms and the total collapses to just publish(fetch+commit+push).
+    let t_total = Instant::now();
+
     // Bring Wi-Fi up once (on-demand: the radio stays off until the first :sync).
+    let mut wifi_ms = 0u128;
     if wifi.is_none() {
+        let t = Instant::now();
         log::info!("first :sync — bringing Wi-Fi up; free heap {}", free_heap());
         let m = modem.take().expect("modem taken once");
         let n = nvs.take().expect("nvs taken once");
@@ -161,17 +168,31 @@ fn publish_cycle(
         let ip = w.wifi().sta_netif().get_ip_info()?;
         log::info!("Wi-Fi up — IP {}", ip.ip);
         *wifi = Some(w);
+        wifi_ms = t.elapsed().as_millis();
     }
+    let mut clock_ms = 0u128;
     if !*clock_synced {
+        let t = Instant::now();
         sync_clock()?;
         *clock_synced = true;
+        clock_ms = t.elapsed().as_millis();
     }
+    let mut tls_ms = 0u128;
     if !*tls_ready {
+        let t = Instant::now();
         install_tls_trust_store()?;
         *tls_ready = true;
+        tls_ms = t.elapsed().as_millis();
     }
 
-    publish_once()
+    let t_publish = Instant::now();
+    let outcome = publish_once()?;
+    log::info!(
+        ":sync timing — wifi {wifi_ms}ms, clock {clock_ms}ms, tls {tls_ms}ms, publish(fetch+commit+push) {}ms, total {}ms",
+        t_publish.elapsed().as_millis(),
+        t_total.elapsed().as_millis(),
+    );
+    Ok(outcome)
 }
 
 /// Open `/sd/repo`, stage the working tree, commit on top of the current branch,
