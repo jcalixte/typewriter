@@ -64,6 +64,22 @@ risk early.
    clean full refresh. Mostly a feature — kept as a spike only to prove the
    asset path. (Feeds v0.1's "e-ink shows Typoena splash + boot log".)
 
+   **Built 2026-07-11 as a *vector* splash**, not a bitmap. The frame is
+   [`display::Frame::splash`](../display/src/lib.rs) — the `typoena` wordmark
+   centred inside a stroked `Circle`, drawn with `embedded-graphics`, one clean
+   full refresh. It is shared by two callers: the
+   [`splash`](../firmware/src/bin/splash.rs) bench binary (`just flash-splash`)
+   and **`main.rs`'s boot path**, which shows it right after EPD init — replacing
+   the old white-clear baseline — while the SD mounts and the note loads, then a
+   second full refresh brings up the editor. Nothing is embedded, so the
+   image-asset pipeline named above is deliberately **left unproven** — an
+   acceptable trade because Spike 2 already covered vector + font rendering.
+   **Proposition, deferred to end-of-project polish (v1.0):** replace the vector
+   mark with an embedded 1-bit raster logo, which is when the asset-embed/blit
+   path would finally be exercised. **Confirmed on the panel 2026-07-11** — the
+   splash renders cleanly at boot, then the editor comes up. This closed the last
+   v0.1 display gate; v0.1 shipped the same day.
+
 10. **Spike 10 — Dark / light theme.** Invert the 1-bit framebuffer (white on
     black) and refresh. The invert is trivial (XOR at blit); the real unknowns
     are (a) ghosting and refresh time on a predominantly-black panel — full-black

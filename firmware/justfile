@@ -10,6 +10,7 @@ esp_env := ". ~/export-esp.sh &&"
 elf := "target/xtensa-esp32s3-espidf/release/firmware"
 elf_wifi := "target/xtensa-esp32s3-espidf/release/wifi_tls"
 elf_sd := "target/xtensa-esp32s3-espidf/release/sd_fat"
+elf_splash := "target/xtensa-esp32s3-espidf/release/splash"
 elf_git := "target/xtensa-esp32s3-espidf/release/git_smoke"
 elf_git_push := "target/xtensa-esp32s3-espidf/release/git_push"
 elf_git_sync := "target/xtensa-esp32s3-espidf/release/git_sync"
@@ -78,6 +79,18 @@ flash-sd:
 # serial monitor for the SD spike, with decoded backtraces
 monitor-sd:
     espflash monitor --elf {{elf_sd}}
+
+# Spike 9 — build the boot splash spike (no .env needed)
+build-splash:
+    {{esp_env}} cargo build --release --bin splash
+
+# Spike 9 — flash + monitor the boot splash spike
+flash-splash:
+    {{esp_env}} cargo run --release --bin splash
+
+# serial monitor for the splash spike, with decoded backtraces
+monitor-splash:
+    espflash monitor --elf {{elf_splash}}
 
 # Spike 7 Path 2 — build the git2/libgit2 smoke (git2 safe API on device)
 build-git:
@@ -180,9 +193,9 @@ provision sd_volume="":
 
 # Resolve the target card volume. Prints the /Volumes/<name> path as the last
 # stdout line (callers capture it); all diagnostics go to stderr. Prefers an
-# explicit name; else auto-detects exactly one ejectable + external volume, and
-# refuses on 0 or >1 — a wrong guess here means rsync --delete wipes the wrong
-# disk's repo/.
+# explicit name; else auto-detects exactly one removable/SD volume (covers cards
+# in a built-in Mac reader, which report an "Internal" bus), and refuses on 0 or
+# >1 — a wrong guess here means rsync --delete wipes the wrong disk's repo/.
 _card sd_volume="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -195,8 +208,17 @@ _card sd_volume="":
         for v in /Volumes/*; do
             [ -d "$v" ] || continue
             info="$(diskutil info "$v" 2>/dev/null || true)"
-            if echo "$info" | grep -qiE 'Ejectable:[[:space:]]+Yes' \
-               && echo "$info" | grep -qiE 'Device Location:[[:space:]]+External|Removable Media:[[:space:]]+(Removable|Yes)'; then
+            # Treat a volume as a candidate card if ANY removable/SD signal is
+            # present. A card in a Mac's *built-in* reader shows Protocol "Secure
+            # Digital" + Removable Media "Removable", but sits on the "Internal"
+            # bus with no whole-disk "Ejectable" line — so the old
+            # "Ejectable: Yes AND external" test missed it entirely. None of these
+            # match the fixed internal APFS disk; a spurious extra match just
+            # trips the ">1 — name one" refusal below, which is safe.
+            if echo "$info" | grep -qiE 'Protocol:[[:space:]]+Secure Digital' \
+               || echo "$info" | grep -qiE 'Removable Media:[[:space:]]+(Removable|Yes)' \
+               || echo "$info" | grep -qiE 'Ejectable:[[:space:]]+Yes' \
+               || echo "$info" | grep -qiE 'Device Location:[[:space:]]+External'; then
                 cands+=("$v")
             fi
         done

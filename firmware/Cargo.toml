@@ -36,6 +36,14 @@ name = "sd_fat"
 path = "src/bin/sd_fat.rs"
 harness = false
 
+# Spike 9 — boot splash. Standalone bench program that paints the Typoena
+# wordmark-in-a-circle on the EPD. No git, no SD, no Wi-Fi. Flash with
+# `just flash-splash`.
+[[bin]]
+name = "splash"
+path = "src/bin/splash.rs"
+harness = false
+
 # Spike 7 Path 2 — libgit2 link/run smoke via the git2 safe API. Gated behind
 # the `git` feature so the editor build never pulls libgit2-sys/pkg-config.
 # Build: cargo build --release --bin git_smoke --features git (env in justfile).

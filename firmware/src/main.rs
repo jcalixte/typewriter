@@ -1,4 +1,3 @@
-mod epd;
 mod usb_kbd;
 
 use std::time::Instant;
@@ -10,8 +9,9 @@ use esp_idf_svc::hal::spi::config::{Config, DriverConfig};
 use esp_idf_svc::hal::spi::{Dma, SpiBusDriver, SpiDriver};
 use esp_idf_svc::hal::units::FromValueType;
 
+use display::Frame;
 use editor::{Editor, Effect, Mode, CH};
-use epd::Epd;
+use firmware::epd::{self, Epd};
 use firmware::persistence::{Storage, NOTES};
 
 /// Injected by build.rs so serial output identifies the exact build.
@@ -56,7 +56,11 @@ fn main() -> anyhow::Result<()> {
     log::info!("EPD reset + init…");
     epd.reset()?;
     epd.init()?;
-    epd.clear_screen(0xFF)?; // white baseline; establishes the previous bank
+    // Boot splash (Spike 9): the Typoena mark, shown while the SD mounts and the
+    // note loads below. Its full refresh doubles as the baseline the old white
+    // clear used to establish (writes both RAM banks); the editor's first render
+    // further down cleanly replaces it with a second full refresh.
+    epd.display_frame(Frame::splash().bytes())?;
 
     // Mount the SD and load the saved note. We bring the SD up *after* the EPD —
     // the doc's boot order is SD-first, but a dead panel can't explain a missing
@@ -67,6 +71,33 @@ fn main() -> anyhow::Result<()> {
 
     // Bring up the USB keyboard in the background; keys arrive via next_key().
     usb_kbd::start()?;
+
+    // Spawn the dedicated git thread — the `:sync` publish transport. It owns
+    // the Wi-Fi stack (brought up lazily on the first `:sync`, so the radio
+    // stays off until you publish) and parks on `git_tx` until signalled; the
+    // push runs off the UI loop, and its outcome returns on `git_rx` for the
+    // snackbar. Behind the `git` feature so a light build carries no libgit2.
+    #[cfg(feature = "git")]
+    let (git_tx, git_rx) = {
+        use esp_idf_svc::eventloop::EspSystemEventLoop;
+        use esp_idf_svc::nvs::EspDefaultNvsPartition;
+        use firmware::git_sync::{run_git_service, PublishOutcome, PublishRequest, GIT_STACK};
+
+        let sys_loop = EspSystemEventLoop::take()?;
+        let nvs = EspDefaultNvsPartition::take()?;
+        let modem = peripherals.modem;
+        let (req_tx, req_rx) = std::sync::mpsc::channel::<PublishRequest>();
+        let (res_tx, res_rx) = std::sync::mpsc::channel::<PublishOutcome>();
+        std::thread::Builder::new()
+            .name("git".into())
+            .stack_size(GIT_STACK)
+            .spawn(move || run_git_service(modem, sys_loop, nvs, req_rx, res_tx))?;
+        log::info!(
+            "git thread up ({} KB stack); Wi-Fi comes up on the first :sync",
+            GIT_STACK / 1024
+        );
+        (req_tx, res_rx)
+    };
 
     // Seed the editor from the saved note. Boots in Normal mode with the caret
     // on the last character (the resume point) — press `i`/`a`/`o` to write.
@@ -89,9 +120,26 @@ fn main() -> anyhow::Result<()> {
     ed.set_keyboard_present(last_kbd);
     ed.refresh_stats();
 
-    // First render is full (establishes the on-screen baseline for partials).
+    // First editor render. The splash's full refresh above already seeded both
+    // RAM banks (its image is the `0x26` "previous" baseline), so the editor
+    // comes up with a full-area *partial* (~630 ms) instead of a second full
+    // refresh (~1.9 s): the splash→editor swap rides the partial waveform,
+    // shaving ~1.3 s off cold boot. This large-area partial is the one boot
+    // refresh worth eyeballing for ghosting; the loop's periodic full refresh
+    // (every FULL_REFRESH_EVERY updates) clears any residue.
     let mut shown = ed.draw(true);
-    epd.display_frame(shown.bytes())?;
+    epd.display_frame_partial_window(shown.bytes(), 0, epd::HEIGHT)?;
+
+    // Boot-time measurement (the ≤ 5 s v0.1 / ≤ 3 s v1.0 target). Two clocks, and
+    // they disagree by ~1.4 s here, so report both. `esp_log_timestamp()` counts
+    // from ~power-on (same value as this line's own log prefix) → the real
+    // cold-boot number. `esp_timer_get_time()` only starts ~1.4 s in, after the
+    // 2nd-stage bootloader + the ~0.74 s PSRAM memtest, so it captures just the
+    // app-side init, not total boot. "Cursor ready" = first editor frame on the
+    // panel, input loop below about to poll.
+    let total_ms = unsafe { esp_idf_svc::sys::esp_log_timestamp() };
+    let app_ms = (unsafe { esp_idf_svc::sys::esp_timer_get_time() } / 1000) as u32;
+    log::info!("boot: cursor ready — {total_ms} ms since power-on ({app_ms} ms app-side)");
 
     loop {
         // Drain all queued keystrokes (type-ahead absorbed during a refresh),
@@ -107,14 +155,26 @@ fn main() -> anyhow::Result<()> {
             keys += 1;
         }
 
-        // Carry out any host-side effect a `:` command asked for. The SD save is
-        // wired (fast, inline). Publishing (`:sync` → git push) lives behind the
-        // `git` Cargo feature via `publish()`, so the default light build carries
-        // no libgit2 / git2 at all — see the note on `publish`.
+        // Carry out any host-side effect a `:` command asked for. Save is inline
+        // (fast). `:sync` persists, then hands off to the git thread — the push
+        // is behind the `git` feature, so a light build carries no libgit2/git2.
         match effect {
             Effect::None => {}
             Effect::Save => save_note(&storage, &mut ed),
-            Effect::Publish => publish(&storage, &mut ed),
+            Effect::Publish => {
+                // Publishing an unsaved buffer is meaningless, so persist first.
+                save_note(&storage, &mut ed);
+                // Then signal the git thread — non-blocking, so the ~10 s push
+                // never stalls the editor. The outcome returns on `git_rx` and
+                // updates the snackbar (see the idle branch below).
+                #[cfg(feature = "git")]
+                match git_tx.send(firmware::git_sync::PublishRequest) {
+                    Ok(()) => ed.set_notice("syncing..."),
+                    Err(_) => ed.set_notice("sync: git thread down"),
+                }
+                #[cfg(not(feature = "git"))]
+                log::info!(":sync — saved; light build (no `git` feature) — push skipped");
+            }
         }
 
         // Keyboard attach/detach feeds the panel's disconnect flag.
@@ -124,6 +184,23 @@ fn main() -> anyhow::Result<()> {
         last_kbd = kbd;
 
         if keys == 0 {
+            // A finished publish reports its outcome here (the push ran on the
+            // git thread while we idled). Show it in the snackbar with a silent
+            // full-area partial — no keystroke will arrive to trigger a repaint.
+            #[cfg(feature = "git")]
+            if let Ok(outcome) = git_rx.try_recv() {
+                use firmware::git_sync::PublishOutcome::*;
+                ed.set_notice(match outcome {
+                    Pushed(oid) => format!("synced {oid}"),
+                    UpToDate => "up to date".to_string(),
+                    Failed(reason) => reason,
+                });
+                let f = ed.draw(true);
+                epd.display_frame_partial_window(f.bytes(), 0, epd::HEIGHT)?;
+                shown = f;
+                cursor_shown = true;
+                continue;
+            }
             // A connect/disconnect while idle must still repaint the panel flag —
             // no keystroke will arrive to trigger it otherwise.
             if kbd_changed {
@@ -268,36 +345,6 @@ fn save_note(storage: &Storage, ed: &mut Editor) {
             log::error!(":w — save FAILED ({e:#}); buffer kept in RAM, retry :w");
             ed.set_notice("save FAILED - retry :w");
         }
-    }
-}
-
-/// `:sync` — persist, then publish. Publishing (git push) is gated behind the
-/// `git` Cargo feature. The nominal build (`just build`/`just flash`) turns it
-/// on (libgit2 + git2). A **light** build (`just build-light`/`just flash-light`)
-/// leaves it off — no `git2` crate and, since the justfile only sets
-/// `LIBGIT2_SRC` for the full recipes, no libgit2/mbedTLS component either — so
-/// `:sync` just saves locally.
-///
-/// This `#[cfg]` is the seam that keeps the light build light: the git-only code
-/// path is only ever compiled under `--features git`, so wiring publish in later
-/// can never drag libgit2 into a light build.
-fn publish(storage: &Storage, ed: &mut Editor) {
-    // Publishing an unsaved buffer is meaningless, so save first in both builds.
-    // (`save_note` posts the "saved N B" snackbar; the git path will overwrite it
-    // with a push result once wired.)
-    save_note(storage, ed);
-
-    #[cfg(feature = "git")]
-    {
-        // TODO(v0.1): signal the dedicated git thread here (channel, not an
-        // inline blocking push) once `git_sync` is graduated from its spike bin
-        // into a module. The feature is on but that integration hasn't landed,
-        // so for now this still just saves.
-        log::info!(":sync — saved; `git` feature ON, but the publish module isn't wired yet");
-    }
-    #[cfg(not(feature = "git"))]
-    {
-        log::info!(":sync — saved; built without the `git` feature (light build) — push skipped");
     }
 }
 

@@ -10,13 +10,22 @@ into are tracked in [`qfd.md`](qfd.md).
 The editor **core** has been built 2–3 versions ahead of the device
 **releases**, and is now **extracted into a host-testable `editor` crate** (plus
 a `display` crate for the panel framebuffer) so `cargo test` exercises it off the
-xtensa target. No release has shipped, but v0.1 is close: SD storage, save, and
-**git publish are all wired into the app binary and hardware-verified
-2026-07-11** (`:sync` commits on the SD `/sd/repo` and pushes to a test repo),
-leaving the **boot splash as the last v0.1 gate** — and v0.2 navigation,
-**v0.2.5 international input (hardware-verified 2026-07-11)**, and most of v0.6
-Markdown already run. Version numbers are unchanged — they track shippable device
-releases, not core progress.
+xtensa target. **v0.1 shipped 2026-07-11** (late against the 2026-06-29
+baseline): SD storage, save, and **git publish are all wired into the app binary
+and hardware-verified** (`:sync` commits on the SD `/sd/repo` and pushes to a
+test repo), and the **boot splash (Spike 9) is confirmed on the panel** — a
+vector `typoena`-in-a-circle shown at startup while the SD mounts, then the
+editor comes up. **Cold boot measured ~5.5 s** (power-on → cursor, instrumented
+2026-07-11 — the 3.5 s eyeball undercounted; `esp_timer` sees only the ~4.1 s
+app-side slice, missing the bootloader + ~0.74 s PSRAM memtest). **Over the ≤ 5 s
+gate**; **fix implemented 2026-07-11** — the first editor render is now a
+full-area partial (~630 ms) rather than a second full refresh (~1.9 s), expected
+~4.2 s, pending a reflash to re-measure + check ghosting (PSRAM memtest kept on).
+The 1-hour soak is attested from real use; boot time joins the
+remaining post-ship acceptance checks (power-pull recovery, 1000-word no-drop,
+and `Ctrl-G`'s not-yet-built pull-then-retry → v0.9). Beyond v0.1, v0.2 navigation, **v0.2.5 international input (hardware-verified
+2026-07-11)**, and most of v0.6 Markdown already run. Version numbers are
+unchanged — they track shippable device releases, not core progress.
 
 Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
 inline `(✓)` marks the done half of a split item.
@@ -34,8 +43,8 @@ title = "Typoena — macro plan"
 name = "v0.1 it writes, it pushes"
 start = 2026-06-01
 original = 2026-06-29
-status = "at-risk"
-note = "Overdue — core editing, SD storage, and on-device git push all proven in spikes; SD mount + save now wired into main.rs. Remaining: boot splash and wiring git publish into main.rs."
+delivered = 2026-07-11
+learning = "Shipped 12 days late. The long pole was hardware bring-up risk, not the editor: SD on a shared SPI bus (resolved by moving it to its own SPI3, ADR-012) and on-device git (gix killed, pivoted to libgit2 as an esp-idf CMake component, ADR-004). Splash landed as a vector wordmark, not the planned 1-bit bitmap — the asset-embed/blit path is deferred to v1.0."
 
 [[feature]]
 name = "v0.2 navigation"
@@ -106,19 +115,29 @@ requires = ["v0.1 it writes, it pushes"]
 
 ---
 
-## v0.1 — MVP: "it writes, it pushes" — [~]
+## v0.1 — MVP: "it writes, it pushes" — [x]
 
 The minimum thing that justifies the hardware existing. Full design:
 [product](v0.1-mvp-product.md) · [technical](v0.1-mvp-technical.md).
 
-**Status:** core editing + partial refresh run on device, and **SD mount + save
-are now wired into `main.rs`** (Spike 3 resolved — a genuine ≤32 GB card mounts,
-verified on its own SPI3 host per ADR-012). **Git publish is now wired too**
-(`:sync` → commit + fast-forward push on the SD `/sd/repo`, hardware-verified
-2026-07-11 against a test repo). Remaining v0.1 integration: the boot splash
-(Spike 9).
+**Status:** SHIPPED 2026-07-11 (late vs the 2026-06-29 baseline). Core editing +
+partial refresh run on device; **SD mount + save are wired into `main.rs`**
+(Spike 3 resolved — a genuine ≤32 GB card mounts, verified on its own SPI3 host
+per ADR-012); **git publish is wired** (`:sync` → commit + fast-forward push on
+the SD `/sd/repo`, hardware-verified against a test repo); and the **boot splash
+(Spike 9) is confirmed on the panel** — [`Frame::splash`](../display/src/lib.rs)
+shows a vector `typoena`-in-a-circle at startup while the SD mounts, then the
+editor comes up. Cold boot measured ~5.5 s (power-on → cursor, 2026-07-11) — **over the ≤ 5 s
+gate**: the 3.5 s eyeball undercounted, and `esp_timer` catches only the ~4.1 s
+app-side slice (it starts after the bootloader + the ~0.74 s PSRAM memtest). Fix
+implemented 2026-07-11: first editor render is now a full-area partial (~4.2 s
+expected, pending a reflash to verify); PSRAM memtest kept on. The 1-hour soak
+is attested from real use; boot time joins the remaining post-ship acceptance
+checks (power-pull recovery, 1000-word no-drop, `Ctrl-G` pull-then-retry → v0.9) —
+see [product → acceptance](v0.1-mvp-product.md#acceptance-criteria).
 
-- [~] ESP32-S3 boots (✓); e-ink shows Typoena splash + boot log — splash pending Spike 9
+- [x] ESP32-S3 boots (✓); e-ink shows Typoena splash (✓ Spike 9, confirmed on
+      panel 2026-07-11); boot status surfaces via the panel snackbar (no serial on device)
 - [x] USB host enumerates the Nuphy, key events reach the editor (Spike 4)
 - [x] One hard-coded file (`/sd/repo/notes.md`) opens on boot — **wired in
       `main.rs`** (`boot_storage` mounts the SD and loads the note; a missing
@@ -166,7 +185,7 @@ verified on its own SPI3 host per ADR-012). **Git publish is now wired too**
       rather than a timer — a timed auto-dismiss would cost a ~630 ms full-area
       e-ink flash purely to erase text, which the panel deliberately avoids (cf.
       the dropped pending-accent marker in v0.2.5).
-- [~] Partial refresh on edits (✓ Spike 5); save now wired (full-area partial
+- [x] Partial refresh on edits (✓ Spike 5); save wired (full-area partial
       repaint on `:w`)
 
 Out of scope: Vim, palette, multiple files, branches, conflict handling.

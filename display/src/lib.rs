@@ -6,8 +6,12 @@
 //! consumes its raw bytes via [`Frame::bytes`] and never names the type, so
 //! nothing here depends on esp-idf and the whole crate builds on the host.
 
+use embedded_graphics::mono_font::iso_8859_15::FONT_10X20;
+use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
+use embedded_graphics::primitives::{Circle, PrimitiveStyleBuilder};
+use embedded_graphics::text::{Alignment, Baseline, Text, TextStyleBuilder};
 
 pub const WIDTH: u16 = 792;
 pub const HEIGHT: u16 = 272;
@@ -30,6 +34,43 @@ impl Frame {
 
     pub fn new_black() -> Self {
         Self { buf: vec![0x00; FB_BYTES] }
+    }
+
+    /// The Typoena boot splash (Spike 9): the wordmark centred inside a stroked
+    /// circle on a white frame. Pure `embedded-graphics`, so it renders the same
+    /// on the host (the preview) as it does through the `Epd` driver at boot.
+    /// `main.rs` shows this once at startup, before the editor opens.
+    pub fn splash() -> Self {
+        // Badge sized to leave a comfortable margin inside the 272 px panel
+        // height (diameter 200 → 36 px clear top and bottom).
+        const WORDMARK: &str = "typoena";
+        const CIRCLE_DIAMETER: u32 = 200;
+        const STROKE_WIDTH: u32 = 4;
+
+        let mut f = Self::new_white();
+        let center = Point::new(WIDTH as i32 / 2, HEIGHT as i32 / 2);
+
+        let stroke = PrimitiveStyleBuilder::new()
+            .stroke_color(BinaryColor::On) // black ink
+            .stroke_width(STROKE_WIDTH)
+            .build();
+        Circle::with_center(center, CIRCLE_DIAMETER)
+            .into_styled(stroke)
+            .draw(&mut f)
+            .unwrap(); // Frame's DrawTarget error is Infallible
+
+        // Centre the wordmark on the panel centre in both axes, so it sits in
+        // the middle of the circle regardless of string length.
+        let char_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+        let text_style = TextStyleBuilder::new()
+            .alignment(Alignment::Center)
+            .baseline(Baseline::Middle)
+            .build();
+        Text::with_text_style(WORDMARK, center, char_style, text_style)
+            .draw(&mut f)
+            .unwrap();
+
+        f
     }
 
     pub fn bytes(&self) -> &[u8] {

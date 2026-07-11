@@ -8,6 +8,15 @@
 //!   `connect_wifi` copies so the retry logic lives in exactly one place.
 //! - [`persistence`] — SD mount + atomic save/load, graduated from the Spike 3
 //!   bench binary so the editor and the spike share one implementation.
+//! - [`epd`] — the SSD1683 panel driver, shared by the editor binary and the
+//!   Spike 9 boot-splash bench binary so both drive the panel through one copy.
 
+pub mod epd;
 pub mod net;
 pub mod persistence;
+
+// On-device git publish (the editor's `:sync` transport). Behind the `git`
+// feature so a light build never pulls libgit2/git2 — see main.rs `publish` and
+// the feature note in Cargo.toml.
+#[cfg(feature = "git")]
+pub mod git_sync;
