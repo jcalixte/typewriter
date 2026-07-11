@@ -356,8 +356,8 @@ no ghosting** (user flashed it and eyeballed the full-area partial the palette
 forces); Cmd-P opens it on-device too. Remaining v0.5 slice: 4 prefs +
 palette command mode.
 
-**Slice 3 (`:enew` + delete) COMPLETE in core 2026-07-12, HOST-TESTED not yet
-on-device.** `:enew <name>` creates a new file: empty, active, marked **dirty**
+**Slice 3 (`:enew` + delete) COMPLETE + CONFIRMED ON DEVICE 2026-07-12**
+(committed `c9c0716`). `:enew <name>` creates a new file: empty, active, marked **dirty**
 so eviction/`:w` persists it, and added to the in-core file list so the palette
 finds it without a disk re-enumeration — no card IO until it is saved. `:delete`
 unlinks the **current** file (a new `Effect::Delete` the host services), then
@@ -377,9 +377,48 @@ which removes index entries whose working-tree file is gone — together they ar
 the scoped file and, for a Tracked file, that it is local until `:sync`
 (`deleted repo/notes.md - :sync to publish`). Deferred to later: greying the
 Publish affordance for a Local buffer, and the multi-file publish count. 123
-editor tests + 28 keymap tests pass; the no-git firmware binary builds clean (the
-`update_all` fix is behind `--features git`, unbuildable locally — on-device
-re-test pending).
+editor tests + 28 keymap tests pass; the no-git firmware binary builds clean. The
+`update_all` fix (behind `--features git`, unbuildable locally) was **verified on
+device 2026-07-12** — `:enew test.txt` → `:sync` → `:delete` → `:sync` removed
+test.txt from origin.
+
+**Slice 4 (`.typoena.toml` prefs + palette `>` command mode) COMPLETE in core
+2026-07-12, HOST-TESTED not yet on-device.** A `Prefs` type (host-testable
+line-based TOML parse/serialize — flat `key = value` bools + one string with `#`
+comments, no crate pulled onto xtensa) lives on `Editor`; the host reads
+`/sd/repo/.typoena.toml` at boot and applies it before the first render, and a
+missing/partial file falls back to per-key defaults. Keys: `save_on_idle`,
+`format_on_save`, `line_numbers` (all bool, default on) and `auto_sync`
+(string, default `"10m"`, **schema + default only** — nothing reads it yet).
+`line_numbers` is live: `gutter_cols()` returns 0 when off, so the text reclaims
+the gutter's columns (the `gutter - 1` field width made saturating to avoid the
+underflow). The palette `>` command mode (VS Code semantics — a leading `>` in
+the query switches file search to the command list) exposes the three booleans
+as live toggles; Enter flips the pref, applies it at once, queues a new
+`Effect::SavePrefs` (the editor serializes; the host does the atomic write to
+`.typoena.toml`, which rides the next `:sync` to other devices), and confirms
+the new state on the snackbar. **The list stays open after a toggle** so several
+prefs flip in one visit (Esc/`Cmd-P` closes); **`:settings` opens the palette
+straight into `>` mode** as a one-command shortcut (both requested by the user
+2026-07-12, chosen over a separate settings modal — same surface, no duplicate
+machinery). **Three "decide before build" calls:** (1) the
+idle auto-save is **unformatted** — `:fmt` runs only on explicit `:w`/`:sync`, so
+tables/blank-lines are never reflowed mid-session; (2) the per-device `auto_sync`
+override (card-local `typoena.conf`) is **deferred** — auto_sync is inert in
+v0.5, so there is nothing yet to override; (3) `> auto sync: <dur>` as a palette
+command is **deferred to v0.7** — a control that changes a value nothing reads
+would be a dead switch. `save_on_idle` is honoured host-side: a silent idle
+auto-save (no snackbar, no forced e-ink flash — a safety net, not an action)
+fires once per typing burst after a 1.5 s pause. 141 editor tests + 28 keymap
+tests pass; the no-git firmware binary builds clean. Firmware bumped **0.4.0 →
+0.5.0** (the v0.5 feature set is met). **Boot-read of the prefs file CONFIRMED ON
+DEVICE 2026-07-12** — a `.typoena.toml` in `typoena-test` with non-default values
+(`save_on_idle=false`, `line_numbers=false`, `auto_sync="5m"`) logged back
+`prefs: Prefs { save_on_idle: false, format_on_save: true, line_numbers: false,
+auto_sync: "5m" }` at boot, a byte-exact parse (comments skipped, bools + quoted
+string read). Remaining gate (still pending): the palette `>` live toggle +
+`SavePrefs` write-back, and the `save_on_idle` autosave (this test ran with it
+off).
 
 - [x] `Cmd-P` opens fuzzy file palette over **both** `/sd/repo/` and
       `/sd/local/` — **landed and CONFIRMED ON DEVICE 2026-07-12** (Spike 11: no
@@ -403,7 +442,8 @@ re-test pending).
       `stage_and_commit` now also runs `update_all(["*"])` (`git add -u`) — the
       two together are `git add -A`. A Local file is just unlinked. The snackbar
       now confirms the delete and flags that a Tracked file needs `:sync`.
-      **On-device re-test of the fix pending** (build is `--features git`).
+      **Verified on device 2026-07-12** — the `:enew`→`:sync`→`:delete`→`:sync`
+      cycle removed test.txt from origin.
 - [~] `Ctrl-G` is disabled / hidden when the current buffer is local-scope —
       **`:sync` / Publish is blocked in-core for a Local buffer** (posts "Publish
       unavailable (Local)"); the side-panel affordance that hides/greys the
@@ -411,25 +451,31 @@ re-test pending).
 - [ ] The side panel briefly shows file count on `Ctrl-G` when the publish bundles
       more than one dirty Tracked file (e.g. `"publishing 3 files: abc1234"`),
       so workspace-scoped behaviour stays visible to the user
-- [ ] **Preferences file** `/sd/repo/.typoena.toml` — a git-tracked,
+- [x] **Preferences file** `/sd/repo/.typoena.toml` — a git-tracked,
       hand-editable TOML file for editor behaviour, deliberately **distinct from
       the `/sd/typoena.conf` card secrets** (Wi-Fi / PAT / remote / author,
       gitignored, never committed — see v0.1). Read at boot; a missing file or
-      key falls back to the defaults below. Keys:
-  - [ ] `save_on_idle` (bool, default `true`) — auto-save the current buffer on
-        the existing idle pause (the ≥ 1 s typing-pause the panel already uses
-        for its refresh), so `:w` becomes optional rather than required.
-  - [ ] `format_on_save` (bool, default `true`) — run `:fmt` (table alignment,
+      key falls back to the defaults below. **Core done 2026-07-12** (a `Prefs`
+      type on `Editor`, host-testable parse/serialize, applied via
+      `Editor::set_prefs` before the first render); full reference:
+      [`typoena-toml.md`](typoena-toml.md). Keys:
+  - [x] `save_on_idle` (bool, default `true`) — auto-save the current buffer on
+        the idle typing-pause, so `:w` becomes optional rather than required.
+        **Honoured host-side** as a *silent* save (no snackbar, no forced e-ink
+        flash — a safety net, not an action), unformatted, once per typing burst
+        after a 1.5 s pause.
+  - [x] `format_on_save` (bool, default `true`) — run `:fmt` (table alignment,
         blank-line collapse, trailing-whitespace strip) on the buffer before it
         is persisted, so `:sync` is **fmt → save → commit → push** and `:w`
-        saves formatted. Implemented in-core 2026-07-11 (`Editor::format_on_save`,
-        default on); this key will drive it. **Open question:** with
-        `save_on_idle` also on, this reformats on every idle pause — reflowing
-        tables / collapsing blanks mid-session. Consider limiting fmt to
-        explicit `:w`/`:sync` and leaving the idle auto-save unformatted.
-  - [ ] `line_numbers` (bool, default `true`) — show the absolute line-number
+        saves formatted. Implemented in-core 2026-07-11 (`Editor`), now **driven
+        by this key**. **Open question RESOLVED (2026-07-12):** fmt runs only on
+        an explicit `:w`/`:sync`; the `save_on_idle` auto-save is deliberately
+        **unformatted**, so tables/blank lines are never reflowed mid-session
+        (the caret would jump under you on every thinking pause).
+  - [x] `line_numbers` (bool, default `true`) — show the absolute line-number
         gutter (built always-on in v0.2). Off reclaims the gutter's columns for
-        text; the palette `> line numbers: on/off` command toggles it live.
+        text (`gutter_cols()` → 0); the palette `> line numbers: on/off` command
+        toggles it live. **Done 2026-07-12.**
   - [ ] `auto_sync` (duration string, default `"10m"`; `"0"` / omitted
         disables; **min clamp ~`"2m"`** so a palette typo can't drain the
         battery) — a *max-staleness cap*, not a wall-clock timer:
@@ -440,18 +486,26 @@ re-test pending).
         `save_on_idle` already owns local data safety — so 10 min halves the
         sync energy of a 5-min default for no real risk. Full derivation:
         [`tradeoff-curves/wifi-auto-sync.md`](tradeoff-curves/wifi-auto-sync.md).
-        The **schema + defaults live here in v0.5**; the periodic side rides the
-        better-git work (v0.7) and must interact with light / deep sleep (v0.8).
-  - [ ] Open question: because the file is committed, these prefs **sync to
-        every device** that clones the repo — a per-device sync cadence may
-        instead want a card-local override (in `typoena.conf`). Decide before
-        build.
-- [ ] **Palette command mode** — typing `>` at the `Ctrl-P` palette switches it
-      from file search to a command list (VS Code-style). The v0.5 commands edit
-      the `.typoena.toml` prefs above — e.g. `> save on idle: on/off` and
-      `> auto sync: 10m` — writing the value back to the file and applying it
-      live. This command list is the discoverable surface that later actions
-      (`:fmt`, theme, font) also register into.
+        The **schema + default (`"10m"`) live here in v0.5** and round-trip
+        through `Prefs`; **nothing reads the value yet** — the periodic side
+        rides the better-git work (v0.7) and must interact with light / deep
+        sleep (v0.8). Marked `[~]`: parsed and preserved, no behaviour.
+  - [x] Open question RESOLVED (2026-07-12): the per-device sync cadence override
+        (a card-local `typoena.conf` layer over the committed prefs) is
+        **deferred** — `auto_sync` is inert in v0.5, so there is nothing yet to
+        override; revisit when v0.7 makes the periodic push real.
+- [x] **Palette command mode** — typing `>` at the `Cmd-P` palette switches it
+      from file search to a command list (VS Code-style). **Done in core
+      2026-07-12.** The v0.5 commands toggle the three boolean `.typoena.toml`
+      prefs — `> save on idle`, `> format on save`, `> line numbers` — each label
+      carrying its live state; Enter flips the pref, applies it at once, queues
+      `Effect::SavePrefs` (persist to the file), and confirms on the snackbar.
+      **The list stays open after a toggle** (flip several, Esc/`Cmd-P` closes),
+      and **`:settings` opens it directly** — both added 2026-07-12 as the "change
+      config from the device" surface (chosen over a separate settings modal).
+      This command list is the discoverable surface later actions (`:fmt`, theme,
+      font) also register into. **`> auto sync: <dur>` deferred to v0.7** — a
+      value control that changes nothing readable would be a dead switch.
 
 ## v0.6 — Markdown affordances — [~]
 

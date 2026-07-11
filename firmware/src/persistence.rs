@@ -308,15 +308,17 @@ impl Storage {
                 .with_context(|| format!("create {tmp} (does its directory exist?)"))?;
             f.write_all(contents.as_bytes())
                 .with_context(|| format!("write {tmp}"))?;
-            // End the file with exactly one newline (POSIX text convention; keeps git
-            // from flagging "No newline at end of file"). The editor buffer is
-            // newline-free by design, so this is the single place the terminator is
-            // added; `load_path` strips it back off on the way in. Guarded so an
-            // already-terminated buffer (e.g. an unformatted external file) isn't
-            // doubled.
-            if !contents.ends_with('\n') {
-                f.write_all(b"\n").with_context(|| format!("write final newline to {tmp}"))?;
-            }
+            // Append exactly one POSIX terminator, unconditionally — the symmetric
+            // inverse of `load_path`, which always strips one back off. This keeps
+            // git from flagging "No newline at end of file" and makes the buffer
+            // round-trip byte-for-byte: a buffer that ends in '\n' (a trailing blank
+            // line the writer left) becomes "…\n\n" on disk, so that blank line
+            // survives the next load instead of being swallowed. Everything handed
+            // to `save_path` is content *without* its terminator by convention (the
+            // editor buffer is newline-free, and `Prefs::to_toml` omits its trailing
+            // newline for the same reason), so this never double-terminates.
+            f.write_all(b"\n")
+                .with_context(|| format!("write final newline to {tmp}"))?;
             // FatFS f_sync — flush the tmp fully before it can replace the target.
             f.sync_all().with_context(|| format!("fsync {tmp}"))?;
         }

@@ -143,12 +143,128 @@ pub enum Effect {
     /// switched away by the time this drains, so `scope` is informational; the host
     /// reports the outcome on the snackbar (mirrors [`Save`](Effect::Save)).
     Delete { path: String, scope: Scope },
+    /// Persist the preferences file ([`PREFS_PATH`]) after a palette `>` command
+    /// changed a pref. Carries the already-serialized TOML ([`Prefs::to_toml`]),
+    /// so the host only does the atomic write — no re-serialization or buffer
+    /// bookkeeping. Separate from [`Save`](Effect::Save): prefs are not a text
+    /// buffer and live at a fixed path outside the multi-buffer model.
+    SavePrefs { contents: String },
 }
 
 /// Tracked files live here (the git working copy).
 pub const REPO_DIR: &str = "/sd/repo";
 /// Local files live here (never published).
 pub const LOCAL_DIR: &str = "/sd/local";
+/// The git-tracked preferences file. Read at boot and rewritten when a palette
+/// `>` command changes a pref, so the setting survives a reboot and rides the
+/// next `:sync` to every device that clones the repo. Deliberately **distinct**
+/// from the gitignored `/sd/typoena.conf` device secrets (Wi-Fi / PAT / remote /
+/// author, never committed — see v0.1): behaviour is shared, secrets are not.
+pub const PREFS_PATH: &str = "/sd/repo/.typoena.toml";
+
+/// Editor preferences, mirroring the git-tracked [`PREFS_PATH`] TOML. The host
+/// reads the file at boot and applies it with [`Editor::set_prefs`]; the palette
+/// `>` command mode toggles a pref live and queues an [`Effect::SavePrefs`] to
+/// write the change back. Every key falls back to the [`Default`] below, so a
+/// missing, empty, or partial file still yields a full, usable `Prefs`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prefs {
+    /// Auto-save the active buffer on the idle typing-pause, so `:w` becomes
+    /// optional. The idle save is **unformatted** — a safety net against power
+    /// loss, not a formatting pass; `:fmt` only runs on an explicit `:w`/`:sync`
+    /// (see [`format_on_save`](Prefs::format_on_save)) so text is never reflowed
+    /// mid-session. Honoured by the host loop, not the core.
+    pub save_on_idle: bool,
+    /// Run `:fmt` (table alignment, blank-line collapse, trailing-whitespace
+    /// strip) on the buffer before an explicit `:w`/`:sync` persist.
+    pub format_on_save: bool,
+    /// Show the absolute line-number gutter (built always-on in v0.2). Off
+    /// reclaims the gutter's columns for text — applied live by [`gutter_cols`].
+    pub line_numbers: bool,
+    /// Max-staleness cap for opportunistic auto-publish, as a duration string
+    /// (`"10m"`, `"0"`/empty disables). **Schema + default only in v0.5** — the
+    /// periodic push itself rides v0.7/v0.8, so nothing reads this yet; it is
+    /// parsed and preserved through a round-trip but has no behaviour here.
+    pub auto_sync: String,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        Self {
+            save_on_idle: true,
+            format_on_save: true,
+            line_numbers: true,
+            auto_sync: "10m".into(),
+        }
+    }
+}
+
+impl Prefs {
+    /// Parse a [`PREFS_PATH`] file, falling back to [`Default`] for any missing or
+    /// unrecognized key (so a partial or empty file still yields a full `Prefs`).
+    /// A deliberately tiny line-based reader: these are flat `key = value` pairs
+    /// (bool, or a quoted string) with `#` comments — not a general TOML parser,
+    /// so it pulls no crate onto the xtensa build and stays host-testable here. An
+    /// unparseable value for a key leaves that key at its default.
+    pub fn parse(src: &str) -> Self {
+        let mut p = Self::default();
+        for line in src.lines() {
+            // Strip a trailing/whole-line `#` comment, then split `key = value`.
+            let line = line.split('#').next().unwrap_or("").trim();
+            let Some((key, val)) = line.split_once('=') else {
+                continue;
+            };
+            let (key, val) = (key.trim(), val.trim());
+            match key {
+                "save_on_idle" => {
+                    if let Some(b) = parse_bool(val) {
+                        p.save_on_idle = b;
+                    }
+                }
+                "format_on_save" => {
+                    if let Some(b) = parse_bool(val) {
+                        p.format_on_save = b;
+                    }
+                }
+                "line_numbers" => {
+                    if let Some(b) = parse_bool(val) {
+                        p.line_numbers = b;
+                    }
+                }
+                "auto_sync" => p.auto_sync = val.trim_matches('"').to_string(),
+                _ => {}
+            }
+        }
+        p
+    }
+
+    /// Serialize back to the [`PREFS_PATH`] form, with a header comment pointing at
+    /// both edit paths. Round-trips with [`parse`](Prefs::parse). Emitted *without*
+    /// a trailing newline: like the editor buffer, this is content without its
+    /// terminator — the persistence layer appends the single POSIX newline on write
+    /// (and strips it back on read), so returning one here would double it.
+    pub fn to_toml(&self) -> String {
+        format!(
+            "# Typoena editor preferences — hand-editable, git-tracked.\n\
+             # Edit here, or toggle live from the Cmd-P palette (type `>`).\n\
+             save_on_idle = {}\n\
+             format_on_save = {}\n\
+             line_numbers = {}\n\
+             auto_sync = \"{}\"",
+            self.save_on_idle, self.format_on_save, self.line_numbers, self.auto_sync,
+        )
+    }
+}
+
+/// Parse a TOML boolean literal, or `None` for anything else (so a typo leaves
+/// the key at its default rather than silently reading as `false`).
+fn parse_bool(v: &str) -> Option<bool> {
+    match v {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
 
 /// Resolve a `:e`/`:enew` argument (or palette pick) to an absolute path +
 /// [`Scope`]. Everything the writer can reach lives on the card under `/sd`, so
@@ -268,6 +384,26 @@ fn palette_label(path: &str) -> &str {
     path.strip_prefix("/sd/").unwrap_or(path)
 }
 
+/// A palette command (the `>` mode). v0.5 exposes the three boolean prefs as
+/// live toggles; each command's *label* carries the pref's current state
+/// ([`Editor::command_label`]), so the list doubles as a settings readout. This
+/// registry is the discoverable surface later features (`:fmt`, theme, font)
+/// grow into. `auto_sync` is deliberately absent until v0.7 gives it behaviour —
+/// a value control that changes nothing would be a dead switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaletteCmd {
+    SaveOnIdle,
+    FormatOnSave,
+    LineNumbers,
+}
+
+/// The palette command list, in display order (empty `>` query shows them all).
+const PALETTE_CMDS: [PaletteCmd; 3] = [
+    PaletteCmd::SaveOnIdle,
+    PaletteCmd::FormatOnSave,
+    PaletteCmd::LineNumbers,
+];
+
 /// A pending operator awaiting a motion or text object (`d`elete / `c`hange /
 /// `y`ank).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -312,10 +448,12 @@ pub struct Editor {
     /// (save/publish result). Shown until the next keystroke dismisses it
     /// (cleared in [`Editor::handle`]); `None` means nothing to show.
     notice: Option<String>,
-    /// Run `:fmt` on the buffer before persisting on `:w`/`:sync`, so `:sync`
-    /// is fmt → save → commit → push. Defaults on; the v0.5 `.typoena.toml`
-    /// `format_on_save` key will drive it.
-    format_on_save: bool,
+    /// Editor preferences (mirrors [`PREFS_PATH`]). Held here so the palette `>`
+    /// command mode can toggle them live; the host reads the file at boot and
+    /// applies it via [`set_prefs`](Self::set_prefs), and reads it back for the
+    /// keys it honours (`save_on_idle`). `format_on_save` and `line_numbers` are
+    /// consulted in-core (`:w`/`:sync` and the gutter).
+    prefs: Prefs,
     /// The unnamed register: the last yanked or deleted text, replayed by
     /// `p`/`P`. `y`, `d`, `c`, and `x` all fill it (vim's unnamed register), so
     /// `dd`…`p` moves a line. There is one register — no named registers yet.
@@ -437,7 +575,7 @@ impl Editor {
             shown_words: 0,
             keyboard_present: false,
             notice: None,
-            format_on_save: true,
+            prefs: Prefs::default(),
             register: String::new(),
             register_linewise: false,
             undo: Vec::new(),
@@ -561,6 +699,20 @@ impl Editor {
     /// its `:` command effect handlers.
     pub fn set_notice(&mut self, msg: impl Into<String>) {
         self.notice = Some(msg.into());
+    }
+
+    /// The current preferences. The host reads this for the keys it honours
+    /// (`save_on_idle` in the idle loop); `format_on_save` and `line_numbers`
+    /// are consulted in-core.
+    pub fn prefs(&self) -> &Prefs {
+        &self.prefs
+    }
+
+    /// Apply the preferences the host read from [`PREFS_PATH`] at boot. Called
+    /// before the first render so `line_numbers` shapes the first frame. A live
+    /// change later comes from the palette `>` commands, not this.
+    pub fn set_prefs(&mut self, prefs: Prefs) {
+        self.prefs = prefs;
     }
 
     /// Whitespace-delimited word count of the whole buffer.
@@ -956,7 +1108,12 @@ impl Editor {
             Key::Enter => {
                 self.execute_command();
                 self.cmdline.clear();
-                self.mode = Mode::Normal;
+                // Most commands return to Normal; one that opened another mode
+                // (`:settings` → the palette) set it during `execute_command`, so
+                // only fall back to Normal if we're still in Command.
+                if self.mode == Mode::Command {
+                    self.mode = Mode::Normal;
+                }
             }
             Key::Escape => {
                 self.cmdline.clear();
@@ -1000,9 +1157,10 @@ impl Editor {
         match cmd.as_str() {
             "enew" => self.set_notice("usage: :enew <file>"),
             "delete" => self.delete_current(),
+            "settings" => self.open_settings(),
             "fmt" => self.format_buffer(),
             "w" | "wq" | "x" => {
-                if self.format_on_save {
+                if self.prefs.format_on_save {
                     self.format_buffer();
                 }
                 self.request_save_active();
@@ -1016,7 +1174,7 @@ impl Editor {
                 }
                 // fmt → save → push: format in-core, queue the save of the current
                 // buffer, then the git publish. The host services them in order.
-                if self.format_on_save {
+                if self.prefs.format_on_save {
                     self.format_buffer();
                 }
                 self.request_save_active();
@@ -1343,6 +1501,15 @@ impl Editor {
         self.palette_sel = 0;
     }
 
+    /// `:settings` — open the palette straight into `>` command mode (the
+    /// settings list), so the prefs are reachable in one command instead of
+    /// `Cmd-P` then `>`. Same surface, same stay-open toggle behaviour.
+    fn open_settings(&mut self) {
+        self.mode = Mode::Palette;
+        self.palette_query = ">".to_string();
+        self.palette_sel = 0;
+    }
+
     /// Leave the palette back to Normal, clearing its query and selection.
     fn close_palette(&mut self) {
         self.mode = Mode::Normal;
@@ -1382,13 +1549,24 @@ impl Editor {
                 self.palette_sel = 0;
             }
             // Ctrl-n/Ctrl-p move the selection (fzf-style); Ctrl-d/Ctrl-u do too.
-            // Clamped to the result list.
+            // Clamped to the result list (files, or `>` commands).
             Key::Down | Key::HalfPageDown => {
-                let n = self.palette_matches().len();
+                let n = if self.palette_command_mode() {
+                    self.palette_command_matches().len()
+                } else {
+                    self.palette_matches().len()
+                };
                 self.palette_sel = (self.palette_sel + 1).min(n.saturating_sub(1));
             }
             Key::Up | Key::HalfPageUp => self.palette_sel = self.palette_sel.saturating_sub(1),
-            Key::Enter => self.palette_open_selected(),
+            // Enter runs the selected `>` command, or opens the selected file.
+            Key::Enter => {
+                if self.palette_command_mode() {
+                    self.palette_run_command();
+                } else {
+                    self.palette_open_selected();
+                }
+            }
             // Esc, or Cmd-P again, closes the palette.
             Key::Escape | Key::Palette => self.close_palette(),
             Key::Redo => {}
@@ -1434,6 +1612,78 @@ impl Editor {
         // Stable sort by descending score — ties keep their MRU/base position.
         scored.sort_by_key(|&(_, s)| core::cmp::Reverse(s));
         scored.into_iter().map(|(i, _)| i).collect()
+    }
+
+    // --- Palette command mode (`>`) ----------------------------------------
+
+    /// Whether the palette is in `>` command mode. VS Code semantics: a leading
+    /// `>` in the query switches the file search to the command list. The `>` is
+    /// part of [`palette_query`](Self::palette_query), so backspacing it off
+    /// returns to file mode with no extra state.
+    fn palette_command_mode(&self) -> bool {
+        self.palette_query.starts_with('>')
+    }
+
+    /// The command filter: everything after the leading `>`, trimmed. `>` alone
+    /// (or with only spaces) is an empty filter, which matches every command.
+    fn command_filter(&self) -> &str {
+        self.palette_query.strip_prefix('>').unwrap_or("").trim()
+    }
+
+    /// A command's display label, carrying its pref's current state (so the list
+    /// reads as a live settings panel and the toggle's effect is legible before
+    /// and after). This is also the text [`fuzzy_score`] matches against.
+    fn command_label(&self, cmd: PaletteCmd) -> String {
+        let on = |b| if b { "on" } else { "off" };
+        match cmd {
+            PaletteCmd::SaveOnIdle => format!("save on idle: {}", on(self.prefs.save_on_idle)),
+            PaletteCmd::FormatOnSave => format!("format on save: {}", on(self.prefs.format_on_save)),
+            PaletteCmd::LineNumbers => format!("line numbers: {}", on(self.prefs.line_numbers)),
+        }
+    }
+
+    /// Filtered, ranked command indices into [`PALETTE_CMDS`]. An empty filter
+    /// keeps registry order; a non-empty one fuzzy-ranks by label, same matcher
+    /// and stable-sort as the file list.
+    fn palette_command_matches(&self) -> Vec<usize> {
+        let filter = self.command_filter();
+        let mut scored: Vec<(usize, i32)> = PALETTE_CMDS
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &cmd)| fuzzy_score(filter, &self.command_label(cmd)).map(|s| (i, s)))
+            .collect();
+        scored.sort_by_key(|&(_, s)| core::cmp::Reverse(s));
+        scored.into_iter().map(|(i, _)| i).collect()
+    }
+
+    /// Enter in `>` command mode: run the selected command (toggle its pref) and
+    /// **stay open**, so several prefs can be flipped in a row — the toggled
+    /// label updates in place. `Esc` (or `Cmd-P`) closes. A no-op on an empty
+    /// result set (nothing selected), which also stays open so the query can be
+    /// fixed. Contrast [`palette_open_selected`](Self::palette_open_selected),
+    /// which closes: opening a file switches away, toggling a pref does not.
+    fn palette_run_command(&mut self) {
+        if let Some(&ci) = self.palette_command_matches().get(self.palette_sel) {
+            self.toggle_pref(PALETTE_CMDS[ci]);
+        }
+    }
+
+    /// Flip the boolean pref a command targets, apply it live (the next
+    /// [`draw`](Self::draw) reflects it — line numbers appear/vanish at once),
+    /// queue the prefs-file write ([`Effect::SavePrefs`]), and confirm the new
+    /// state on the snackbar. The queued `SavePrefs` is what makes the change
+    /// durable and lets it ride the next `:sync` to other devices.
+    fn toggle_pref(&mut self, cmd: PaletteCmd) {
+        match cmd {
+            PaletteCmd::SaveOnIdle => self.prefs.save_on_idle = !self.prefs.save_on_idle,
+            PaletteCmd::FormatOnSave => self.prefs.format_on_save = !self.prefs.format_on_save,
+            PaletteCmd::LineNumbers => self.prefs.line_numbers = !self.prefs.line_numbers,
+        }
+        self.requests.push(Effect::SavePrefs {
+            contents: self.prefs.to_toml(),
+        });
+        // The label already reflects the just-flipped state (e.g. "line numbers: off").
+        self.set_notice(format!("{} - saved", self.command_label(cmd)));
     }
 
     // --- Visual mode -------------------------------------------------------
@@ -2160,6 +2410,9 @@ impl Editor {
     /// count, not the visible range, so it stays fixed while scrolling — only
     /// crossing a power of ten (100, 1000, …) reflows the wrap, which is rare.
     fn gutter_cols(&self) -> usize {
+        if !self.prefs.line_numbers {
+            return 0; // gutter off: text reclaims the full writing width
+        }
         let digits = self.logical_lines().to_string().len().max(GUTTER_MIN_DIGITS);
         digits + 1
     }
@@ -2314,7 +2567,10 @@ impl Editor {
         let gutter = self.gutter_cols();
         let cols = WRITE_COLS - gutter; // text columns after the gutter
         let gx = gutter as i32 * CW; // text (and cursor) x-origin, past the gutter
-        let digits = gutter - 1; // number field width; the last col is the separator
+        // Number field width (the last gutter col is the separator). Saturating so
+        // a disabled gutter (`gutter == 0`, line_numbers off) can't underflow; the
+        // number draw below is skipped in that case anyway.
+        let digits = gutter.saturating_sub(1);
         let end = (self.scroll_top + ROWS).min(lay.len());
         // Absolute line number of the first visible row's logical line, then
         // bumped as later logical lines scroll into view.
@@ -2331,7 +2587,7 @@ impl Editor {
             if li > self.scroll_top && first_row {
                 line_no += 1;
             }
-            if first_row {
+            if gutter > 0 && first_row {
                 let label = format!("{line_no:>digits$}");
                 Text::with_baseline(&label, Point::new(0, y), text_style, Baseline::Top)
                     .draw(&mut f)
@@ -2591,14 +2847,20 @@ impl Editor {
         let style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
         let inv = MonoTextStyle::new(&FONT_10X20, BinaryColor::Off);
 
-        // The query on the top row with a block caret at the end. No `>` prefix:
-        // a bare input is "go to file" (VS Code Cmd-P); the `>` prefix is reserved
-        // for the command palette (v0.5 slice 4). An empty query is just the caret
-        // over a `Go to file` placeholder that clears on the first keystroke.
+        // The query on the top row with a block caret at the end. A bare input is
+        // "go to file" (VS Code Cmd-P); a leading `>` switches to the command list
+        // (`command_mode`). An empty query is just the caret over a `Go to file`
+        // placeholder that clears on the first keystroke — type `>` for commands.
+        let command_mode = self.palette_command_mode();
         if self.palette_query.is_empty() {
-            Text::with_baseline("Go to file", Point::new(2 + CW, 0), style, Baseline::Top)
-                .draw(f)
-                .unwrap();
+            Text::with_baseline(
+                "Go to file  (type > for commands)",
+                Point::new(2 + CW, 0),
+                style,
+                Baseline::Top,
+            )
+            .draw(f)
+            .unwrap();
         } else {
             Text::with_baseline(&self.palette_query, Point::new(2, 0), style, Baseline::Top)
                 .draw(f)
@@ -2616,14 +2878,21 @@ impl Editor {
             .draw(f)
             .unwrap();
 
-        let matches = self.palette_matches();
+        // The list is either the fuzzy-ranked files or the `>` command registry.
+        let matches = if command_mode {
+            self.palette_command_matches()
+        } else {
+            self.palette_matches()
+        };
         let max_chars = WRITE_COLS - 1; // leave a right margin
         let list_top = CH + 3;
         let hint_y = HEIGHT as i32 - CH; // bottom row holds the key hint
         let visible = ((hint_y - list_top) / CH).max(1) as usize;
 
         if matches.is_empty() {
-            let msg = if self.files.is_empty() {
+            let msg = if command_mode {
+                "(no command)"
+            } else if self.files.is_empty() {
                 "(no files on card)"
             } else {
                 "(no match)"
@@ -2637,8 +2906,11 @@ impl Editor {
             let start = if sel >= visible { sel - visible + 1 } else { 0 };
             for (row, &idx) in matches.iter().enumerate().skip(start).take(visible) {
                 let y = list_top + (row - start) as i32 * CH;
-                let label: String =
-                    palette_label(&self.files[idx]).chars().take(max_chars).collect();
+                let label: String = if command_mode {
+                    self.command_label(PALETTE_CMDS[idx])
+                } else {
+                    palette_label(&self.files[idx]).chars().take(max_chars).collect()
+                };
                 if row == sel {
                     // Reverse video: black fill across the column, white glyphs.
                     Rectangle::new(Point::new(0, y), Size::new(DIVIDER_X as u32, CH as u32))
@@ -2656,7 +2928,11 @@ impl Editor {
             }
         }
 
-        let hint = "^N/^P move  Enter open  Esc close";
+        let hint = if command_mode {
+            "^N/^P move  Enter toggle  Esc close"
+        } else {
+            "^N/^P move  Enter open  Esc close"
+        };
         Text::with_baseline(hint, Point::new(2, hint_y), style, Baseline::Top)
             .draw(f)
             .unwrap();
@@ -2724,7 +3000,13 @@ fn format_markdown(text: &str) -> String {
         }
     }
 
-    // 3. Collapse 2+ consecutive blank lines to one; drop trailing blanks.
+    // 3. Collapse 2+ consecutive blank lines to one. A trailing blank run
+    //    collapses the same way, so at most one trailing blank line survives — and
+    //    we deliberately keep that one rather than dropping it. A writer often
+    //    presses Enter to open the next line before pausing; yanking that line
+    //    (and the caret) out from under them on every format-on-save is jarring.
+    //    The file's POSIX terminator is `save_path`'s job, not this pass's, so
+    //    keeping the blank line here is purely about not disturbing the buffer.
     let mut out: Vec<String> = Vec::with_capacity(piped.len());
     let mut blank_run = 0;
     for line in piped {
@@ -2737,9 +3019,6 @@ fn format_markdown(text: &str) -> String {
             blank_run = 0;
             out.push(line);
         }
-    }
-    while out.last().is_some_and(|l| l.is_empty()) {
-        out.pop();
     }
     out.join("\n")
 }
@@ -2883,6 +3162,7 @@ mod tests {
         Publish,
         Pull,
         Delete,
+        SavePrefs,
     }
 
     fn kinds(effects: &[Effect]) -> Vec<Kind> {
@@ -2894,6 +3174,7 @@ mod tests {
                 Effect::Publish => Kind::Publish,
                 Effect::Pull => Kind::Pull,
                 Effect::Delete { .. } => Kind::Delete,
+                Effect::SavePrefs { .. } => Kind::SavePrefs,
             })
             .collect()
     }
@@ -3107,12 +3388,43 @@ mod tests {
             Scope::Tracked,
             "hello   \nworld".to_string(),
         );
-        e.format_on_save = false;
+        e.prefs.format_on_save = false;
         e.handle(Key::Char(':'));
         e.handle(Key::Char('w'));
         e.handle(Key::Enter);
         assert_eq!(kinds(&e.take_effects()), vec![Kind::Save]);
         assert_eq!(e.text(), "hello   \nworld"); // unchanged when the pref is off
+    }
+
+    #[test]
+    fn format_keeps_at_most_one_trailing_blank_line() {
+        // The writer's trailing blank line (pressed Enter to open the next line) is
+        // kept; a run of them collapses to one; a note with none gains none.
+        assert_eq!(format_markdown("hello\n"), "hello\n"); // one blank kept
+        assert_eq!(format_markdown("hello\n\n\n"), "hello\n"); // extras collapsed to one
+        assert_eq!(format_markdown("hello"), "hello"); // none added
+    }
+
+    #[test]
+    fn format_on_save_keeps_the_caret_on_a_trailing_blank_line() {
+        // Regression: `:w` used to drop the trailing blank line and yank the caret
+        // up onto the last non-empty line. The blank line — and the caret — stay.
+        let mut e = Editor::with_file(
+            "/sd/repo/notes.md".into(),
+            Scope::Tracked,
+            "hello\n".to_string(), // row 0 "hello", row 1 "" (a fresh empty line)
+        );
+        e.caret = e.text().len(); // caret at the very end = on the trailing blank row
+        let lay = e.layout();
+        assert_eq!(e.caret_rc(&lay).0, 1, "precondition: caret on the blank row");
+
+        e.handle(Key::Char(':'));
+        e.handle(Key::Char('w'));
+        e.handle(Key::Enter);
+
+        assert_eq!(e.text(), "hello\n", "trailing blank line survived format-on-save");
+        let lay = e.layout();
+        assert_eq!(e.caret_rc(&lay).0, 1, "caret stayed on the blank row");
     }
 
     #[test]
@@ -4325,5 +4637,214 @@ mod tests {
         let mut empty = Editor::new();
         empty.handle(Key::Palette);
         let _ = empty.draw(true);
+    }
+
+    // ---- Preferences (.typoena.toml) ----
+
+    #[test]
+    fn prefs_default_matches_the_documented_defaults() {
+        let p = Prefs::default();
+        assert!(p.save_on_idle);
+        assert!(p.format_on_save);
+        assert!(p.line_numbers);
+        assert_eq!(p.auto_sync, "10m");
+    }
+
+    #[test]
+    fn prefs_parse_falls_back_to_defaults_for_missing_keys() {
+        // Only one key present; the rest stay at their defaults.
+        let p = Prefs::parse("line_numbers = false\n");
+        assert!(!p.line_numbers);
+        assert!(p.save_on_idle); // untouched -> default
+        assert!(p.format_on_save);
+        assert_eq!(p.auto_sync, "10m");
+    }
+
+    #[test]
+    fn prefs_parse_reads_all_keys_and_ignores_comments_and_junk() {
+        let src = "\
+            # a header comment\n\
+            save_on_idle = false   # trailing comment\n\
+            format_on_save = false\n\
+            line_numbers = false\n\
+            auto_sync = \"2m\"\n\
+            bogus_key = whatever\n\
+            not a pair\n";
+        let p = Prefs::parse(src);
+        assert!(!p.save_on_idle);
+        assert!(!p.format_on_save);
+        assert!(!p.line_numbers);
+        assert_eq!(p.auto_sync, "2m");
+    }
+
+    #[test]
+    fn prefs_parse_keeps_default_on_an_unparseable_bool() {
+        // A typo in a bool value leaves that key at its default, not `false`.
+        let p = Prefs::parse("save_on_idle = yes\n");
+        assert!(p.save_on_idle); // "yes" isn't a TOML bool -> default (true)
+    }
+
+    #[test]
+    fn prefs_to_toml_round_trips_through_parse() {
+        let p = Prefs {
+            save_on_idle: false,
+            format_on_save: true,
+            line_numbers: false,
+            auto_sync: "5m".into(),
+        };
+        assert_eq!(Prefs::parse(&p.to_toml()), p);
+    }
+
+    #[test]
+    fn empty_prefs_file_yields_defaults() {
+        assert_eq!(Prefs::parse(""), Prefs::default());
+    }
+
+    // ---- line_numbers pref (live gutter toggle) ----
+
+    #[test]
+    fn line_numbers_off_reclaims_the_gutter_columns() {
+        let mut e = Editor::with_text("one\ntwo\nthree".into());
+        assert!(e.text_cols() < WRITE_COLS); // gutter present by default
+        e.prefs.line_numbers = false;
+        assert_eq!(e.gutter_cols(), 0);
+        assert_eq!(e.text_cols(), WRITE_COLS); // full width reclaimed
+    }
+
+    #[test]
+    fn draw_with_line_numbers_off_does_not_panic() {
+        // The `gutter - 1` field width would underflow if unguarded.
+        let mut e = Editor::with_text("alpha\nbeta\ngamma".into());
+        e.prefs.line_numbers = false;
+        let _ = e.draw(true);
+    }
+
+    // ---- Palette command mode (`>`) ----
+
+    /// Open the palette and type `query` (so `>...` enters command mode).
+    fn palette_type(files: &[&str], query: &str) -> Editor {
+        let mut e = palette_editor(files);
+        e.handle(Key::Palette);
+        for c in query.chars() {
+            e.handle(Key::Char(c));
+        }
+        e
+    }
+
+    #[test]
+    fn leading_gt_switches_the_palette_to_command_mode() {
+        let e = palette_type(&["/sd/repo/notes.md"], ">");
+        assert!(e.palette_command_mode());
+        // All three prefs commands are offered on a bare `>`.
+        assert_eq!(e.palette_command_matches().len(), PALETTE_CMDS.len());
+    }
+
+    #[test]
+    fn backspacing_the_gt_returns_to_file_mode() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">");
+        assert!(e.palette_command_mode());
+        e.handle(Key::Backspace);
+        assert!(!e.palette_command_mode());
+        assert_eq!(e.mode(), Mode::Palette); // still open, just file mode again
+    }
+
+    #[test]
+    fn command_filter_fuzzy_matches_the_label() {
+        let e = palette_type(&["/sd/repo/notes.md"], ">line");
+        let matches = e.palette_command_matches();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(PALETTE_CMDS[matches[0]], PaletteCmd::LineNumbers);
+    }
+
+    #[test]
+    fn command_label_reflects_current_pref_state() {
+        let e = palette_editor(&["/sd/repo/notes.md"]);
+        assert_eq!(e.command_label(PaletteCmd::LineNumbers), "line numbers: on");
+    }
+
+    #[test]
+    fn running_a_command_toggles_the_pref_live_and_queues_a_save_prefs() {
+        // >line<Enter> flips line_numbers off, in-core, and asks the host to persist.
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">line");
+        assert!(e.prefs().line_numbers);
+        e.handle(Key::Enter);
+        assert!(!e.prefs().line_numbers); // applied live
+        assert_eq!(e.mode(), Mode::Palette); // stays open for more toggles
+        assert_eq!(kinds(&e.take_effects()), vec![Kind::SavePrefs]);
+    }
+
+    #[test]
+    fn command_mode_stays_open_across_multiple_toggles() {
+        // Flip line numbers, then move to save-on-idle and flip that, without the
+        // palette closing between them; each toggle persists.
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">");
+        // Registry order is save_on_idle, format_on_save, line_numbers.
+        e.handle(Key::Down); // -> format on save
+        e.handle(Key::Down); // -> line numbers
+        e.handle(Key::Enter);
+        assert!(!e.prefs().line_numbers);
+        assert_eq!(e.mode(), Mode::Palette);
+        assert_eq!(kinds(&e.take_effects()), vec![Kind::SavePrefs]);
+        e.handle(Key::Up); // back to format on save
+        e.handle(Key::Enter);
+        assert!(!e.prefs().format_on_save);
+        assert_eq!(e.mode(), Mode::Palette);
+        assert_eq!(kinds(&e.take_effects()), vec![Kind::SavePrefs]);
+    }
+
+    #[test]
+    fn save_prefs_carries_the_serialized_prefs() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">line");
+        e.handle(Key::Enter);
+        let effects = e.take_effects();
+        let Effect::SavePrefs { contents } = &effects[0] else {
+            panic!("expected SavePrefs, got {effects:?}");
+        };
+        // The written TOML reflects the toggled state and round-trips.
+        assert!(!Prefs::parse(contents).line_numbers);
+    }
+
+    #[test]
+    fn running_a_command_confirms_the_new_state_on_the_snackbar() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">save");
+        e.handle(Key::Enter);
+        // save_on_idle default true -> off; the notice names the new state.
+        assert_eq!(e.notice.as_deref(), Some("save on idle: off - saved"));
+    }
+
+    #[test]
+    fn a_no_match_command_query_runs_nothing() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">zzzzz");
+        assert!(e.palette_command_matches().is_empty());
+        let before = e.prefs().clone();
+        e.handle(Key::Enter);
+        assert_eq!(e.prefs(), &before); // nothing toggled
+        assert!(e.take_effects().is_empty()); // nothing queued
+        assert_eq!(e.mode(), Mode::Palette); // stays open so the query can be fixed
+    }
+
+    #[test]
+    fn ctrl_n_moves_the_command_selection_within_bounds() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">");
+        for _ in 0..10 {
+            e.handle(Key::Down); // Ctrl-N; clamps at the last command
+        }
+        assert_eq!(e.palette_sel, PALETTE_CMDS.len() - 1);
+    }
+
+    #[test]
+    fn settings_command_opens_the_palette_in_command_mode() {
+        let (e, _) = command("settings");
+        assert_eq!(e.mode(), Mode::Palette);
+        assert!(e.palette_command_mode()); // dropped straight into `>` mode
+        assert_eq!(e.palette_command_matches().len(), PALETTE_CMDS.len());
+    }
+
+    #[test]
+    fn draw_in_command_mode_does_not_panic() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">");
+        let _ = e.draw(true);
+        let mut none = palette_type(&["/sd/repo/notes.md"], ">zzzzz"); // "(no command)"
+        let _ = none.draw(true);
     }
 }

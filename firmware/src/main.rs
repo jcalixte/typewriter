@@ -10,7 +10,7 @@ use esp_idf_svc::hal::spi::{Dma, SpiBusDriver, SpiDriver};
 use esp_idf_svc::hal::units::FromValueType;
 
 use display::Frame;
-use editor::{Editor, Effect, Mode, Scope, CH, LOCAL_DIR, REPO_DIR};
+use editor::{Editor, Effect, Mode, Prefs, Scope, CH, LOCAL_DIR, PREFS_PATH, REPO_DIR};
 use firmware::epd::{self, Epd};
 use firmware::persistence::{Storage, NOTES};
 
@@ -25,6 +25,12 @@ const FULL_REFRESH_EVERY: u32 = 64;
 /// caret while actively typing (it would ghost under windowed refresh); it
 /// reappears once you settle. Normal/View draw their own caret every action.
 const CURSOR_DEBOUNCE_MS: u128 = 750;
+
+/// How long input must pause before `save_on_idle` persists a dirty buffer.
+/// Longer than the caret debounce so autosave settles after typing, not during
+/// a mid-sentence pause. The save is silent (no snackbar, no forced e-ink
+/// flash) — a safety net against power loss, not a user action.
+const IDLE_SAVE_MS: u128 = 1500;
 
 fn main() -> anyhow::Result<()> {
     // Required once before any esp-idf-svc call; some runtime patches
@@ -115,9 +121,22 @@ fn main() -> anyhow::Result<()> {
     // Feed the file palette (Ctrl-P). Enumerated once at boot — the v0.5 slices
     // that create/delete files (`:enew`, delete) will re-feed it then.
     ed.set_file_list(enumerate_files());
+    // Editor preferences (.typoena.toml, git-tracked). Read before the first
+    // render so `line_numbers` shapes the opening frame. A missing / unreadable /
+    // partial file falls back to defaults, so a fresh card just works.
+    let prefs = match storage.load_path(PREFS_PATH) {
+        Ok(src) => Prefs::parse(&src),
+        Err(_) => Prefs::default(),
+    };
+    log::info!("prefs: {prefs:?}");
+    ed.set_prefs(prefs);
     let mut updates: u32 = 0;
     let mut cursor_shown = true; // the initial render includes the caret
     let mut last_activity = Instant::now();
+    // Whether `save_on_idle` already persisted the current idle window, so it
+    // fires once per typing burst (and doesn't retry-storm if a save fails).
+    // Reset on the next activity.
+    let mut idle_saved = false;
     // Set when a paint fails (see the refresh block below): the next paint then
     // does a full refresh to re-establish both RAM banks, since a partial that
     // died mid-transfer may have left them inconsistent.
@@ -204,6 +223,7 @@ fn main() -> anyhow::Result<()> {
                         ed.set_notice("pull: not wired yet (v0.7)");
                     }
                     Effect::Delete { path, scope } => delete_buffer(&storage, &mut ed, path, scope),
+                    Effect::SavePrefs { contents } => save_prefs(&storage, &mut ed, &contents),
                 }
             }
         }
@@ -250,6 +270,30 @@ fn main() -> anyhow::Result<()> {
                 log::info!("keyboard {}", if kbd { "connected" } else { "disconnected" });
                 continue;
             }
+            // save_on_idle: once input has paused, quietly persist a dirty named
+            // buffer so a power pull can't cost more than the last couple seconds.
+            // Silent — no snackbar and no forced e-ink flash (a safety net, not an
+            // action; `:w` is the loud save). Unformatted: fmt only runs on an
+            // explicit `:w`/`:sync`, never reflowing text mid-session. Fires once
+            // per idle window (`idle_saved`), so a failing save can't busy-loop.
+            if !idle_saved
+                && ed.prefs().save_on_idle
+                && ed.dirty()
+                && !ed.path().is_empty()
+                && last_activity.elapsed().as_millis() >= IDLE_SAVE_MS
+            {
+                idle_saved = true;
+                let path = ed.path().to_string();
+                match storage.save_path(&path, ed.text()) {
+                    Ok(()) => {
+                        log::info!("idle-save: {} bytes to {path}", ed.text().len());
+                        ed.mark_saved(&path);
+                    }
+                    Err(e) => log::warn!("idle-save FAILED ({e:#}); buffer kept in RAM"),
+                }
+                // No repaint: `dirty` clearing has no visible effect, and a flash
+                // here would defeat the point. Fall through to the caret/idle path.
+            }
             // Debounced caret, Insert mode only: once typing pauses, bring the
             // bar caret back and refresh the panel word count with a silent
             // full-area partial (no flash). Normal/View draw their caret on action.
@@ -274,6 +318,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         last_activity = Instant::now();
+        idle_saved = false; // fresh activity reopens the save_on_idle window
         // Non-Insert actions (Normal edits, mode switches) aren't rapid typing,
         // so the panel word count can refresh immediately; in Insert the snapshot
         // stays frozen until the typing-pause path above refreshes it.
@@ -400,6 +445,20 @@ fn save_buffer(storage: &Storage, ed: &mut Editor, path: &str, contents: &str) {
         Err(e) => {
             log::error!("save FAILED ({e:#}); buffer kept in RAM, retry :w");
             ed.set_notice("save FAILED - retry :w");
+        }
+    }
+}
+
+/// Persist the preferences file after a palette `>` command changed a pref
+/// (`Effect::SavePrefs`). The editor already applied the change live and
+/// serialized it; this is a plain atomic write to the fixed `.typoena.toml`
+/// path. Under `/sd/repo`, so it rides the next `:sync` to other devices.
+fn save_prefs(storage: &Storage, ed: &mut Editor, contents: &str) {
+    match storage.save_path(PREFS_PATH, contents) {
+        Ok(()) => log::info!("prefs saved to {PREFS_PATH}"),
+        Err(e) => {
+            log::error!("prefs save FAILED ({e:#})");
+            ed.set_notice("prefs save FAILED");
         }
     }
 }

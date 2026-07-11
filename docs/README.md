@@ -15,6 +15,7 @@
 | [`v0.1-mvp-product.md`](v0.1-mvp-product.md) | v0.1 product design — boot, type one file, `Ctrl-S` to save, `Ctrl-G` to publish. |
 | [`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) | v0.1 technical design — single Rust binary on `esp-idf-rs`, modules, threads, bring-up order. |
 | [`macroplan.md`](macroplan.md) | Version-by-version plan; each release is a usable artifact, not a checkpoint. |
+| [`typoena-toml.md`](typoena-toml.md) | `.typoena.toml` reference — the git-tracked editor preferences (auto-save, format-on-save, line numbers, auto-sync). |
 | [`hardware.md`](hardware.md) | Part choices for the bench build and the rationale behind them. |
 
 ## Quality method
