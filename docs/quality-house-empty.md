@@ -1,9 +1,9 @@
 # Quality House — empty (training)
 
-Same 14 WHATs × 14 HOWs chassis as [`quality-house.md`](quality-house.md),
-with the **relations**, **roof correlations**, and basement Σ / Rel %
-**deliberately blank**. Fill them in yourself, then compare against the
-populated house to check your reading.
+Same 14 WHATs × 14 HOWs chassis as the filled House in
+[`qfd.md` §3](qfd.md#3-house-of-quality--whats--hows), with the **relations**,
+**roof correlations**, and basement Σ / Rel % **deliberately blank**. Fill them
+in yourself, then compare against the populated house to check your reading.
 
 Kept (definitional inputs from `qfd.md`):
 
@@ -368,9 +368,10 @@ Blank (training surface):
 4. **Basement Rel %.** Each Σ ÷ total Σ × 100, rounded to integer percent
    (should sum to ~100 across HOWs).
 
-Once filled, diff your numbers against [`quality-house.md`](quality-house.md)
-basement and roof to see where your reading agrees or differs — divergences
-are usually the most interesting part.
+Once filled, diff your numbers against the filled House in
+[`qfd.md` §3](qfd.md#3-house-of-quality--whats--hows) (basement and roof) to see
+where your reading agrees or differs — divergences are usually the most
+interesting part.
 
 ## Gotchas
 

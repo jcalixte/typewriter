@@ -21,9 +21,8 @@
 
 | Doc | What's in it |
 | --- | --- |
-| [`qfd.md`](qfd.md) | Quality Function Deployment — turns user-facing requirements into technical HOWs. |
-| [`quality-house.md`](quality-house.md) | The 14 WHATs × 14 HOWs House of Quality, filled in. |
-| [`quality-house-empty.md`](quality-house-empty.md) | The same chassis, blank — for re-scoring from scratch. |
+| [`qfd.md`](qfd.md) | Quality Function Deployment — turns user-facing requirements into technical HOWs; §3 is the filled 14 WHATs × 14 HOWs House of Quality. |
+| [`quality-house-empty.md`](quality-house-empty.md) | The House chassis, blank — for re-scoring from scratch. |
 
 ## Bench work
 
