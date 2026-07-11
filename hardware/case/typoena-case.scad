@@ -18,9 +18,10 @@
 //    "bracket"     – the screen retaining frame (print flat)
 //    "baseplate"   – the chassis / bottom cover (print flat)
 //    "print_plate" – all printed parts laid out side by side
+//    "section"     – midline cross-section: how the screen is trapped
 // ============================================================================
 
-show = "assembled";
+show = "section";
 $fn = 48;
 
 // ---- body envelope --------------------------------------------------------
@@ -43,7 +44,13 @@ G_w  = 150.92;  G_h = 56.94;  G_t = 1.0;   // glass outline W x H x thickness
 A_w  = 139.00;  A_h = 47.74;               // active area (must stay uncovered)
 // NOTE: the real panel's active area is offset toward the FPC edge — this model
 // centres it. << MEASURE >> your panel's border and shift screen_off if needed.
-screen_off = 0;                            // extra X/Y active-area offset
+screen_off = 0;                            // (legacy) kept 0; see active_off_*
+// This panel's flex (FPC) leaves the LEFT short edge — the user's left as they
+// face the screen, i.e. the low-X side (world x < W/2). The aperture is centred
+// on the ACTIVE area, which sits off-centre on the glass — measure yours and
+// nudge these (+x = toward the right, away from the FPC edge). << MEASURE >>
+active_off_x = 0;
+active_off_y = 0;
 
 // ---- screen retention (glueless) ------------------------------------------
 lip_over  = 4.0;   // how far the front bezel lip overlaps the glass border
@@ -51,7 +58,7 @@ lip_t     = 1.4;   // deck material left in FRONT of the glass (the visible lip)
 glass_gap = 0.5;   // clearance around the glass in its pocket
 foam_t    = 1.0;   // non-adhesive closed-cell foam gasket behind the glass
 bracket_t = 2.6;   // printed retaining frame thickness
-fpc_w     = 26;    // width of the ribbon slot on the up-slope edge
+fpc_w     = 26;    // ribbon-slot span along the LEFT short edge (the FPC side)
 
 // ---- deck nameplate (engraved, faces the user) ----------------------------
 name_text  = "TYPOENA";
@@ -89,14 +96,17 @@ standoff_h     = 6;
 standoff_pilot = 1.15;
 // ESP32-S3-DevKitC-1 is ~70 x 28 mm; these are PLACEHOLDER hole coords:
 esp_holes  = [[W/2-33, 30],[W/2+33, 30],[W/2-33, 54],[W/2+33, 54]];
-// DESPI-C579 breakout sits behind the screen — PLACEHOLDER:
-brk_holes  = [[W/2-20, 78],[W/2+20, 78]];
+// DESPI-C579 breakout sits in the cavity on the LEFT, under the FPC exit; SPI
+// wires (MOSI/SCLK/CS/DC/RST/BUSY + 3V3/GND) run from here across to the ESP32.
+// PLACEHOLDER hole coords << MEASURE >>:
+brk_holes  = [[22, 40],[22, 66]];
 
 // ---- colours (for the assembled render) -----------------------------------
-C_body   = "#130f40";   // deep indigo (chosen)
+C_body   = "#3c6382";
 C_plate  = "#C9C3B2";
 C_bracket= "#2B2B2B";
 C_screen = "#F7F4EA";
+C_foam   = "#8a8f94";
 
 // ===========================================================================
 //  helpers
@@ -161,13 +171,15 @@ module bracket_bosses() {
 
 // deck cuts: through-aperture, glass pocket (leaves the front lip), FPC slot
 module screen_cuts() {
-    on_deck() translate([screen_off, screen_cy + screen_off, 0]) {
-        // window
-        translate([0,0,-30]) cube([A_ap_w, A_ap_h, 66], center=true);
-        // glass pocket behind the lip
-        translate([0,0,-30-lip_t]) cube([P_w, P_h, 60], center=true);
-        // ribbon slot on the up-slope edge
-        translate([0, P_h/2, -30-lip_t]) cube([fpc_w, 12, 60], center=true);
+    on_deck() translate([0, screen_cy, 0]) {
+        // window — centred on the ACTIVE area (offset toward the FPC/left edge)
+        translate([active_off_x, active_off_y, -30])
+            cube([A_ap_w, A_ap_h, 66], center=true);
+        // glass pocket behind the lip — centred on the glass outline
+        translate([0, 0, -30-lip_t]) cube([P_w, P_h, 60], center=true);
+        // ribbon bay: an open notch in the LEFT short edge (breaches the bezel
+        // lip) so the FPC exits and folds down to the DESPI-C579 breakout below
+        translate([-P_w/2, 0, 0]) cube([14, fpc_w, 70], center=true);
     }
 }
 
@@ -258,6 +270,15 @@ module placed_bracket() {
                          -lip_t-G_t-foam_t-bracket_t])
         color(C_bracket) bracket();
 }
+// foam gasket (non-adhesive) — a border frame between glass and bracket
+module foam() {
+    linear_extrude(foam_t)
+        difference() { rrect(P_w+4, P_h+4, 3); rrect(A_ap_w, A_ap_h, 2); }
+}
+module placed_foam() {
+    on_deck() translate([screen_off, screen_cy+screen_off, -lip_t-G_t-foam_t])
+        color(C_foam) foam();
+}
 
 if (show == "assembled") {
     color(C_body)   case_body();
@@ -274,4 +295,17 @@ if (show == "assembled") {
     color(C_body)    case_body();
     translate([W+30, 0, 0])           color(C_plate)   baseplate();
     translate([W+30, D+30, foot_h])   color(C_bracket) bracket();
+} else if (show == "section") {
+    // slice away the +X half: the cut face shows the screen clamp, and the
+    // retained LEFT half shows the open FPC ribbon bay on the left edge
+    difference() {
+        union() {
+            color(C_body)   case_body();
+            ghost_screen();
+            placed_foam();
+            placed_bracket();
+            translate([0,0,-0.01]) color(C_plate) baseplate();
+        }
+        translate([W/2, -30, -70]) cube([W, D+60, 220]);
+    }
 }
