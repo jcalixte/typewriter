@@ -53,7 +53,8 @@ learning = "Core complete 58 days early, host-tested. Visual (v) and VisualLine 
 name = "v0.5 palette + multi-file"
 start = 2026-09-07
 original = 2026-09-28
-note = "Also adds the git-tracked .typoena.toml preferences file (save_on_idle, format_on_save, auto_sync cadence, line_numbers) and the palette `>` command mode that edits it live."
+delivered = 2026-07-12
+learning = "Delivered 2026-07-12, well ahead of the 2026-09-28 baseline, and fully on-device confirmed. Four slices: the drained Effect queue + parked-buffer LRU foundation; the Cmd-P fuzzy file palette (Spike 11 — no ghosting on the transient panel); :enew + file delete (Spike 14 caught that add_all alone doesn't stage a deletion on this libgit2 — fixed with update_all, i.e. git add -A); and the git-tracked .typoena.toml prefs with a stay-open palette `>` command mode + :settings. Both directions of the prefs loop are proven on hardware — boot-read (byte-exact parse) and on-device palette edit (a device publish flipped line_numbers on origin). Three decide-before-build calls: the idle auto-save is unformatted, and both the per-device auto_sync override and the `> auto sync` command are deferred to v0.7 where auto_sync gains behaviour. Descoped from v0.5 (not the four slices): explicit buffer close, the grey-Publish-in-Local panel cue, and the multi-file publish count."
 
 [[feature]]
 name = "v0.6 markdown"
@@ -88,7 +89,7 @@ week = 2026-06-29
 requires = ["v0.1 it writes, it pushes"]
 ```
 
-## Status — synced 2026-07-11
+## Status — synced 2026-07-12
 
 The editor **core** has been built 2–3 versions ahead of the device
 **releases**, and is now **extracted into a host-testable `editor` crate** (plus
@@ -117,6 +118,12 @@ the panel; `:e` was deferred to v0.5. Host-tested (83 editor tests); on-device
 smoke-test pending. The firmware crate is bumped to **0.4.0**. Most of v0.6
 Markdown also already runs. Version numbers track shippable device releases, not
 raw core progress — the 0.4.0 bump reflects the v0.4 feature set being met.
+**v0.5 palette + multi-file is DELIVERED 2026-07-12** (firmware **0.5.0**), fully
+on-device confirmed: the Cmd-P fuzzy palette, `:e`/`:enew`/delete across the
+`/sd/repo` + `/sd/local` scopes, and the git-tracked `.typoena.toml` prefs
+(boot-read plus a stay-open palette `>` command mode + `:settings` that edits them
+live and syncs the change). Descoped to later: explicit buffer close, the
+grey-Publish-in-Local panel cue, and the multi-file publish count.
 
 Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
 inline `(✓)` marks the done half of a split item.
@@ -316,7 +323,7 @@ pending-`g` machinery, no vim clash. View mode stays; `v`/`V` are now Visual.
 - [x] Ahead of schedule / unscheduled: `:fmt` Markdown formatter
       (table alignment, blank-line collapse, trailing-whitespace strip)
 
-## v0.5 — File palette + multi-file — [~]
+## v0.5 — File palette + multi-file — [x]
 
 **Status:** buffer **foundation** landed in core 2026-07-11 (slice 1 of 4),
 host-tested; the palette + transient panel (Spike 11) and delete → git-staging
@@ -401,7 +408,7 @@ the new state on the snackbar. **The list stays open after a toggle** so several
 prefs flip in one visit (Esc/`Cmd-P` closes); **`:settings` opens the palette
 straight into `>` mode** as a one-command shortcut (both requested by the user
 2026-07-12, chosen over a separate settings modal — same surface, no duplicate
-machinery). **Three "decide before build" calls:** (1) the
+machinery). Committed `c535864`. **Three "decide before build" calls:** (1) the
 idle auto-save is **unformatted** — `:fmt` runs only on explicit `:w`/`:sync`, so
 tables/blank-lines are never reflowed mid-session; (2) the per-device `auto_sync`
 override (card-local `typoena.conf`) is **deferred** — auto_sync is inert in
@@ -416,9 +423,11 @@ DEVICE 2026-07-12** — a `.typoena.toml` in `typoena-test` with non-default val
 (`save_on_idle=false`, `line_numbers=false`, `auto_sync="5m"`) logged back
 `prefs: Prefs { save_on_idle: false, format_on_save: true, line_numbers: false,
 auto_sync: "5m" }` at boot, a byte-exact parse (comments skipped, bools + quoted
-string read). Remaining gate (still pending): the palette `>` live toggle +
-`SavePrefs` write-back, and the `save_on_idle` autosave (this test ran with it
-off).
+string read). **Full gate CLOSED 2026-07-12:** the palette `>` live-toggle
+round-trip is confirmed — origin's `.typoena.toml` went `line_numbers` false →
+true via a *device*-authored publish (`3c79f38`), proving toggle → `SavePrefs` →
+atomic write → `git add -A` → push — and the `save_on_idle` autosave works on
+device too. **v0.5 slice 4 fully DONE + on-device confirmed.**
 
 - [x] `Cmd-P` opens fuzzy file palette over **both** `/sd/repo/` and
       `/sd/local/` — **landed and CONFIRMED ON DEVICE 2026-07-12** (Spike 11: no
