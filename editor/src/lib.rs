@@ -1036,24 +1036,32 @@ impl Editor {
         }
         self.checkpoint();
         let content = self.register.repeat(n);
-        if self.register_linewise {
+        // `end`: byte offset of the last pasted char, so the viewport can reveal
+        // the whole block even when the caret stays on its first line.
+        let end = if self.register_linewise {
             let le = self.line_end(self.caret);
             if le < self.text.len() {
                 let at = le + 1; // start of the following line
                 self.text.insert_str(at, &content);
                 self.caret = at;
+                at + content.len() - 1
             } else {
                 // Last line has no trailing newline: prefix one, drop the
                 // block's trailing newline so we don't leave a blank line.
                 let block = content.strip_suffix('\n').unwrap_or(&content);
-                self.text.insert_str(le, &format!("\n{block}"));
+                let inserted = format!("\n{block}");
+                let end = le + inserted.len() - 1;
+                self.text.insert_str(le, &inserted);
                 self.caret = le + 1;
+                end
             }
         } else {
             let at = if self.text.is_empty() { 0 } else { self.next_char(self.caret) };
             self.text.insert_str(at, &content);
             self.caret = self.prev_char(at + content.len()); // onto the last char
-        }
+            self.caret
+        };
+        self.reveal(end);
     }
 
     /// `P` — paste the register `n` times before the caret. Linewise content
@@ -1065,15 +1073,18 @@ impl Editor {
         }
         self.checkpoint();
         let content = self.register.repeat(n);
-        if self.register_linewise {
+        let end = if self.register_linewise {
             let ls = self.line_start(self.caret);
             self.text.insert_str(ls, &content);
             self.caret = ls;
+            ls + content.len() - 1
         } else {
             let at = self.caret;
             self.text.insert_str(at, &content);
             self.caret = self.prev_char(at + content.len()); // onto the last char
-        }
+            self.caret
+        };
+        self.reveal(end);
     }
 
     /// Apply a pending operator over the buffer range `[start, end)` (order
@@ -1347,6 +1358,32 @@ impl Editor {
         }
         let col = self.text[lay[row].start..self.caret].chars().count();
         (row, col)
+    }
+
+    /// Scroll so the display row holding byte offset `pos` is visible,
+    /// bottom-aligning it when it sits below the viewport (never scrolls up).
+    /// Called after an insert that can run past the fold — chiefly a multi-line
+    /// paste — so the *whole* pasted block is revealed, not just the caret's
+    /// first line. The caret is left where the edit put it; `draw`'s
+    /// `adjust_scroll` won't override this as long as the caret stays within the
+    /// resulting window (true for any block up to a screen tall).
+    fn reveal(&mut self, pos: usize) {
+        let lay = self.layout();
+        if lay.is_empty() {
+            return;
+        }
+        let pos = pos.min(self.text.len());
+        let mut row = 0;
+        for (i, l) in lay.iter().enumerate() {
+            if l.start <= pos {
+                row = i;
+            } else {
+                break;
+            }
+        }
+        if row >= self.scroll_top + ROWS {
+            self.scroll_top = row + 1 - ROWS;
+        }
     }
 
     /// Move the viewport so the caret stays visible (Normal/Insert), or just
@@ -2237,6 +2274,28 @@ mod tests {
         e.handle(Key::Char('p'));
         e.handle(Key::Char('P'));
         assert_eq!(e.text(), "abc");
+    }
+
+    #[test]
+    fn multiline_paste_at_the_bottom_reveals_the_whole_block() {
+        // A screenful+ of lines, caret on the last line; paste two lines after
+        // it. Both pasted lines must be visible without a manual scroll — the
+        // caret stays on the first pasted line, but the viewport reveals the end.
+        let mut e = Editor::with_text(vec!["x"; 20].join("\n")); // 20 display rows
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('2'));
+        e.handle(Key::Char('y'));
+        e.handle(Key::Char('y')); // yank two lines
+        e.handle(Key::Char('G')); // to the last line
+        e.handle(Key::Char('p')); // paste two lines below it (22 rows total)
+        e.draw(true); // adjust_scroll runs; reveal already applied by paste
+        let last_row = e.layout().len() - 1; // the second pasted line
+        assert!(
+            last_row >= e.scroll_top() && last_row < e.scroll_top() + ROWS,
+            "pasted block end (row {last_row}) off-screen at scroll_top {}",
+            e.scroll_top()
+        );
     }
 
     // ---- Undo / redo (v0.3) ----
