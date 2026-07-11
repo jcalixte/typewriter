@@ -5,36 +5,11 @@ This file holds the `macroplan` source block (below) and the per-version scope.
 The user-facing requirements and engineering targets each release feeds into are
 tracked in [`qfd.md`](qfd.md).
 
-## Status — synced 2026-07-11
-
-The editor **core** has been built 2–3 versions ahead of the device
-**releases**, and is now **extracted into a host-testable `editor` crate** (plus
-a `display` crate for the panel framebuffer) so `cargo test` exercises it off the
-xtensa target. **v0.1 shipped 2026-07-11** (late against the 2026-06-29
-baseline): SD storage, save, and **git publish are all wired into the app binary
-and hardware-verified** (`:sync` commits on the SD `/sd/repo` and pushes to a
-test repo), and the **boot splash (Spike 9) is confirmed on the panel** — a
-vector `typoena`-in-a-circle shown at startup while the SD mounts, then the
-editor comes up. **Cold boot verified at 4258 ms** (power-on → cursor,
-2026-07-11; 742 ms under the ≤ 5 s gate). It first measured ~5.5 s; the fix was
-to bring the editor up with a full-area partial (~630 ms) instead of a second
-full refresh (~1.9 s) — panel confirmed clean, no ghosting. The 1-hour soak is
-attested from real use; the remaining post-ship acceptance checks are power-pull
-recovery, 1000-word no-drop, and `Ctrl-G`'s not-yet-built pull-then-retry
-(→ v0.9). **v0.2 navigation is COMPLETE 2026-07-11** — Spike 13's on-panel gutter
-refresh check passed (single-line edit repaints only rows at/below it, no extra
-full refresh), closing the last gate. Beyond that, **v0.2.5 international input
-(hardware-verified 2026-07-11)** and most of v0.6 Markdown already run. Version
-numbers are unchanged — they track shippable device releases, not core progress.
-
-Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
-inline `(✓)` marks the done half of a split item.
-
 ## Macro-plan
 
 Macroplan source — paste into the macroplan app to render the week-by-week
 view. `original` dates are the June 2026 baseline and never move; slips get
-appended as `reestimates`, per-item actuals live in the Status block above.
+appended as `reestimates`, per-item actuals live in the Status block below.
 
 ```macroplan
 title = "Typoena — macro plan"
@@ -64,8 +39,8 @@ learning = "Delivered 23 days early — ahead of its own start window. Dead-key 
 name = "v0.3 editing"
 start = 2026-08-03
 original = 2026-08-24
-status = "on-track"
-note = "Deletes, counts, and operator grammar done early in core; yank/paste, undo/redo remain."
+delivered = 2026-07-11
+learning = "Core complete 44 days early, host-tested. Register + yank/paste (yy/p/P), snapshot undo/redo (u/Ctrl-r, bounded 100 groups in PSRAM), and keystroke-recorded `.` repeat all landed 2026-07-11; the d/c operator grammar + text objects were already done ahead of schedule. Firmware version bumped to 0.3.0. On-device smoke-test still pending — pure editor-core, no new render surface."
 
 [[feature]]
 name = "v0.4 visual + ex"
@@ -112,6 +87,34 @@ name = "MVP ships"
 week = 2026-06-29
 requires = ["v0.1 it writes, it pushes"]
 ```
+
+## Status — synced 2026-07-11
+
+The editor **core** has been built 2–3 versions ahead of the device
+**releases**, and is now **extracted into a host-testable `editor` crate** (plus
+a `display` crate for the panel framebuffer) so `cargo test` exercises it off the
+xtensa target. **v0.1 shipped 2026-07-11** (late against the 2026-06-29
+baseline): SD storage, save, and **git publish are all wired into the app binary
+and hardware-verified** (`:sync` commits on the SD `/sd/repo` and pushes to a
+test repo), and the **boot splash (Spike 9) is confirmed on the panel** — a
+vector `typoena`-in-a-circle shown at startup while the SD mounts, then the
+editor comes up. **Cold boot verified at 4258 ms** (power-on → cursor,
+2026-07-11; 742 ms under the ≤ 5 s gate). It first measured ~5.5 s; the fix was
+to bring the editor up with a full-area partial (~630 ms) instead of a second
+full refresh (~1.9 s) — panel confirmed clean, no ghosting. The 1-hour soak is
+attested from real use; the remaining post-ship acceptance checks are power-pull
+recovery, 1000-word no-drop, and `Ctrl-G`'s not-yet-built pull-then-retry
+(→ v0.9). **v0.2 navigation is COMPLETE 2026-07-11** — Spike 13's on-panel gutter
+refresh check passed (single-line edit repaints only rows at/below it, no extra
+full refresh), closing the last gate. **v0.2.5 international input** is
+hardware-verified (2026-07-11), and **v0.3 editing is complete in core** the same
+day (register + yank/paste, snapshot undo/redo, `.` repeat — host-tested,
+on-device smoke-test pending); the firmware crate is bumped to **0.3.0**. Most of
+v0.6 Markdown also already runs. Version numbers track shippable device releases,
+not raw core progress — the 0.3.0 bump reflects the v0.3 feature set being met.
+
+Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
+inline `(✓)` marks the done half of a split item.
 
 ---
 
@@ -248,18 +251,29 @@ v0.2 UTF-8-correct buffer and the ISO-8859-15 render font. Host-tested.
       `` ` ``/`~` — Esc comes from the Caps tap — so grave/tilde accents and
       Markdown code fences are reachable on a 60% board without a Fn layer.
 
-## v0.3 — Vim editing — [~]
+## v0.3 — Vim editing — [x]
 
-**Status:** deletes and counts done; **yank/paste, undo/redo, and `.` repeat
-remain** — there is no register or recorded-op mechanism yet. The `d`/`c`
-operator grammar and text objects landed here ahead of schedule (the plan
-had scheduled only `dd`/`dw`/`d$`).
+**Status:** COMPLETE in core 2026-07-11, host-tested (64 editor + 28 keymap
+tests). The three remaining pieces landed together: a single unnamed **register**
+with `y`/`yy`/`p`/`P` (and `x`/`d`/`c` filling it, so `dd`…`p` moves a line),
+**undo/redo** (`u`/`Ctrl-r`, snapshot-based, bounded to 100 groups in PSRAM — a
+whole Insert session undoes as one group), and **`.` repeat** (keystroke-recorded,
+so it replays an insert session like `ciwfoo<Esc>`). The `d`/`c` operator grammar
+and text objects had already landed ahead of schedule. Pure editor-core work,
+riding the already-verified draw/refresh path; **on-device smoke-test pending**
+(nothing new to render, so low risk).
 
-- [~] `x dd`, `dw dd d$` (✓); `yy p P` and repeat with `.` remain (need a register / recorded op)
-- [ ] Undo / redo (`u`, `Ctrl-r`) — bounded history in PSRAM
+- [x] `x dd`, `dw dd d$` (✓); `yy p P` (✓) and `.` repeat (✓) — register + a
+      keystroke-recorded last-change both landed 2026-07-11
+- [x] Undo / redo (`u`, `Ctrl-r`) — snapshot history bounded to 100 groups in
+      PSRAM; one Insert session = one undo group
 - [x] Numeric prefixes (`3dd`, `5j`)
 - [x] Ahead of schedule: `c` change operator + text objects
       (`ciw`, `di(`, `ca"`, … — inner/around, nesting-aware)
+
+Known limits (deferred): `.` drops a *leading* count (`3x` then `.` deletes one;
+a count inside an operator like `d2w` is kept); no named registers; `.` after an
+aborted operator (`d<Esc>`) is a no-op.
 
 ## v0.4 — Visual mode + ex commands — [~]
 
