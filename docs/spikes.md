@@ -128,6 +128,8 @@ risk early.
     Prove: reserve the gutter width, then confirm a single-line edit repaints
     only the rows at/below the change and forces no extra full refresh. (Feeds
     v0.2's line-number gutter; now low-risk after the relative drop.)
+    **VERIFIED on the panel 2026-07-11** — a single-line edit repaints only the
+    rows at/below the change, no extra full refresh; closes the last v0.2 gate.
 
 14. **Spike 14 — Multi-file navigation (open / switch / new / delete).** The
     panel *mechanism* is already Spike 11 (which names this v0.5 file palette),

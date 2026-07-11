@@ -21,9 +21,11 @@ to bring the editor up with a full-area partial (~630 ms) instead of a second
 full refresh (~1.9 s) — panel confirmed clean, no ghosting. The 1-hour soak is
 attested from real use; the remaining post-ship acceptance checks are power-pull
 recovery, 1000-word no-drop, and `Ctrl-G`'s not-yet-built pull-then-retry
-(→ v0.9). Beyond v0.1, v0.2 navigation, **v0.2.5 international input (hardware-verified
-2026-07-11)**, and most of v0.6 Markdown already run. Version numbers are
-unchanged — they track shippable device releases, not core progress.
+(→ v0.9). **v0.2 navigation is COMPLETE 2026-07-11** — Spike 13's on-panel gutter
+refresh check passed (single-line edit repaints only rows at/below it, no extra
+full refresh), closing the last gate. Beyond that, **v0.2.5 international input
+(hardware-verified 2026-07-11)** and most of v0.6 Markdown already run. Version
+numbers are unchanged — they track shippable device releases, not core progress.
 
 Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
 inline `(✓)` marks the done half of a split item.
@@ -48,15 +50,15 @@ learning = "Shipped 12 days late. The long pole was hardware bring-up risk, not 
 name = "v0.2 navigation"
 start = 2026-06-29
 original = 2026-07-20
-status = "on-track"
-note = "Core essentially complete: motions/modes, Ctrl-d/u, the UTF-8 buffer, and the absolute line-number gutter all landed 2026-07-11 (host-tested). Only Spike 13's on-panel gutter refresh check remains before the release ships."
+delivered = 2026-07-11
+learning = "Delivered 9 days early. Motions/modes, Ctrl-d/u, the UTF-8 buffer, and the absolute line-number gutter all landed 2026-07-11; the last gate, Spike 13's on-panel gutter refresh check, confirmed a single-line edit repaints only rows at/below it with no extra full refresh. Relative line numbering was dropped as an e-ink ghosting cost with no proportionate gain."
 
 [[feature]]
 name = "v0.2.5 international input"
 start = 2026-07-20
 original = 2026-08-03
-status = "on-track"
-note = "Done early + hardware-verified 2026-07-11: dead-key accent composer in the keymap crate, editor buffer made UTF-8-correct. Side-panel pending marker dropped by decision (stale before the ~630 ms panel repaint)."
+delivered = 2026-07-11
+learning = "Delivered 23 days early — ahead of its own start window. Dead-key accent composer in the keymap crate (US-International, à é ê ë ñ ç), editor buffer made UTF-8-correct, typed on the bench with no panic. The side-panel pending-accent marker was dropped by decision: at typing speed it is stale before the ~630 ms panel repaint, so it conveyed nothing. Bonus: physical Esc (HID 0x29) remapped to backtick/tilde so code fences + grave/tilde accents work on a 60% board without a Fn layer."
 
 [[feature]]
 name = "v0.3 editing"
@@ -188,14 +190,15 @@ post-ship acceptance checks are power-pull recovery, 1000-word no-drop, and
 
 Out of scope: Vim, palette, multiple files, branches, conflict handling.
 
-## v0.2 — Vim navigation — [~]
+## v0.2 — Vim navigation — [x]
 
-**Status:** navigation done in core; the **UTF-8-correct buffer landed
-2026-07-11** (hardware-verified) and **`Ctrl-d/u` half-page scroll landed
-2026-07-11** (host-tested). The **absolute line-number gutter is built +
-host-tested 2026-07-11**; only Spike 13's on-panel refresh check remains.
-Shipped early beyond scope: a read-only **View** mode and the full `d`/`c`
-operator + text-object grammar (see v0.3 / v0.4).
+**Status:** COMPLETE 2026-07-11. Navigation done in core; the **UTF-8-correct
+buffer** and **`Ctrl-d/u` half-page scroll** landed and are hardware-verified,
+and the **absolute line-number gutter** is built, host-tested, and **confirmed
+on the panel (Spike 13) 2026-07-11** — a single-line edit repaints only the rows
+at/below the change and forces no extra full refresh. Shipped early beyond scope:
+a read-only **View** mode and the full `d`/`c` operator + text-object grammar
+(see v0.3 / v0.4).
 
 - [x] Mode state machine (Normal / Insert / View), mode indicator in the status strip
 - [x] Movement: `h j k l`, `w b e`, `0 $`, `gg G`, `Ctrl-d Ctrl-u`. `Ctrl-d/u`
@@ -204,16 +207,17 @@ operator + text-object grammar (see v0.3 / v0.4).
       intents in the keymap, caret moves and the viewport follows.
 - [x] `i a o O A` to enter Insert
 - [x] `Esc` returns to Normal
-- [~] Line numbers in the left gutter: **absolute**, built + host-tested
-      2026-07-11 — numbered on a logical line's first display row, blank on
-      wrapped continuation rows; the gutter width tracks the buffer's line count
-      (2 digits + separator, widening past 99 lines) and steals its columns from
-      the soft-wrap. **Always on** in v0.2; the on/off toggle rides the v0.5
-      `.typoena.toml` prefs (below). Relative numbering was dropped (2026-07-11):
-      renumbering the whole gutter on every `j`/`k` burns the e-ink ghosting
-      budget for no proportionate gain, whereas absolute renumbers only the rows
-      below an edit. Spike 13's on-panel check (a single-line edit repaints only
-      rows at/below it, no extra full refresh) is still pending.
+- [x] Line numbers in the left gutter: **absolute**, built + host-tested
+      2026-07-11, **confirmed on the panel (Spike 13) 2026-07-11** — numbered on a
+      logical line's first display row, blank on wrapped continuation rows; the
+      gutter width tracks the buffer's line count (2 digits + separator, widening
+      past 99 lines) and steals its columns from the soft-wrap. **Always on** in
+      v0.2; the on/off toggle rides the v0.5 `.typoena.toml` prefs (below).
+      Relative numbering was dropped (2026-07-11): renumbering the whole gutter on
+      every `j`/`k` burns the e-ink ghosting budget for no proportionate gain,
+      whereas absolute renumbers only the rows below an edit — the on-panel check
+      confirmed a single-line edit repaints only rows at/below it with no extra
+      full refresh.
 - [x] Groundwork — UTF-8-correct buffer: caret motions and edits step by
       character, not byte (dropped the ASCII == byte-offset assumption), so every
       motion stays correct with accented input. **Done 2026-07-11** alongside
