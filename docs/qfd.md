@@ -86,7 +86,7 @@ inside HOW names: **Render** (buffer → e-ink frame, inside Type),
 | H4  | Boot latency (cold)                                |  ↓  | ≤ 5 s                    | ≤ 3 s †             |
 | H5  | Continuous-typing endurance (no drop, no leak)     |  ↑  | ≥ 1 h                    | ≥ 8 h               |
 | H6  | Publish reliability (network up)                   |  ↑  | ≥ 95 %                   | ≥ 99 %              |
-| H7  | Publish latency (one file)                         |  ↓  | ≤ 30 s                   | ≤ 10 s              |
+| H7  | Publish latency (one file)                         |  ↓  | ≤ 30 s ‡                 | ≤ 10 s ‡            |
 | H8  | Save durability (post-confirm power loss)          |  →  | 100 %                    | 100 %               |
 | H9  | PSRAM heap headroom during Publish                 |  ↑  | ≥ 1 MB free at peak      | same                |
 | H10 | Firmware binary size                               |  ↓  | ≤ 2 MB                   | ≤ 1.5 MB            |
@@ -100,6 +100,14 @@ v0.1 target is met. The ≤ 3 s v1.0 target is assessed **marginal-to-unreachabl
 one ~1.9 s full refresh is unavoidable at cold boot (the `0x26` "previous" bank is
 garbage until the first full paint), an e-ink floor rather than a tuning knob.
 Breakdown + levers: [`notes/boot-time-budget.md`](notes/boot-time-budget.md).
+
+‡ **Publish latency, measured 2026-07-11:** a cold `:sync` is **~16 s** (warm
+**~10 s**), comfortably inside the ≤ 30 s v0.1 target. The ≤ 10 s v1.0 target is
+**marginal** — the warm path meets it, but a cold sync's one-time Wi-Fi assoc
+(~3.6 s) + SNTP (~2–4 s) push it over, and the transport itself (one TLS handshake
++ commit + push) is near its floor. Optimistic-retry (push onto the tip first,
+reconcile only on a rejected push) already cut a whole second handshake. Breakdown
++ levers: [`notes/sync-latency.md`](notes/sync-latency.md).
 
 ---
 
