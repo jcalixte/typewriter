@@ -46,8 +46,8 @@ learning = "Core complete 44 days early, host-tested and partially smoke-tested 
 name = "v0.4 visual + ex"
 start = 2026-08-24
 original = 2026-09-07
-status = "on-track"
-note = ": command-line mechanism and :fmt done early; Visual mode not started."
+delivered = 2026-07-11
+learning = "Core complete 58 days early, host-tested. Visual (v) and VisualLine (V) selection with y/d/c landed 2026-07-11 (charwise vim-inclusive of the char under the caret; linewise spans whole lines and pastes like yy/dd), plus the recorded v/V→Visual reassignment: the read-only View mode moved to `gr` (go-read). Selection is drawn as reverse-video cells on the 1-bit panel with the caret punched back to normal video so the active end stands out; 18 new editor tests (83 total). The `:` command mechanism and :fmt were already done; `:e <path>` was deliberately deferred to v0.5 where its multi-file/buffer-lifecycle machinery (Spikes 11/14) lives, rather than half-building file-open here. Firmware bumped to 0.4.0. On-device smoke-test of Visual still pending (pure editor-core, low risk)."
 
 [[feature]]
 name = "v0.5 palette + multi-file"
@@ -110,9 +110,13 @@ full refresh), closing the last gate. **v0.2.5 international input** is
 hardware-verified (2026-07-11), and **v0.3 editing is complete in core** the same
 day (register + yank/paste, snapshot undo/redo, `.` repeat — host-tested, and
 partially smoke-tested on the panel: `dd`/`yy`/`Ctrl-r` good, a multi-line-paste
-scroll bug found + fixed); the firmware crate is bumped to **0.3.0**. Most of
-v0.6 Markdown also already runs. Version numbers track shippable device releases,
-not raw core progress — the 0.3.0 bump reflects the v0.3 feature set being met.
+scroll bug found + fixed). **v0.4 visual + ex is complete in core** the same day
+too — charwise/linewise **Visual** selection (`v`/`V` with `y`/`d`/`c`), the
+read-only View mode moved to `gr`, and the selection drawn as reverse-video on
+the panel; `:e` was deferred to v0.5. Host-tested (83 editor tests); on-device
+smoke-test pending. The firmware crate is bumped to **0.4.0**. Most of v0.6
+Markdown also already runs. Version numbers track shippable device releases, not
+raw core progress — the 0.4.0 bump reflects the v0.4 feature set being met.
 
 Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
 inline `(✓)` marks the done half of a split item.
@@ -280,22 +284,35 @@ Known limits (deferred): `.` drops a *leading* count (`3x` then `.` deletes one;
 a count inside an operator like `d2w` is kept); no named registers; `.` after an
 aborted operator (`d<Esc>`) is a no-op.
 
-## v0.4 — Visual mode + ex commands — [~]
+## v0.4 — Visual mode + ex commands — [x]
 
-**Status:** the `:` command-line mechanism is built (Command mode + status-strip
-echo), but only `:fmt` exists — `:w :q :wq :e` remain. Visual mode is not
-started.
+**Status:** COMPLETE in core 2026-07-11, host-tested (83 editor tests), on-device
+smoke-test pending. Charwise **Visual** (`v`) and linewise **VisualLine** (`V`)
+selection landed with `y`/`d`/`c` on the span: charwise is vim-inclusive of the
+char under the further caret, linewise spans whole logical lines and fills the
+register linewise (so `Vy`…`p` copies a line, `Vd` deletes it like `dd`). Motions
+(`h j k l`, `w b e`, `0 $`, `gg G`, `Ctrl-d/u`) and counts extend the selection;
+`v`/`V` toggle/switch submode, `Esc` cancels. The selection renders as
+reverse-video cells (black fill, glyphs redrawn white) — the only selection
+affordance on a 1-bit panel — with the caret cell punched back to *normal* video
+so the active end stands out. The Normal-mode motions were factored into a shared
+`move_by` helper so Normal and Visual can't drift.
 
-**DECISION (2026-07-07):** `v`/`V` = **Visual** selection (vim-standard). The
-read-only **View** (reading/scroll) mode currently bound to `v`/`V` moves off
-those keys and gets its own trigger (exact key TBD when Visual lands). View mode
-stays — it just frees `v`/`V` for Visual.
+**DECISION (2026-07-07, resolved 2026-07-11):** `v`/`V` = **Visual** selection
+(vim-standard). The read-only **View** (reading/scroll) mode that used to sit on
+`v`/`V` moved to **`gr`** (go-read) — a `g`-prefixed gesture reusing the existing
+pending-`g` machinery, no vim clash. View mode stays; `v`/`V` are now Visual.
 
-- [ ] Visual char (`v`) and line (`V`) modes, `y d c` on selections
+- [x] Visual char (`v`) and line (`V`) modes, `y d c` on selections — landed
+      2026-07-11 (18 new tests). Known limits (deferred): no `o` swap-ends, no
+      `x`/`s` operator aliases, no Visual `.` repeat, no `:'<,'>` range commands.
 - [~] `:` command line (mechanism ✓; `:w`/`:wq`/`:x` save, `:fmt`/`:sync`/`:gl`
-      wired; `:e <path>` remains, `:q` deliberately dropped — nothing to quit
-      to). Command-line editing added 2026-07-11: Ctrl-W deletes the previous
-      word, Cmd-Backspace clears the line.
+      wired; `:q` deliberately dropped — nothing to quit to). Command-line
+      editing added 2026-07-11: Ctrl-W deletes the previous word, Cmd-Backspace
+      clears the line. **`:e <path>` deferred to v0.5** — opening another file
+      needs host file-IO + buffer switching, which is v0.5's multi-file work
+      (gated behind Spikes 11/14); half-building it here ahead of its
+      dirty-buffer handling wasn't worth it.
 - [x] Ahead of schedule / unscheduled: `:fmt` Markdown formatter
       (table alignment, blank-line collapse, trailing-whitespace strip)
 

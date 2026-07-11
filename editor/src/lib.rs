@@ -1,5 +1,6 @@
 //! Modal text editor core: a vim-style buffer with Normal / Insert (edit) /
-//! View (read-only) modes, rendered onto the e-paper [`Frame`].
+//! Visual (selection) / View (read-only) modes, rendered onto the e-paper
+//! [`Frame`].
 //!
 //! The buffer is a UTF-8 `String` (the keyboard's dead-key composer feeds it
 //! accented Latin-9 characters). `caret` is a byte offset that always sits on a
@@ -61,7 +62,14 @@ pub enum Mode {
     Normal,
     /// Text entry — keys insert at the caret.
     Insert,
-    /// Read-only reading: keys scroll the viewport, edits are locked out.
+    /// Charwise selection: an anchor is dropped at the caret (`visual_anchor`)
+    /// and motions extend the span; `y`/`d`/`c` act on it, `Esc`/`v` leave.
+    Visual,
+    /// Linewise selection (`V`): the span always covers whole logical lines
+    /// from the anchor's line to the caret's, whatever the columns.
+    VisualLine,
+    /// Read-only reading (entered with `gr`): keys scroll the viewport, edits
+    /// are locked out.
     View,
     /// `:` command line — keys accumulate a command shown in the status strip;
     /// Enter runs it, Esc cancels. Handles `:fmt` (in-core) plus `:w`/`:sync`
@@ -114,8 +122,12 @@ pub struct Editor {
     /// After an operator, an `i`/`a` text-object prefix awaiting the object
     /// char. `Some(false)` = inner (`i`), `Some(true)` = around (`a`).
     pending_obj: Option<bool>,
-    /// First `g` of a `gg` awaiting the second.
+    /// First `g` of a `gg`/`gr` awaiting the second.
     pending_g: bool,
+    /// The fixed end of a Visual selection (byte offset), dropped when `v`/`V`
+    /// enters Visual and cleared on leaving. The selection spans from here to
+    /// the caret; `None` outside Visual/VisualLine.
+    visual_anchor: Option<usize>,
     /// The `:` command line being typed (valid only in `Mode::Command`).
     cmdline: String,
     /// Word count as of the last stats refresh. The panel shows this snapshot,
@@ -186,6 +198,7 @@ impl Editor {
             pending_op: None,
             pending_obj: None,
             pending_g: false,
+            visual_anchor: None,
             cmdline: String::new(),
             shown_words: 0,
             keyboard_present: false,
@@ -292,6 +305,10 @@ impl Editor {
             }
             Mode::Normal => {
                 self.normal_key(key);
+                Effect::None
+            }
+            Mode::Visual | Mode::VisualLine => {
+                self.visual_key(key);
                 Effect::None
             }
             Mode::View => {
@@ -477,8 +494,12 @@ impl Editor {
 
         if self.pending_g {
             self.pending_g = false;
-            if c == 'g' {
-                self.caret = 0;
+            match c {
+                'g' => self.caret = 0,
+                // `gr` (go-read): enter the read-only View/scroll mode. `v`/`V`
+                // used to trigger it but now belong to Visual selection.
+                'r' => self.mode = Mode::View,
+                _ => {}
             }
             self.count = 0;
             return;
@@ -492,16 +513,6 @@ impl Editor {
         let n = self.count.max(1);
 
         match c {
-            'h' => (0..n).for_each(|_| self.move_left()),
-            'l' => (0..n).for_each(|_| self.move_right()),
-            'j' => (0..n).for_each(|_| self.move_down()),
-            'k' => (0..n).for_each(|_| self.move_up()),
-            'w' => (0..n).for_each(|_| self.caret = self.word_forward_pos(self.caret)),
-            'b' => (0..n).for_each(|_| self.caret = self.word_back_pos(self.caret)),
-            'e' => (0..n).for_each(|_| self.caret = self.word_end_pos(self.caret)),
-            '0' => self.caret = self.line_start(self.caret),
-            '$' => self.caret = self.line_end(self.caret),
-            'G' => self.caret = self.line_start(self.text.len()),
             'g' => {
                 self.pending_g = true;
                 return;
@@ -572,16 +583,50 @@ impl Editor {
                 self.caret = p;
                 self.mode = Mode::Insert;
             }
-            'v' | 'V' => self.mode = Mode::View,
+            // Drop an anchor at the caret and enter Visual (charwise `v`) /
+            // VisualLine (`V`); motions then extend the selection.
+            'v' => {
+                self.visual_anchor = Some(self.caret);
+                self.mode = Mode::Visual;
+            }
+            'V' => {
+                self.visual_anchor = Some(self.caret);
+                self.mode = Mode::VisualLine;
+            }
             ':' => {
                 self.reset_pending();
                 self.cmdline.clear();
                 self.mode = Mode::Command;
                 return;
             }
-            _ => {}
+            // Any remaining char is either a shared motion (h/l/j/k/w/b/e/0/$/G)
+            // or unknown; `move_by` applies the former and ignores the latter.
+            _ => {
+                self.move_by(c, n);
+            }
         }
         self.count = 0;
+    }
+
+    /// Apply a plain caret motion shared by Normal and Visual — `h l j k`,
+    /// `w b e`, `0 $`, `G` — `n` times, returning whether `c` was a motion (and
+    /// so consumed). `gg`/`gr` are handled by their callers' pending-`g` state,
+    /// not here.
+    fn move_by(&mut self, c: char, n: usize) -> bool {
+        match c {
+            'h' => (0..n).for_each(|_| self.move_left()),
+            'l' => (0..n).for_each(|_| self.move_right()),
+            'j' => (0..n).for_each(|_| self.move_down()),
+            'k' => (0..n).for_each(|_| self.move_up()),
+            'w' => (0..n).for_each(|_| self.caret = self.word_forward_pos(self.caret)),
+            'b' => (0..n).for_each(|_| self.caret = self.word_back_pos(self.caret)),
+            'e' => (0..n).for_each(|_| self.caret = self.word_end_pos(self.caret)),
+            '0' => self.caret = self.line_start(self.caret),
+            '$' => self.caret = self.line_end(self.caret),
+            'G' => self.caret = self.line_start(self.text.len()),
+            _ => return false,
+        }
+        true
     }
 
     // --- Command mode (`:`) ------------------------------------------------
@@ -735,6 +780,187 @@ impl Editor {
         }
         self.mode = Mode::Normal;
         self.reset_pending();
+    }
+
+    // --- Visual mode -------------------------------------------------------
+
+    /// True while a Visual selection is active (charwise or linewise).
+    fn in_visual(&self) -> bool {
+        matches!(self.mode, Mode::Visual | Mode::VisualLine)
+    }
+
+    /// Dispatch a key in Visual/VisualLine. Motions extend the selection (the
+    /// anchor stays put, the caret moves); `y`/`d`/`c` act on the span and
+    /// leave Visual; `v`/`V` switch submode or toggle back to Normal; `Esc`
+    /// cancels. Counts and `gg`/`G` work as in Normal.
+    fn visual_key(&mut self, key: Key) {
+        let c = match key {
+            Key::Char(c) => c,
+            Key::HalfPageDown => {
+                self.count = 0;
+                self.move_display_rows(HALF_PAGE as isize);
+                return;
+            }
+            Key::HalfPageUp => {
+                self.count = 0;
+                self.move_display_rows(-(HALF_PAGE as isize));
+                return;
+            }
+            Key::Escape => {
+                self.exit_visual();
+                return;
+            }
+            // Enter/Backspace/etc. carry no Visual meaning; drop any count.
+            _ => {
+                self.count = 0;
+                self.pending_g = false;
+                return;
+            }
+        };
+
+        // `gg` — jump to the top, extending the selection.
+        if self.pending_g {
+            self.pending_g = false;
+            if c == 'g' {
+                self.caret = 0;
+            }
+            self.count = 0;
+            return;
+        }
+
+        // Count prefix, exactly as in Normal (a leading `0` is the motion).
+        if c.is_ascii_digit() && !(c == '0' && self.count == 0) {
+            self.count = self.count.saturating_mul(10) + (c as usize - '0' as usize);
+            return;
+        }
+        let n = self.count.max(1);
+
+        match c {
+            'g' => {
+                self.pending_g = true;
+                return;
+            }
+            // `v` toggles charwise off (or switches VisualLine → charwise);
+            // `V` toggles linewise off (or switches charwise → linewise).
+            'v' => {
+                if self.mode == Mode::Visual {
+                    self.exit_visual();
+                } else {
+                    self.mode = Mode::Visual;
+                }
+            }
+            'V' => {
+                if self.mode == Mode::VisualLine {
+                    self.exit_visual();
+                } else {
+                    self.mode = Mode::VisualLine;
+                }
+            }
+            'y' => self.visual_yank(),
+            'd' => self.visual_delete(),
+            'c' => self.visual_change(),
+            // Any other char: a shared motion extends the selection, or is a
+            // no-op. Unlike Normal, edit keys (`x`, `p`, …) aren't bound here.
+            _ => {
+                self.move_by(c, n);
+            }
+        }
+        self.count = 0;
+    }
+
+    /// The current selection as `(start, end, linewise)` byte offsets, `start <
+    /// end` (or equal on an empty buffer). Charwise is vim-inclusive of the char
+    /// under the further caret; linewise always spans whole logical lines from
+    /// the anchor's line through the caret's.
+    fn visual_span(&self) -> (usize, usize, bool) {
+        let anchor = self.visual_anchor.unwrap_or(self.caret);
+        let lo = anchor.min(self.caret);
+        let hi = anchor.max(self.caret);
+        if self.mode == Mode::VisualLine {
+            (self.line_start(lo), self.line_end(hi), true)
+        } else {
+            (lo, self.next_char(hi).min(self.text.len()), false)
+        }
+    }
+
+    /// Copy the selection into the unnamed register (linewise from `V`, charwise
+    /// otherwise), leave the caret at the selection start, and return to Normal.
+    fn visual_yank(&mut self) {
+        let (s, e, line) = self.visual_span();
+        self.register = self.selection_text(s, e, line);
+        self.register_linewise = line;
+        self.caret = s;
+        self.exit_visual();
+    }
+
+    /// Delete the selection (filling the register like `visual_yank`), leaving
+    /// the caret at the span start, and return to Normal. Linewise removes whole
+    /// lines including a bounding newline, mirroring `dd`.
+    fn visual_delete(&mut self) {
+        let (s, e, line) = self.visual_span();
+        self.register = self.selection_text(s, e, line);
+        self.register_linewise = line;
+        self.checkpoint();
+        let (ds, de) = self.delete_bounds(s, e, line);
+        self.text.replace_range(ds..de, "");
+        self.caret = if line {
+            self.line_start(ds.min(self.text.len()))
+        } else {
+            ds.min(self.text.len())
+        };
+        self.exit_visual();
+    }
+
+    /// Change the selection: delete it (filling the register) and drop into
+    /// Insert at the start. A linewise change clears the lines' text but leaves
+    /// one empty line to type on (like `cc`), rather than removing the line.
+    fn visual_change(&mut self) {
+        let (s, e, line) = self.visual_span();
+        self.register = self.selection_text(s, e, line);
+        self.register_linewise = line;
+        self.checkpoint();
+        // Linewise: replace only `s..e` (the text, keeping the final newline) so
+        // one blank line remains. Charwise: remove the exact span.
+        self.text.replace_range(s..e, "");
+        self.caret = s.min(self.text.len());
+        self.visual_anchor = None;
+        self.pending_g = false;
+        self.count = 0;
+        self.mode = Mode::Insert;
+    }
+
+    /// The register contents for a selection span: charwise is the raw slice;
+    /// linewise gets a synthesised trailing newline (as `yy`/`dd` store lines).
+    fn selection_text(&self, s: usize, e: usize, line: bool) -> String {
+        let mut block = self.text[s..e].to_string();
+        if line && !block.ends_with('\n') {
+            block.push('\n');
+        }
+        block
+    }
+
+    /// Byte range to actually remove for a delete. Charwise is the span as-is;
+    /// linewise also eats the trailing newline (or, on the last line, the
+    /// preceding one) so no blank line is left behind — matching `dd`.
+    fn delete_bounds(&self, s: usize, e: usize, line: bool) -> (usize, usize) {
+        if !line {
+            return (s, e);
+        }
+        if e < self.text.len() {
+            (s, self.next_char(e)) // eat the trailing '\n' at `e`
+        } else if s > 0 {
+            (self.prev_char(s), e) // last line: eat the preceding '\n' instead
+        } else {
+            (s, e) // whole buffer
+        }
+    }
+
+    /// Leave Visual for Normal, clearing the anchor and any pending state.
+    fn exit_visual(&mut self) {
+        self.mode = Mode::Normal;
+        self.visual_anchor = None;
+        self.pending_g = false;
+        self.count = 0;
     }
 
     // --- View mode ---------------------------------------------------------
@@ -1469,6 +1695,42 @@ impl Editor {
             }
         }
 
+        // Visual selection: reverse-video the selected cells (black fill, glyphs
+        // redrawn white). A second pass so the text loop above stays untouched;
+        // on a 1-bit panel this inversion is the only selection affordance.
+        if self.in_visual() {
+            let (ss, se, lw) = self.visual_span();
+            let inv = MonoTextStyle::new(&FONT_10X20, BinaryColor::Off);
+            for (vis, li) in (self.scroll_top..end).enumerate() {
+                let y = vis as i32 * CH;
+                let rs = lay[li].start;
+                let re = rs + lay[li].text.len();
+                let (col_a, col_b) = if rs.max(ss) < re.min(se) {
+                    let a = rs.max(ss);
+                    let b = re.min(se);
+                    (self.text[rs..a].chars().count(), self.text[rs..b].chars().count())
+                } else if lw && lay[li].text.is_empty() && rs >= ss && rs <= se {
+                    // A blank line inside a linewise selection: a 1-cell mark so
+                    // the empty row still reads as selected.
+                    (0, 1)
+                } else {
+                    continue;
+                };
+                let x = gx + col_a as i32 * CW;
+                let w = (col_b - col_a).max(1) as u32 * CW as u32;
+                Rectangle::new(Point::new(x, y), Size::new(w, CH as u32))
+                    .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+                    .draw(&mut f)
+                    .unwrap();
+                let seg: String = lay[li].text.chars().skip(col_a).take(col_b - col_a).collect();
+                if !seg.is_empty() {
+                    Text::with_baseline(&seg, Point::new(x, y), inv, Baseline::Top)
+                        .draw(&mut f)
+                        .unwrap();
+                }
+            }
+        }
+
         if crow >= self.scroll_top && crow < self.scroll_top + ROWS {
             let x = gx + ccol.min(cols - 1) as i32 * CW;
             let y = (crow - self.scroll_top) as i32 * CH;
@@ -1498,6 +1760,26 @@ impl Editor {
                         .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
                         .draw(&mut f)
                         .unwrap();
+                }
+                Mode::Visual | Mode::VisualLine if cursor_on => {
+                    // The selection painted this cell inverted; punch the caret
+                    // back to normal video (white cell, black glyph) so the
+                    // active end stands out from the rest of the selection.
+                    Rectangle::new(Point::new(x, y), Size::new(CW as u32, CH as u32))
+                        .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
+                        .draw(&mut f)
+                        .unwrap();
+                    if let Some(ch) = lay[crow].text.chars().nth(ccol) {
+                        let mut buf = [0u8; 4];
+                        Text::with_baseline(
+                            ch.encode_utf8(&mut buf),
+                            Point::new(x, y),
+                            text_style,
+                            Baseline::Top,
+                        )
+                        .draw(&mut f)
+                        .unwrap();
+                    }
                 }
                 _ => {}
             }
@@ -1560,6 +1842,8 @@ impl Editor {
             let name = match self.mode {
                 Mode::Normal => "NORMAL",
                 Mode::Insert => "INSERT",
+                Mode::Visual => "VISUAL",
+                Mode::VisualLine => "V-LINE",
                 Mode::View => "VIEW",
                 Mode::Command => unreachable!(),
             };
@@ -2103,7 +2387,8 @@ mod tests {
     fn half_page_scrolls_viewport_in_view_mode() {
         let mut e = Editor::with_text(vec!["a"; 40].join("\n"));
         let caret_before = e.caret;
-        e.handle(Key::Char('v')); // Normal -> View
+        e.handle(Key::Char('g')); // `gr` -> View (v/V are now Visual)
+        e.handle(Key::Char('r'));
         assert_eq!(e.mode(), Mode::View);
         e.handle(Key::HalfPageDown);
         assert_eq!(e.scroll_top(), HALF_PAGE);
@@ -2503,5 +2788,183 @@ mod tests {
         assert_eq!(e.notice.as_deref(), Some("saved"));
         e.handle(Key::Char('j')); // any key dismisses the snackbar
         assert_eq!(e.notice, None);
+    }
+
+    // ---- Visual mode (v0.4) ----
+
+    /// Feed a run of characters as Normal-mode keys.
+    fn send(e: &mut Editor, s: &str) {
+        for c in s.chars() {
+            e.handle(Key::Char(c));
+        }
+    }
+
+    #[test]
+    fn v_enters_charwise_visual_and_anchors_at_the_caret() {
+        let mut e = Editor::with_text("hello".into());
+        e.caret = 2;
+        e.handle(Key::Char('v'));
+        assert_eq!(e.mode(), Mode::Visual);
+        assert_eq!(e.visual_anchor, Some(2));
+    }
+
+    #[test]
+    fn capital_v_enters_linewise_visual() {
+        let mut e = Editor::with_text("hello".into());
+        e.handle(Key::Char('V'));
+        assert_eq!(e.mode(), Mode::VisualLine);
+    }
+
+    #[test]
+    fn charwise_yank_is_inclusive_and_lands_the_caret_at_the_start() {
+        let mut e = Editor::with_text("hello world".into());
+        e.caret = 0;
+        send(&mut e, "vey"); // select "hello" (e -> last char of the word), yank
+        assert_eq!(e.mode(), Mode::Normal);
+        assert_eq!(e.caret, 0);
+        assert_eq!(e.register, "hello");
+        assert!(!e.register_linewise);
+    }
+
+    #[test]
+    fn vy_yanks_the_single_char_under_the_caret() {
+        let mut e = Editor::with_text("hello".into());
+        e.caret = 1;
+        send(&mut e, "vy");
+        assert_eq!(e.register, "e");
+    }
+
+    #[test]
+    fn charwise_delete_removes_the_span_and_fills_the_register() {
+        let mut e = Editor::with_text("hello world".into());
+        e.caret = 0;
+        send(&mut e, "ved"); // select "hello", delete
+        assert_eq!(e.text(), " world");
+        assert_eq!(e.caret, 0);
+        assert_eq!(e.register, "hello");
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn charwise_change_deletes_the_span_and_enters_insert() {
+        let mut e = Editor::with_text("hello".into());
+        e.caret = 0;
+        send(&mut e, "v$c"); // select the whole line, change
+        assert_eq!(e.mode(), Mode::Insert);
+        assert_eq!(e.text(), "");
+        send(&mut e, "bye");
+        assert_eq!(e.text(), "bye");
+    }
+
+    #[test]
+    fn count_in_visual_extends_the_selection() {
+        let mut e = Editor::with_text("abcdef".into());
+        e.caret = 0;
+        send(&mut e, "v2ld"); // select a,b,c (2l from a), delete
+        assert_eq!(e.text(), "def");
+    }
+
+    #[test]
+    fn linewise_delete_removes_the_whole_line_like_dd() {
+        let mut e = Editor::with_text("one\ntwo\nthree".into());
+        e.caret = e.text().find("two").unwrap();
+        send(&mut e, "Vd");
+        assert_eq!(e.text(), "one\nthree");
+        assert!(e.register_linewise);
+        assert_eq!(e.register, "two\n");
+    }
+
+    #[test]
+    fn linewise_selection_spans_multiple_lines_with_j() {
+        let mut e = Editor::with_text("a\nb\nc\nd".into());
+        e.caret = 0;
+        send(&mut e, "Vjd"); // select lines a and b, delete both
+        assert_eq!(e.text(), "c\nd");
+    }
+
+    #[test]
+    fn linewise_yank_then_paste_copies_the_line_below() {
+        let mut e = Editor::with_text("one\ntwo".into());
+        e.caret = 0;
+        send(&mut e, "Vy"); // yank line "one" linewise
+        assert_eq!(e.register, "one\n");
+        send(&mut e, "p");
+        assert_eq!(e.text(), "one\none\ntwo");
+    }
+
+    #[test]
+    fn linewise_change_clears_the_line_but_keeps_one_to_type_on() {
+        let mut e = Editor::with_text("one\ntwo\nthree".into());
+        e.caret = e.text().find("two").unwrap();
+        send(&mut e, "Vc");
+        assert_eq!(e.mode(), Mode::Insert);
+        assert_eq!(e.text(), "one\n\nthree"); // the line's text is gone, the row remains
+        send(&mut e, "X");
+        assert_eq!(e.text(), "one\nX\nthree");
+    }
+
+    #[test]
+    fn esc_leaves_visual_without_touching_the_buffer() {
+        let mut e = Editor::with_text("hello".into());
+        e.caret = 2;
+        send(&mut e, "vll");
+        e.handle(Key::Escape);
+        assert_eq!(e.mode(), Mode::Normal);
+        assert_eq!(e.text(), "hello");
+        assert_eq!(e.visual_anchor, None);
+    }
+
+    #[test]
+    fn v_toggles_charwise_visual_off() {
+        let mut e = Editor::with_text("hello".into());
+        send(&mut e, "vv");
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn capital_v_then_v_switches_to_charwise() {
+        let mut e = Editor::with_text("hello".into());
+        send(&mut e, "Vv");
+        assert_eq!(e.mode(), Mode::Visual);
+    }
+
+    #[test]
+    fn gr_enters_view_and_v_no_longer_does() {
+        let mut e = Editor::with_text("hello".into());
+        send(&mut e, "gr");
+        assert_eq!(e.mode(), Mode::View);
+        e.handle(Key::Escape);
+        e.handle(Key::Char('v'));
+        assert_eq!(e.mode(), Mode::Visual); // v is Visual now, not View
+    }
+
+    #[test]
+    fn visual_ops_do_not_clobber_the_dot_register() {
+        let mut e = Editor::with_text("abcdef".into());
+        e.caret = 0;
+        e.handle(Key::Char('x')); // dot = x ; "bcdef"
+        send(&mut e, "vld"); // a visual delete must not become the new dot
+        e.handle(Key::Char('.')); // repeats the x
+        // buffer after x -> "bcdef"; vld deletes "bc" -> "def"; . deletes 'd' -> "ef"
+        assert_eq!(e.text(), "ef");
+    }
+
+    #[test]
+    fn draw_inverts_the_selected_cells() {
+        let mut e = Editor::with_text("hello world".into());
+        e.caret = 0;
+        let normal = e.draw(true).bytes().to_vec();
+        send(&mut e, "ve"); // select "hello"
+        let visual = e.draw(true).bytes().to_vec();
+        assert_ne!(normal, visual); // the selection changed pixels
+    }
+
+    #[test]
+    fn draw_runs_for_a_linewise_selection_over_a_blank_line() {
+        let mut e = Editor::with_text("a\n\nb".into());
+        e.caret = 0;
+        send(&mut e, "Vjj"); // select all three rows, including the blank one
+        let _ = e.draw(true); // must not panic on the empty-row highlight path
+        assert_eq!(e.mode(), Mode::VisualLine);
     }
 }
