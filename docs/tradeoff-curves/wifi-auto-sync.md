@@ -44,6 +44,18 @@ immediately after each push, too: with syncs ≥2 min apart a keep-alive window
 saves nothing, and Typoena only ever *pushes* — there's no inbound traffic that
 would justify staying reachable.
 
+> **Status (v0.1) — the shipped firmware does *not* cycle the radio yet.** It
+> brings Wi-Fi up lazily on the first `:sync` and then keeps it up for the rest
+> of the session: `run_git_service` in
+> [`../../firmware/src/git_sync.rs`](../../firmware/src/git_sync.rs) holds the
+> `wifi` handle across its whole request loop and never stops, disconnects, or
+> drops it (grep the module for `stop`/`disconnect`/`drop` — zero hits). So
+> today's device runs the *stay-associated* strategy this section argues
+> against, at ~15–20 mAh/hr after the first push. The off-between-syncs
+> assumption above is the **target**, not current behaviour: the modem is
+> `.take()`n exactly once, so per-sync teardown is a v0.8 refactor of that
+> ownership, not a config flip — and a prerequisite before any sleep mode ships.
+
 ## The curve
 
 ```
