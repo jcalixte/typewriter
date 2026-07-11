@@ -60,13 +60,15 @@ into user-facing language).
 
 **Writing column**:
 The left region of the panel showing the text being edited — the _only_ region
-that repaints per keystroke. ~60 columns, full panel height; straddles the
-driver's `x = 396` seam invisibly.
+that repaints per keystroke. A 63-col region split into a **line-number gutter**
+(absolute numbers, 2–4 cols wide, sized to the buffer's line count) and the text
+column it steals from (~60 cols for a file ≤ 99 lines). Full panel height;
+straddles the driver's `x = 396` seam invisibly.
 _Avoid_: edit area, text area, main pane (superseded — they named the old
 full-width text region before the side panel carved out its right edge).
 
 **Side panel**:
-The right region (~150 px / ~20 cols, full height) holding all metadata:
+The right region (~160 px / ~25 cols, full height) holding all metadata:
 filename + dirty dot, word count, elapsed time, clock, Wi-Fi,
 keyboard-disconnect flag, publish state, and the mode indicator at its
 bottom-left. Sits entirely in the master half

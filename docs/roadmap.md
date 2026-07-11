@@ -76,7 +76,7 @@ note = ": command-line mechanism and :fmt done early; Visual mode not started."
 name = "v0.5 palette + multi-file"
 start = 2026-09-07
 original = 2026-09-28
-note = "Also adds the git-tracked .typoena.toml preferences file (save_on_idle, auto_sync cadence) and the palette `>` command mode that edits it live."
+note = "Also adds the git-tracked .typoena.toml preferences file (save_on_idle, auto_sync cadence, line_numbers) and the palette `>` command mode that edits it live."
 
 [[feature]]
 name = "v0.6 markdown"
@@ -191,9 +191,10 @@ Out of scope: Vim, palette, multiple files, branches, conflict handling.
 
 **Status:** navigation done in core; the **UTF-8-correct buffer landed
 2026-07-11** (hardware-verified) and **`Ctrl-d/u` half-page scroll landed
-2026-07-11** (host-tested). Remaining = the line-number gutter. Shipped early
-beyond scope: a read-only **View** mode and the full `d`/`c` operator +
-text-object grammar (see v0.3 / v0.4).
+2026-07-11** (host-tested). The **absolute line-number gutter is built +
+host-tested 2026-07-11**; only Spike 13's on-panel refresh check remains.
+Shipped early beyond scope: a read-only **View** mode and the full `d`/`c`
+operator + text-object grammar (see v0.3 / v0.4).
 
 - [x] Mode state machine (Normal / Insert / View), mode indicator in the status strip
 - [x] Movement: `h j k l`, `w b e`, `0 $`, `gg G`, `Ctrl-d Ctrl-u`. `Ctrl-d/u`
@@ -202,10 +203,16 @@ text-object grammar (see v0.3 / v0.4).
       intents in the keymap, caret moves and the viewport follows.
 - [x] `i a o O A` to enter Insert
 - [x] `Esc` returns to Normal
-- [ ] Line numbers in the left gutter: **absolute** — Spike 13 first. Relative
-      numbering was dropped (2026-07-11): renumbering the whole gutter on every
-      `j`/`k` burns the e-ink ghosting budget for no proportionate gain, whereas
-      absolute renumbers only the rows below an edit.
+- [~] Line numbers in the left gutter: **absolute**, built + host-tested
+      2026-07-11 — numbered on a logical line's first display row, blank on
+      wrapped continuation rows; the gutter width tracks the buffer's line count
+      (2 digits + separator, widening past 99 lines) and steals its columns from
+      the soft-wrap. **Always on** in v0.2; the on/off toggle rides the v0.5
+      `.typoena.toml` prefs (below). Relative numbering was dropped (2026-07-11):
+      renumbering the whole gutter on every `j`/`k` burns the e-ink ghosting
+      budget for no proportionate gain, whereas absolute renumbers only the rows
+      below an edit. Spike 13's on-panel check (a single-line edit repaints only
+      rows at/below it, no extra full refresh) is still pending.
 - [x] Groundwork — UTF-8-correct buffer: caret motions and edits step by
       character, not byte (dropped the ASCII == byte-offset assumption), so every
       motion stays correct with accented input. **Done 2026-07-11** alongside
@@ -290,6 +297,9 @@ buffer-lifecycle risk first).
   - [ ] `save_on_idle` (bool, default `true`) — auto-save the current buffer on
         the existing idle pause (the ≥ 1 s typing-pause the panel already uses
         for its refresh), so `:w` becomes optional rather than required.
+  - [ ] `line_numbers` (bool, default `true`) — show the absolute line-number
+        gutter (built always-on in v0.2). Off reclaims the gutter's columns for
+        text; the palette `> line numbers: on/off` command toggles it live.
   - [ ] `auto_sync` (duration string, default `"10m"`; `"0"` / omitted
         disables; **min clamp ~`"2m"`** so a palette typo can't drain the
         battery) — a *max-staleness cap*, not a wall-clock timer:
