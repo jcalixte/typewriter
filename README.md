@@ -44,7 +44,7 @@ v0.8.
 
 Full part table, rationale, and bench status:
 [`docs/hardware.md`](docs/hardware.md). Enclosure — a parametric,
-3D-printable typewriter-body case (OpenSCAD): [`hardware/case/`](hardware/case/).
+3D-printable typewriter-body case (OpenSCAD): [`hardware/case/`](hardware/case/README.md).
 
 ---
 
@@ -147,8 +147,8 @@ package.json              pnpm + oxfmt — formatting toolchain for docs/JSON
 - [ ] Heap fragmentation over a long writing session with the PSRAM allocator.
 - [ ] Real-world e-ink ghosting with the current partial-refresh cadence.
 - [~] Use-after-free freeing the in-flight USB transfer on keyboard unplug —
-      fixed in code, pending an on-device hot-plug run to confirm
-      ([`MEMORY_AUDIT.md`](MEMORY_AUDIT.md) finding #1).
+  fixed in code, pending an on-device hot-plug run to confirm
+  ([`MEMORY_AUDIT.md`](MEMORY_AUDIT.md) finding #1).
 
 Retired risks ([gix push](docs/postmortems/2026-07-05-spike7-gix-https-push.md),
 TinyUSB HID stability, TLS heap, libgit2-on-xtensa) and how they died:

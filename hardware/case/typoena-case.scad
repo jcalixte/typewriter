@@ -24,7 +24,7 @@
 //    "plan_down"   – just the bottom half (cavity: standoffs, posts, ports)
 // ============================================================================
 
-show = "plan_up";
+show = "assembled";
 $fn = 48;
 
 // ---- body envelope --------------------------------------------------------
@@ -105,7 +105,7 @@ esp_holes  = [[W/2-33, 30],[W/2+33, 30],[W/2-33, 54],[W/2+33, 54]];
 brk_holes  = [[22, 40],[22, 66]];
 
 // ---- colours (for the assembled render) -----------------------------------
-C_body   = "#3c6382";
+C_body   = "#B6CEB4";
 C_plate  = "#C9C3B2";
 C_bracket= "#2B2B2B";
 C_screen = "#F7F4EA";
