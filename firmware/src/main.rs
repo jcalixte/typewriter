@@ -256,14 +256,15 @@ fn save_note(storage: &Storage, ed: &Editor) {
 }
 
 /// `:sync` — persist, then publish. Publishing (git push) is gated behind the
-/// `git` Cargo feature so the default build stays a **light editor build**: no
-/// `git2` crate and, because the justfile only sets `LIBGIT2_SRC` for git
-/// recipes, no libgit2/mbedTLS component either (`just build`/`just flash`).
-/// A full build turns both on together: `just flash-firmware-git`.
+/// `git` Cargo feature. The nominal build (`just build`/`just flash`) turns it
+/// on (libgit2 + git2). A **light** build (`just build-light`/`just flash-light`)
+/// leaves it off — no `git2` crate and, since the justfile only sets
+/// `LIBGIT2_SRC` for the full recipes, no libgit2/mbedTLS component either — so
+/// `:sync` just saves locally.
 ///
-/// This is the seam that keeps the light build light — the git-only code path
-/// is only ever compiled under `--features git`, so an ordinary `:sync` in the
-/// light build simply saves locally.
+/// This `#[cfg]` is the seam that keeps the light build light: the git-only code
+/// path is only ever compiled under `--features git`, so wiring publish in later
+/// can never drag libgit2 into a light build.
 fn publish(storage: &Storage, ed: &Editor) {
     // Publishing an unsaved buffer is meaningless, so save first in both builds.
     save_note(storage, ed);

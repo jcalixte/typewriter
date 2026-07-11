@@ -61,8 +61,8 @@ need `CONFIG_SPIRAM` turned on first.
 
 Credentials are build-time: copy [`.env.example`](.env.example) to `.env`, set
 `TW_WIFI_SSID` / `TW_WIFI_PASS`, and `just` loads them (dotenv) so `build.rs`
-bakes them in. `.env` is gitignored; the editor build (`just flash`) needs none
-of it. `sdkconfig.defaults` gains the full certificate bundle and a bigger main
+bakes them in. `.env` is gitignored; the light editor build (`just flash-light`)
+needs none of it. `sdkconfig.defaults` gains the full certificate bundle and a bigger main
 task stack for the mbedtls handshake — a one-time esp-idf reconfigure on the
 next build.
 
@@ -173,42 +173,48 @@ the Xtensa GCC to `PATH`):
 . ~/export-esp.sh
 ```
 
-Then from this directory:
+Then from this directory, `just build` (the nominal product build) or, for fast
+iteration without git, `just build-light`:
 
 ```sh
-cargo build --release
+just build         # full: firmware + git publishing (libgit2 + git2)
+just build-light   # light: editor only, no git — much faster
 ```
 
+(A bare `cargo build --release` with no env is equivalent to `build-light` — the
+`git` feature is off by default.)
+
 The first build is slow (the esp-idf C sources are checked out and built
-under `.embuild/`). Subsequent builds are incremental.
+under `.embuild/`; the full build also compiles libgit2 + mbedTLS). Subsequent
+builds are incremental.
 
-### Build modes — light (default) vs git
+### Build modes — git (default) vs light
 
-The editor firmware builds **light by default** — no git. Publishing (`:sync` →
-git push) is expensive to build: it drags in libgit2 + mbedTLS (compiled as an
-esp-idf component) and the `git2` crate. So it sits behind a switch, and the
-nominal build leaves it off — ideal for iterating on the editor, EPD, USB, or
-SD without paying for libgit2:
+Publishing (`:sync` → git push) is expensive to build: it drags in libgit2 +
+mbedTLS (compiled as an esp-idf component) and the `git2` crate. It sits behind
+a switch. The nominal build turns it on (it's the product); a **light** build
+leaves it off — ideal for iterating on the editor, EPD, USB, or SD without
+paying for libgit2:
 
 | Build | Command | libgit2 component | `git2` crate | `:sync` |
 | ----- | ------- | ----------------- | ------------ | ------- |
-| **Light** (default) | `just build` / `just flash` | not compiled (empty no-op) | not linked | saves locally, skips push |
-| **Full (git)** | `just build-firmware-git` / `just flash-firmware-git` | compiled | linked | save → push |
+| **Full / git** (default) | `just build` / `just flash` | compiled | linked | save → push |
+| **Light** | `just build-light` / `just flash-light` | not compiled (empty no-op) | not linked | saves locally, skips push |
 
 Two independent switches make this work, and the justfile flips them together:
 
 1. **`git` Cargo feature** (`--features git`) — pulls the `git2` crate and
    turns on the `#[cfg(feature = "git")]` publish path in
-   [`src/main.rs`](src/main.rs) (`publish()`). Off by default.
+   [`src/main.rs`](src/main.rs) (`publish()`). Off by default; the full recipes
+   pass it.
 2. **`LIBGIT2_SRC` env** — the [libgit2 component](components/libgit2/CMakeLists.txt)
    only compiles its sources when this points at the vendored tree; unset, it
-   registers an *empty* component. Only the `*-git` justfile recipes set it.
+   registers an *empty* component. Only the full recipes set it.
 
 Because git code in the firmware binary is only ever compiled under
-`--features git`, an ordinary `just build` can never accidentally drag libgit2
-in. (Git isn't wired into `main.rs` yet, so `flash-firmware-git` currently just
-builds slower and behaves like the light build — the seam is in place ahead of
-the integration.)
+`--features git`, `just build-light` can never drag libgit2 in. (Git isn't wired
+into `main.rs` yet, so the full `just build` currently just builds slower and
+behaves like the light build — the seam is in place ahead of the integration.)
 
 ## Flash (when hardware is on the bench)
 
