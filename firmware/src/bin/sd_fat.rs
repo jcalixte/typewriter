@@ -189,11 +189,16 @@ fn mount_sd() -> Result<*mut sys::sdmmc_card_t> {
     slot.gpio_wp = -1;
     slot.gpio_int = -1;
 
-    // 4) Mount config. format_if_mount_failed = false is load-bearing: a mount
-    //    hiccup must never reformat (and wipe) the user's card. allocation size
-    //    only matters when formatting, which we've disabled.
+    // 4) Mount config. format_if_mount_failed = true here (spike only): a fresh
+    //    bench card that's exFAT or unformatted gets reformatted to FAT on the
+    //    device instead of failing, so no Mac-side prep is needed. This fires
+    //    only on a *filesystem* mount failure, not on the earlier CMD59 protocol
+    //    rejection (that still bails with the actionable message below).
+    //    The real persistence module MUST keep this false — it must never wipe
+    //    the user's card on a transient mount hiccup. allocation_unit_size is
+    //    used when formatting, so the 16 KiB below now applies.
     let mount = sys::esp_vfs_fat_mount_config_t {
-        format_if_mount_failed: false,
+        format_if_mount_failed: true,
         max_files: 4,
         allocation_unit_size: 16 * 1024,
         disk_status_check_enable: false,
