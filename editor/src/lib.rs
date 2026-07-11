@@ -83,6 +83,10 @@ pub enum Effect {
     /// `:sync` — publish the buffer (save, then git push). The host saves
     /// first: publishing an unsaved buffer is meaningless.
     Publish,
+    /// `:gl` — pull from the remote: fetch, then **fast-forward only**. The host
+    /// refuses (and surfaces) a divergence rather than merging, and never
+    /// touches local commits. Complements `:sync` (push) as the download half.
+    Pull,
 }
 
 /// A pending operator awaiting a motion or text object (`d`elete / `c`hange).
@@ -462,6 +466,7 @@ impl Editor {
             }
             "w" | "wq" | "x" => Effect::Save,
             "sync" => Effect::Publish,
+            "gl" => Effect::Pull,
             _ => Effect::None,
         }
     }
@@ -1614,6 +1619,11 @@ mod tests {
     #[test]
     fn sync_command_signals_publish() {
         assert_eq!(command("sync").1, Effect::Publish);
+    }
+
+    #[test]
+    fn gl_command_signals_pull() {
+        assert_eq!(command("gl").1, Effect::Pull);
     }
 
     #[test]

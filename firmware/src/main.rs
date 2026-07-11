@@ -175,6 +175,12 @@ fn main() -> anyhow::Result<()> {
                 #[cfg(not(feature = "git"))]
                 log::info!(":sync — saved; light build (no `git` feature) — push skipped");
             }
+            Effect::Pull => {
+                // `:gl` — fetch + fast-forward from the remote. The on-device
+                // fetch/fast-forward on the git thread is v0.7 work (git_sync
+                // only exposes push today), so acknowledge and no-op for now.
+                ed.set_notice("pull: not wired yet (v0.7)");
+            }
         }
 
         // Keyboard attach/detach feeds the panel's disconnect flag.
