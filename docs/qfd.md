@@ -81,8 +81,8 @@ inside HOW names: **Render** (buffer → e-ink frame, inside Type),
 | --- | -------------------------------------------------- | :-: | ------------------------ | ------------------- |
 | H1  | Type latency (keypress → glyph)                    |  ↓  | ≤ 200 ms                 | ≤ 150 ms            |
 | H2  | Partial-refresh region area per keystroke          |  ↓  | ≤ 1 text line (~22 px h) | same                |
-| H3  | Full-refresh cadence (clears ghosting)             |  →  | 1 per 20 partials        | tuned by panel temp |
-| H4  | Boot latency (cold)                                |  ↓  | ≤ 5 s                    | ≤ 3 s               |
+| H3  | Full-refresh cadence (clears ghosting)             |  →  | 1 per 64 partials        | tuned by panel temp |
+| H4  | Boot latency (cold)                                |  ↓  | ≤ 5 s                    | ≤ 3 s †             |
 | H5  | Continuous-typing endurance (no drop, no leak)     |  ↑  | ≥ 1 h                    | ≥ 8 h               |
 | H6  | Publish reliability (network up)                   |  ↑  | ≥ 95 %                   | ≥ 99 %              |
 | H7  | Publish latency (one file)                         |  ↓  | ≤ 30 s                   | ≤ 10 s              |
@@ -93,6 +93,12 @@ inside HOW names: **Render** (buffer → e-ink frame, inside Type),
 | H12 | Network reconnect time (transient outage)          |  ↓  | ≤ 30 s                   | ≤ 10 s              |
 | H13 | Idle / typing / Publish current draw               |  ↓  | measured only            | sized for >2 days   |
 | H15 | Build time (clean, release)                        |  ↓  | ≤ 7 min                  | ≤ 5 min             |
+
+† **Boot latency, measured 2026-07-11:** cold boot is **4258 ms**, so the ≤ 5 s
+v0.1 target is met. The ≤ 3 s v1.0 target is assessed **marginal-to-unreachable** —
+one ~1.9 s full refresh is unavoidable at cold boot (the `0x26` "previous" bank is
+garbage until the first full paint), an e-ink floor rather than a tuning knob.
+Breakdown + levers: [`notes/boot-time-budget.md`](notes/boot-time-budget.md).
 
 ---
 
@@ -172,7 +178,10 @@ actually shape the design are called out below.
   visible flashes that hurt H8 perception and H1 burst behaviour. The
   [ADR-003] strip aspect is the structural answer: a small framebuffer makes
   _both_ cheaper, not one at the expense of the other. The runtime answer
-  is render §H3: schedule full refreshes on idle ≥ 1 s (v0.1 tech doc).
+  is render §H3: schedule full refreshes on idle ≥ 1 s (v0.1 tech doc). The
+  rows-vs-latency cost model behind this tradeoff — full / full-area-partial /
+  windowed-Y — is in
+  [`tradeoff-curves/epd-refresh-latency.md`](tradeoff-curves/epd-refresh-latency.md).
 - **H9 heap ↔ H10 binary size** (strong). std + gitoxide + mbedtls inflate
   both. We chose to spend on these ([ADR-001], [ADR-004]) because 16 MB flash
   and 8 MB PSRAM make them affordable; the kill-switch is spike 7. If
@@ -290,8 +299,8 @@ numbers spikes 2–7 must validate before integration starts.
 | 3    | H8 durability  | 100 % (post-confirm power loss)       | bench HIL         | Re-evaluate [ADR-007] (move config to internal NVS only)                  |
 | 4    | H1 Type latency | ≤ 200 ms (keypress → glyph)          | spike 5           | Larger partial-refresh region; render multi-char bursts                   |
 | 5    | H6 Publish reliability | ≥ 95 % (network up)           | spike 6 + spike 7 | TLS cipher trim; reconnect backoff tuning                                 |
-| 6    | H3 cadence     | full every ~20 partials               | spike 2           | Adjust per panel temperature; defer flash to idle ≥ 1 s                   |
-| 7    | H4 Boot latency | ≤ 5 s (cold, to cursor)              | integration smoke | Trim startup logging; lazy-mount SD after splash                          |
+| 6    | H3 cadence     | full every ~64 partials               | spike 2           | Adjust per panel temperature; defer flash to idle ≥ 1 s                   |
+| 7    | H4 Boot latency | ≤ 5 s (cold, to cursor)              | 4258 ms 2026-07-11 ✓ | Editor rides a full-area partial over the splash (done, −1.25 s); PSRAM memtest off (−0.74 s) — [boot-time-budget](notes/boot-time-budget.md) |
 | 8    | H5 soak        | 1 h no leak / no drop                 | 1 h bench soak    | Glyph-cache eviction; PSRAM heap-fragmentation review                     |
 
 The two not-in-MVP rows but already-shaped-by-design:
@@ -473,6 +482,20 @@ These are the live tensions we are watching, not deciding harder:
   context where it belongs once the function name carries the
   transformation; H4's "to cursor" is implicit in Boot's definition.
   Matrix cell strengths held; no Σ recompute.
+- **H4 boot measured; H3 cadence corrected; boot-time docs added
+  (2026-07-11).** Cold boot instrumented at **4258 ms** — the ≤ 5 s v0.1 target
+  is met; §6's H4 row now carries that measured result and the real mitigation
+  (editor rides a full-area partial over the splash, −1.25 s) in place of the
+  pre-integration guesses (trim logging / lazy-mount SD). §2's ≤ 3 s v1.0 target
+  gained a footnote flagging it **marginal-to-unreachable** — one ~1.9 s full
+  refresh is an unavoidable e-ink cold-boot floor. Separately, §2 + §6 H3
+  full-refresh cadence corrected from "1 per 20 partials" to **1 per 64**: the
+  firmware stretched it (`FULL_REFRESH_EVERY = 64`) once windowed-Y refresh made
+  ghosting rare — a drift that predated this pass. New supporting docs:
+  [`notes/boot-time-budget.md`](notes/boot-time-budget.md) (waterfall + v1.0
+  feasibility) and
+  [`tradeoff-curves/epd-refresh-latency.md`](tradeoff-curves/epd-refresh-latency.md)
+  (rows-vs-latency model), cross-linked from §4's H1↔H3 bullet.
 
 The earlier variance between README's "~12 lines" and product/[ADR-003]'s
 "~11 lines" of "edit area" is now superseded: the side-panel redesign removed
