@@ -131,8 +131,27 @@ impl Editor {
         }
     }
 
+    /// Seed a fresh editor from previously saved text — the boot-load path
+    /// (`storage.load()` → `Editor`). The caret lands at the end so the user
+    /// resumes writing exactly where they left off, in the same power-on Insert
+    /// mode as [`Editor::new`]; the first [`Editor::draw`] scrolls it into view.
+    /// An empty string is equivalent to [`Editor::new`].
+    pub fn with_text(text: String) -> Self {
+        let caret = text.len();
+        Editor {
+            text,
+            caret,
+            ..Editor::new()
+        }
+    }
+
     pub fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// The full buffer contents, for the host to persist on `:w`/`:sync`.
+    pub fn text(&self) -> &str {
+        &self.text
     }
 
     pub fn scroll_top(&self) -> usize {
@@ -1465,5 +1484,27 @@ mod tests {
         let (e, eff) = command("q"); // quit is deliberately unimplemented
         assert_eq!(eff, Effect::None);
         assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn with_text_seeds_buffer_caret_at_end_ready_to_type() {
+        let e = Editor::with_text("resumed draft".to_string());
+        assert_eq!(e.text(), "resumed draft");
+        assert_eq!(e.caret, 13); // caret at end, continuing the last sentence
+        assert_eq!(e.mode(), Mode::Insert); // power-on = ready to write
+    }
+
+    #[test]
+    fn with_text_empty_matches_new() {
+        let e = Editor::with_text(String::new());
+        assert_eq!(e.text(), "");
+        assert_eq!(e.caret, 0);
+        assert_eq!(e.mode(), Mode::Insert);
+    }
+
+    #[test]
+    fn text_getter_reflects_edits() {
+        let e = typed("hello");
+        assert_eq!(e.text(), "hello");
     }
 }
