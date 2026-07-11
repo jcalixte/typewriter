@@ -177,9 +177,10 @@ module screen_cuts() {
             cube([A_ap_w, A_ap_h, 66], center=true);
         // glass pocket behind the lip — centred on the glass outline
         translate([0, 0, -30-lip_t]) cube([P_w, P_h, 60], center=true);
-        // ribbon bay: an open notch in the LEFT short edge (breaches the bezel
-        // lip) so the FPC exits and folds down to the DESPI-C579 breakout below
-        translate([-P_w/2, 0, 0]) cube([14, fpc_w, 70], center=true);
+        // FPC clearance: an internal notch in the LEFT recess wall, kept BELOW
+        // the bezel lip so it stays invisible from outside — the flex passes the
+        // glass's left edge and folds back into the cavity, to the breakout
+        translate([-P_w/2, 0, -30-lip_t]) cube([14, fpc_w, 60], center=true);
     }
 }
 
@@ -297,7 +298,7 @@ if (show == "assembled") {
     translate([W+30, D+30, foot_h])   color(C_bracket) bracket();
 } else if (show == "section") {
     // slice away the +X half: the cut face shows the screen clamp, and the
-    // retained LEFT half shows the open FPC ribbon bay on the left edge
+    // retained LEFT half exposes the internal FPC clearance behind the bezel
     difference() {
         union() {
             color(C_body)   case_body();
