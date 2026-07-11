@@ -203,6 +203,7 @@ fn main() -> anyhow::Result<()> {
                         // and no-op for now.
                         ed.set_notice("pull: not wired yet (v0.7)");
                     }
+                    Effect::Delete { path, scope } => delete_buffer(&storage, &mut ed, path, scope),
                 }
             }
         }
@@ -417,6 +418,33 @@ fn open_buffer(storage: &Storage, ed: &mut Editor, path: String, scope: Scope) {
         Err(e) => {
             log::error!("open {path} FAILED ({e:#})");
             ed.set_notice(format!("can't open {}", file_stem(&path)));
+        }
+    }
+}
+
+/// Unlink a file from the card (`:delete`). The editor has already dropped it
+/// from its model and switched away, so this is pure IO plus the snackbar. For a
+/// Tracked file the removal is left in the git working copy — the next `:sync`'s
+/// `add --all` stages the deletion — so nothing git-specific happens here. A
+/// failure keeps the file on disk and says so; the buffer has still switched, so
+/// the file is recoverable by re-opening it.
+fn delete_buffer(storage: &Storage, ed: &mut Editor, path: String, scope: Scope) {
+    // Scope-qualified label (`repo/notes.md`), so the snackbar names exactly which
+    // file left the card — and, for a Tracked file, that the removal is only local
+    // until the next `:sync` publishes it (deleting from the card alone never
+    // touches the remote — that mirrors how a Save is local until Publish).
+    let label = path.strip_prefix("/sd/").unwrap_or(&path);
+    match storage.delete_path(&path) {
+        Ok(()) => {
+            log::info!("deleted {path} ({scope:?})");
+            ed.set_notice(match scope {
+                Scope::Tracked => format!("deleted {label} - :sync to publish"),
+                Scope::Local => format!("deleted {label}"),
+            });
+        }
+        Err(e) => {
+            log::error!("delete {path} FAILED ({e:#})");
+            ed.set_notice(format!("delete FAILED: {label}"));
         }
     }
 }

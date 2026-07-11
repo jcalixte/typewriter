@@ -308,6 +308,20 @@ impl Storage {
         Ok(())
     }
 
+    /// Unlink a file under `/sd` (`:delete`). Tolerates a missing target — an
+    /// already-gone file is a success, so the call is idempotent. Also clears a
+    /// stray `{path}.tmp` best-effort, so a crash-interrupted save can't leave the
+    /// file half-present after a delete. For a Tracked file this leaves the
+    /// working copy short one file; the next publish's `add --all` stages it.
+    pub fn delete_path(&self, path: &str) -> Result<()> {
+        let _ = fs::remove_file(format!("{path}.tmp"));
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e).with_context(|| format!("unlink {path}")),
+        }
+    }
+
     /// Reconcile a leftover `notes.md.tmp` at boot. The save sequence is
     /// write-tmp → fsync → unlink-target → rename, so a lingering tmp means the
     /// last save was interrupted. Which way to recover depends on whether the

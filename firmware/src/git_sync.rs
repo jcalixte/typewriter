@@ -254,13 +254,20 @@ fn publish_once() -> Result<PublishOutcome> {
 /// (nothing to publish). Called on the first attempt and again to replay the note
 /// after a reconcile.
 ///
-/// `add_all` runs a per-path filter that drops macOS AppleDouble sidecars
-/// (`._name`) and `.DS_Store` that Finder/Spotlight sprinkle onto the FAT card
-/// whenever it's mounted on a Mac — without it, a blind add --all sweeps them into
-/// the commit (it did once: 07d87772 shipped `._.git`, `._README.md`,
-/// `._notes.md`). Filtering here fixes it for *every* repo at the device level, so
-/// no per-repo `.gitignore` is needed. (add --all also stages deletions, for a
-/// future note-delete.)
+/// Staging is `add --all` **plus** `add -u`, which together equal `git add -A`.
+/// `add_all` stages new + modified files; `update_all` re-syncs already-tracked
+/// entries to the working tree, which is what actually removes an index entry
+/// whose file was deleted. Spike 14 found `add_all` alone did **not** stage a
+/// `:delete`d file's removal on this libgit2 build (the tree came back unchanged,
+/// so the publish was a silent no-op), so the `update_all` pass is load-bearing,
+/// not belt-and-braces — do not drop it.
+///
+/// Both run a per-path filter that drops macOS AppleDouble sidecars (`._name`)
+/// and `.DS_Store` that Finder/Spotlight sprinkle onto the FAT card whenever it's
+/// mounted on a Mac — without it, a blind add --all sweeps them into the commit
+/// (it did once: 07d87772 shipped `._.git`, `._README.md`, `._notes.md`).
+/// Filtering here fixes it for *every* repo at the device level, so no per-repo
+/// `.gitignore` is needed.
 fn stage_and_commit(repo: &Repository) -> Result<Option<git2::Oid>> {
     let mut index = repo.index().context("opening index")?;
     let mut skip_macos_cruft = |path: &Path, _matched: &[u8]| -> i32 {
@@ -271,7 +278,12 @@ fn stage_and_commit(repo: &Repository) -> Result<Option<git2::Oid>> {
     };
     index
         .add_all(["*"], IndexAddOption::DEFAULT, Some(&mut skip_macos_cruft))
-        .context("staging (add --all)")?;
+        .context("staging new/modified (add --all)")?;
+    // Stage deletions: update_all removes index entries whose working-tree file is
+    // gone. add_all does not do this reliably here (Spike 14), so this is required.
+    index
+        .update_all(["*"], Some(&mut skip_macos_cruft))
+        .context("staging deletions (add -u)")?;
     index.write().context("writing index")?;
     let tree = repo.find_tree(index.write_tree().context("writing tree")?)?;
 

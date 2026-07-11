@@ -136,6 +136,13 @@ pub enum Effect {
     /// refuses (and surfaces) a divergence rather than merging, and never
     /// touches local commits. Complements `:sync` (push) as the download half.
     Pull,
+    /// `:delete` — unlink `path` from the card. For a **Tracked** file the removal
+    /// lands in the git working copy, so the next [`Publish`](Effect::Publish)'s
+    /// `add --all` stages the deletion (no eager `git rm` needed); a **Local** file
+    /// is just unlinked. The editor has already dropped the file from its model and
+    /// switched away by the time this drains, so `scope` is informational; the host
+    /// reports the outcome on the snackbar (mirrors [`Save`](Effect::Save)).
+    Delete { path: String, scope: Scope },
 }
 
 /// Tracked files live here (the git working copy).
@@ -143,22 +150,35 @@ pub const REPO_DIR: &str = "/sd/repo";
 /// Local files live here (never published).
 pub const LOCAL_DIR: &str = "/sd/local";
 
-/// Resolve a `:e` argument (or palette pick) to an absolute path + [`Scope`]. An
-/// absolute path under [`LOCAL_DIR`] is Local; any other absolute path (including
-/// under [`REPO_DIR`]) is Tracked. A bare name (no `/`) is joined onto the current
-/// buffer's scope directory, so `:e draft.md` opens a sibling of the file you're
-/// in.
+/// Resolve a `:e`/`:enew` argument (or palette pick) to an absolute path +
+/// [`Scope`]. Everything the writer can reach lives on the card under `/sd`, so
+/// the `/sd` prefix is **optional**: `/sd/repo/x`, `/repo/x`, and `repo/x` all
+/// name the same file, and nothing resolves outside `/sd`. The arg is normalized
+/// to a scope-relative form (peel an optional `/sd`, then an optional leading
+/// `/`), then:
+/// - a leading `local/` or `repo/` segment **selects the scope** and names the
+///   file in it — the same labels the palette shows (`local/journal.md`,
+///   `repo/notes.md`), so a name read off the palette is typeable verbatim. Safe
+///   because scopes are flat: there are no real `local/`/`repo/` subdirectories;
+/// - otherwise a bare name joins the **current** buffer's scope directory, so
+///   `:e draft.md` opens a sibling of the file you're in.
 fn resolve_path(arg: &str, current: Scope) -> (String, Scope) {
-    if arg.starts_with(&format!("{LOCAL_DIR}/")) {
-        (arg.to_string(), Scope::Local)
-    } else if arg.starts_with('/') {
-        (arg.to_string(), Scope::Tracked)
+    // Peel the optional `/sd` prefix, then an optional leading `/`, leaving a
+    // scope-relative remainder (`repo/…`, `local/…`, or a bare name).
+    let rel = arg
+        .strip_prefix("/sd/")
+        .or_else(|| arg.strip_prefix('/'))
+        .unwrap_or(arg);
+    if let Some(name) = rel.strip_prefix("local/") {
+        (format!("{LOCAL_DIR}/{name}"), Scope::Local)
+    } else if let Some(name) = rel.strip_prefix("repo/") {
+        (format!("{REPO_DIR}/{name}"), Scope::Tracked)
     } else {
         let dir = match current {
             Scope::Tracked => REPO_DIR,
             Scope::Local => LOCAL_DIR,
         };
-        (format!("{dir}/{arg}"), current)
+        (format!("{dir}/{rel}"), current)
     }
 }
 
@@ -966,12 +986,20 @@ impl Editor {
     /// therefore just save (the "quit" half is dropped).
     fn execute_command(&mut self) {
         let cmd = self.cmdline.trim().to_string();
+        // `:enew <path>` — create a new file (checked before `:e ` so it isn't
+        // swallowed by it; "enew foo" never starts with "e ").
+        if let Some(arg) = cmd.strip_prefix("enew ") {
+            self.new_file(arg);
+            return;
+        }
         // `:e <path>` — open another file (multi-file, v0.5).
         if let Some(arg) = cmd.strip_prefix("e ") {
             self.edit_file(arg);
             return;
         }
         match cmd.as_str() {
+            "enew" => self.set_notice("usage: :enew <file>"),
+            "delete" => self.delete_current(),
             "fmt" => self.format_buffer(),
             "w" | "wq" | "x" => {
                 if self.format_on_save {
@@ -1209,6 +1237,80 @@ impl Editor {
         }
         let (path, scope) = resolve_path(arg, self.scope);
         self.open_path(path, scope);
+    }
+
+    /// `:enew <arg>` — create a new file and make it the active buffer. Scope is
+    /// read from the path exactly like `:e` (`local/…` → Local, else Tracked;
+    /// a bare name lands in the current buffer's scope), so no scope prompt is
+    /// needed — the resolved scope is echoed in the snackbar instead. If the name
+    /// already resolves to the active or a parked buffer, this just switches to it
+    /// (no clobber); otherwise the buffer starts empty and **dirty**, so it is
+    /// durable (a later eviction or `:w` persists it) and shows in the palette at
+    /// once. The file is not written to disk until then — `:enew` alone allocates
+    /// no card IO.
+    fn new_file(&mut self, arg: &str) {
+        let arg = arg.trim();
+        if arg.is_empty() {
+            self.set_notice("usage: :enew <file>");
+            return;
+        }
+        let (path, scope) = resolve_path(arg, self.scope);
+        // Already open (active or parked) — treat `:enew` of an existing name as a
+        // switch rather than replacing its contents with an empty buffer.
+        if path == self.path || self.parked.iter().any(|b| b.path == path) {
+            self.open_path(path, scope);
+            return;
+        }
+        self.note_recent(&path);
+        self.add_to_file_list(&path);
+        self.park_active();
+        self.set_active(path.clone(), scope, String::new());
+        // A fresh file is unsaved: mark it dirty so eviction/`:w` persists it and
+        // it never silently vanishes (unlike an `:e` of a missing name).
+        self.dirty = true;
+        self.set_notice(format!("new {}", palette_label(&path)));
+    }
+
+    /// `:delete` — unlink the **current** file from the card and leave it. Queues
+    /// an [`Effect::Delete`] (the host does the removal + reports the outcome) and
+    /// updates the in-core model now: the path is dropped from the file list and
+    /// MRU, and the active buffer switches to the most-recently-parked buffer, or
+    /// an empty unnamed scratch if none is resident. An unnamed scratch buffer has
+    /// nothing on disk, so it is a no-op with a notice. Deleting an arbitrary
+    /// (non-current) file is deferred — this is the file you are looking at.
+    fn delete_current(&mut self) {
+        if self.path.is_empty() {
+            self.set_notice("no file to delete");
+            return;
+        }
+        let path = core::mem::take(&mut self.path);
+        let scope = self.scope;
+        self.requests.push(Effect::Delete { path: path.clone(), scope });
+        self.remove_from_file_list(&path);
+        self.recent.retain(|p| p != &path);
+        // The current buffer is being discarded, not parked: restore the most
+        // recently parked buffer if one is resident, else fall back to scratch.
+        match self.parked.pop() {
+            Some(b) => {
+                self.note_recent(&b.path);
+                self.activate(b);
+            }
+            None => self.set_active(String::new(), Scope::Tracked, String::new()),
+        }
+    }
+
+    /// Insert `path` into the palette's file list, keeping it sorted and unique
+    /// (matches [`set_file_list`](Self::set_file_list)'s invariant). Used by
+    /// `:enew` so a just-created file is findable without a disk re-enumeration.
+    fn add_to_file_list(&mut self, path: &str) {
+        if let Err(i) = self.files.binary_search(&path.to_string()) {
+            self.files.insert(i, path.to_string());
+        }
+    }
+
+    /// Drop `path` from the palette's file list (used by `:delete`).
+    fn remove_from_file_list(&mut self, path: &str) {
+        self.files.retain(|f| f != path);
     }
 
     // --- File palette (Ctrl-P) ---------------------------------------------
@@ -2780,6 +2882,7 @@ mod tests {
         Load,
         Publish,
         Pull,
+        Delete,
     }
 
     fn kinds(effects: &[Effect]) -> Vec<Kind> {
@@ -2790,6 +2893,7 @@ mod tests {
                 Effect::Load { .. } => Kind::Load,
                 Effect::Publish => Kind::Publish,
                 Effect::Pull => Kind::Pull,
+                Effect::Delete { .. } => Kind::Delete,
             })
             .collect()
     }
@@ -3707,8 +3811,13 @@ mod tests {
 
     /// Drive `:e {arg}<Enter>` from Normal.
     fn edit(e: &mut Editor, arg: &str) {
+        ex(e, &format!("e {arg}"));
+    }
+
+    /// Drive an arbitrary `:{cmd}<Enter>` from Normal.
+    fn ex(e: &mut Editor, cmd: &str) {
         e.handle(Key::Char(':'));
-        for c in format!("e {arg}").chars() {
+        for c in cmd.chars() {
             e.handle(Key::Char(c));
         }
         e.handle(Key::Enter);
@@ -3740,6 +3849,26 @@ mod tests {
         assert_eq!(
             resolve_path("/sd/repo/n.md", Scope::Local),
             ("/sd/repo/n.md".to_string(), Scope::Tracked)
+        );
+        // A leading `local/` or `repo/` segment selects scope (the palette label
+        // form), independent of the current buffer's scope.
+        assert_eq!(
+            resolve_path("local/j.md", Scope::Tracked),
+            ("/sd/local/j.md".to_string(), Scope::Local)
+        );
+        assert_eq!(
+            resolve_path("repo/n.md", Scope::Local),
+            ("/sd/repo/n.md".to_string(), Scope::Tracked)
+        );
+        // The `/sd` prefix is optional: `/repo/x` and `/local/x` (leading slash,
+        // no `/sd`) resolve into the same scopes as their `/sd/…` spellings.
+        assert_eq!(
+            resolve_path("/repo/n.md", Scope::Local),
+            ("/sd/repo/n.md".to_string(), Scope::Tracked)
+        );
+        assert_eq!(
+            resolve_path("/local/j.md", Scope::Tracked),
+            ("/sd/local/j.md".to_string(), Scope::Local)
         );
         // A bare name lands in the current buffer's scope directory.
         assert_eq!(
@@ -3839,6 +3968,134 @@ mod tests {
         e.take_effects();
         e.install_loaded("/sd/repo/d.md".into(), Scope::Tracked, "D".into());
         assert!(e.take_effects().is_empty()); // clean buffer: no save on evict
+    }
+
+    // ---- :enew / :delete (v0.5 slice 3) ----
+
+    #[test]
+    fn enew_creates_a_dirty_empty_buffer_and_asks_the_host_for_nothing() {
+        let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "A".into());
+        ex(&mut e, "enew draft.md");
+        assert_eq!(e.path(), "/sd/repo/draft.md"); // bare name → current (Tracked) scope
+        assert_eq!(e.scope(), Scope::Tracked);
+        assert_eq!(e.text(), "");
+        assert!(e.dirty()); // fresh + unsaved, so eviction/`:w` will persist it
+        assert_eq!(e.mode(), Mode::Normal);
+        // `:enew` allocates no card IO — it neither loads nor saves.
+        assert!(e.take_effects().is_empty());
+    }
+
+    #[test]
+    fn enew_derives_local_scope_from_the_path() {
+        let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "A".into());
+        ex(&mut e, "enew local/journal.md");
+        assert_eq!(e.path(), "/sd/local/journal.md");
+        assert_eq!(e.scope(), Scope::Local);
+    }
+
+    #[test]
+    fn enew_adds_the_new_file_to_the_palette_list() {
+        let mut e = palette_editor(&["/sd/repo/notes.md", "/sd/repo/todo.md"]);
+        ex(&mut e, "enew draft.md");
+        assert!(e.files.contains(&"/sd/repo/draft.md".to_string()));
+        // and it is findable in the palette without a disk re-enumeration
+        e.handle(Key::Palette);
+        for c in "draft".chars() {
+            e.handle(Key::Char(c));
+        }
+        assert_eq!(palette_labels(&e), vec!["repo/draft.md"]);
+    }
+
+    #[test]
+    fn enew_of_an_already_open_file_switches_without_clobbering() {
+        let mut e = Editor::with_file("/sd/repo/a.md".into(), Scope::Tracked, "AAA".into());
+        e.install_loaded("/sd/repo/b.md".into(), Scope::Tracked, "BBB".into()); // parks A
+        e.take_effects();
+        ex(&mut e, "enew /sd/repo/a.md"); // A is parked (resident) — switch, don't empty it
+        assert_eq!(e.path(), "/sd/repo/a.md");
+        assert_eq!(e.text(), "AAA"); // contents preserved, not clobbered to empty
+        assert!(e.take_effects().is_empty()); // resident: no Load
+    }
+
+    #[test]
+    fn enew_without_a_name_is_a_usage_noop() {
+        let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "A".into());
+        ex(&mut e, "enew");
+        assert_eq!(e.path(), "/sd/repo/notes.md"); // unchanged
+        assert!(e.take_effects().is_empty());
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn delete_queues_a_delete_of_the_current_file() {
+        let (mut e, effs) = command("delete");
+        assert_eq!(
+            effs,
+            vec![Effect::Delete {
+                path: "/sd/repo/notes.md".into(),
+                scope: Scope::Tracked,
+            }]
+        );
+        // No file remains active (nothing else was resident): a scratch buffer.
+        assert_eq!(e.path(), "");
+        assert_eq!(e.text(), "");
+        assert_eq!(e.mode(), Mode::Normal);
+        assert!(e.take_effects().is_empty());
+    }
+
+    #[test]
+    fn delete_never_saves_the_discarded_buffer_even_when_dirty() {
+        let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "A".into());
+        e.handle(Key::Char('x')); // dirty it
+        assert!(e.dirty());
+        ex(&mut e, "delete");
+        // The buffer is being deleted, so it is discarded, not saved: Delete only.
+        assert_eq!(kinds(&e.take_effects()), vec![Kind::Delete]);
+    }
+
+    #[test]
+    fn delete_switches_to_the_most_recently_parked_buffer() {
+        let mut e = Editor::with_file("/sd/repo/a.md".into(), Scope::Tracked, "AAA".into());
+        e.install_loaded("/sd/repo/b.md".into(), Scope::Tracked, "BBB".into()); // active B, A parked
+        e.take_effects();
+        ex(&mut e, "delete"); // deletes B, restores A
+        assert_eq!(e.path(), "/sd/repo/a.md");
+        assert_eq!(e.text(), "AAA"); // A came back from RAM, caret/undo with it
+        match &e.take_effects()[..] {
+            [Effect::Delete { path, .. }] => assert_eq!(path, "/sd/repo/b.md"),
+            other => panic!("expected a single Delete of B, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delete_drops_the_file_from_the_palette_list() {
+        let mut e = palette_editor(&["/sd/repo/notes.md", "/sd/repo/todo.md"]);
+        ex(&mut e, "delete"); // notes.md is active
+        e.take_effects();
+        assert!(!e.files.contains(&"/sd/repo/notes.md".to_string()));
+        e.handle(Key::Palette);
+        assert_eq!(palette_labels(&e), vec!["repo/todo.md"]); // only the survivor
+    }
+
+    #[test]
+    fn delete_of_a_local_file_carries_local_scope() {
+        let mut e = Editor::with_file("/sd/local/j.md".into(), Scope::Local, "diary".into());
+        ex(&mut e, "delete");
+        match &e.take_effects()[..] {
+            [Effect::Delete { path, scope }] => {
+                assert_eq!(path, "/sd/local/j.md");
+                assert_eq!(*scope, Scope::Local);
+            }
+            other => panic!("expected a Local Delete, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delete_on_an_unnamed_buffer_is_a_noop() {
+        let mut e = Editor::new(); // scratch, empty path — nothing on disk to delete
+        ex(&mut e, "delete");
+        assert!(e.take_effects().is_empty());
+        assert_eq!(e.mode(), Mode::Normal);
     }
 
     // ---- File palette (Ctrl-P) ----

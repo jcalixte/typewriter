@@ -350,25 +350,60 @@ down/up line motions in Normal mode** (vim `CTRL-N`≡`j`, `CTRL-P`≡`k`,
 count-aware), which is why the palette opener moved to `Cmd-P` alone. Scope
 shows as the inline `repo/…` vs `local/…` label rather than the planned
 `[git]`/`[local]` badge — it also disambiguates subpaths, not just scope. 111
-editor tests + 28 keymap tests pass; the no-git firmware binary builds clean. The
-transient-panel refresh on the panel is the **Spike 11** on-device gate (still
-pending); file-list refresh after create/delete arrives with slice 3. Remaining
-v0.5 slices: 3 `:enew` + delete, 4 prefs + palette command mode.
+editor tests + 28 keymap tests pass; the no-git firmware binary builds clean.
+The transient-panel refresh (**Spike 11**) is **CONFIRMED ON DEVICE 2026-07-12 —
+no ghosting** (user flashed it and eyeballed the full-area partial the palette
+forces); Cmd-P opens it on-device too. Remaining v0.5 slice: 4 prefs +
+palette command mode.
 
-- [~] `Cmd-P` opens fuzzy file palette over **both** `/sd/repo/` and
-      `/sd/local/` — **landed in core (host-tested)**; scope shows as the inline
-      `repo/…` / `local/…` label instead of a `[git]`/`[local]` badge. On-device
-      transient-panel refresh (Spike 11) is the remaining gate.
+**Slice 3 (`:enew` + delete) COMPLETE in core 2026-07-12, HOST-TESTED not yet
+on-device.** `:enew <name>` creates a new file: empty, active, marked **dirty**
+so eviction/`:w` persists it, and added to the in-core file list so the palette
+finds it without a disk re-enumeration — no card IO until it is saved. `:delete`
+unlinks the **current** file (a new `Effect::Delete` the host services), then
+switches to the most-recently-parked buffer or an empty scratch; the discarded
+buffer is never saved even when dirty. **Scope for a new file is read from the
+path, not a modal prompt** — `local/x` / `repo/x` (the palette label form) select
+the scope, a bare name uses the current buffer's scope. Same change made the
+**`/sd` prefix optional everywhere** in `resolve_path`: `/sd/repo/x`, `/repo/x`,
+and `repo/x` all name one file and nothing resolves outside `/sd` (the writer
+can't reach anything else). **Spike 14 (delete → git-staging) DID need a firmware
+fix.** The first on-device test found `add_all(["*"])` alone does **not** stage a
+deletion on this libgit2 build (the tree came back unchanged, so the second push
+was a silent "up to date" no-op — the "delete didn't work" report). Fix:
+`stage_and_commit` now runs `add_all` **then `update_all(["*"])`** (`git add -u`),
+which removes index entries whose working-tree file is gone — together they are
+`git add -A`. Also, `:delete` gave no clear feedback, so the snackbar now names
+the scoped file and, for a Tracked file, that it is local until `:sync`
+(`deleted repo/notes.md - :sync to publish`). Deferred to later: greying the
+Publish affordance for a Local buffer, and the multi-file publish count. 123
+editor tests + 28 keymap tests pass; the no-git firmware binary builds clean (the
+`update_all` fix is behind `--features git`, unbuildable locally — on-device
+re-test pending).
+
+- [x] `Cmd-P` opens fuzzy file palette over **both** `/sd/repo/` and
+      `/sd/local/` — **landed and CONFIRMED ON DEVICE 2026-07-12** (Spike 11: no
+      ghosting on the transient panel); scope shows as the inline
+      `repo/…` / `local/…` label instead of a `[git]`/`[local]` badge.
 - [~] Open, switch, close buffers (keep ≤ 3 in memory) — **open + switch + the
       ≤ 3 LRU-resident model with dirty-aware save-before-evict done in core**
       (host-tested); `:e <path>` **and the palette** drive it today. Explicit
       **close** still to come.
 - [x] `:e` and palette share the same recent-files list — both open via
       `open_path`, which pushes to the in-core MRU that orders the palette.
-- [ ] `:enew` creates a new file — prompts for scope (tracked vs local)
-- [ ] Delete a file — removes it from the SD card; for a Tracked file the
-      removal reaches the next `Ctrl-G` Publish's staged set (`git rm` / `add -A`
-      semantics, not plain `git add .`); a Local file is just unlinked
+- [x] `:enew` creates a new file — **done in core (host-tested) 2026-07-12.**
+      Scope is read from the path (`local/x` / `repo/x` select it, the palette
+      label form; a bare name uses the current scope) rather than a modal
+      prompt — the resolved scope is echoed in the snackbar. The `/sd` prefix is
+      optional throughout (`/sd/repo/x` = `/repo/x` = `repo/x`).
+- [x] Delete a file — **core done (host-tested) 2026-07-12;** `:delete` unlinks
+      the current file via `Effect::Delete`. For a Tracked file the removal reaches
+      the next `:sync` Publish's staged set. **Spike 14 (on-device) found the
+      staging incomplete:** `add_all(["*"])` alone did not stage the deletion, so
+      `stage_and_commit` now also runs `update_all(["*"])` (`git add -u`) — the
+      two together are `git add -A`. A Local file is just unlinked. The snackbar
+      now confirms the delete and flags that a Tracked file needs `:sync`.
+      **On-device re-test of the fix pending** (build is `--features git`).
 - [~] `Ctrl-G` is disabled / hidden when the current buffer is local-scope —
       **`:sync` / Publish is blocked in-core for a Local buffer** (posts "Publish
       unavailable (Local)"); the side-panel affordance that hides/greys the
