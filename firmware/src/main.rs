@@ -10,7 +10,7 @@ use esp_idf_svc::hal::spi::{Dma, SpiBusDriver, SpiDriver};
 use esp_idf_svc::hal::units::FromValueType;
 
 use display::Frame;
-use editor::{Editor, Effect, Mode, Scope, CH};
+use editor::{Editor, Effect, Mode, Scope, CH, LOCAL_DIR, REPO_DIR};
 use firmware::epd::{self, Epd};
 use firmware::persistence::{Storage, NOTES};
 
@@ -112,6 +112,9 @@ fn main() -> anyhow::Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("notes");
     ed.set_notice(format!("loaded {name}"));
+    // Feed the file palette (Ctrl-P). Enumerated once at boot — the v0.5 slices
+    // that create/delete files (`:enew`, delete) will re-feed it then.
+    ed.set_file_list(enumerate_files());
     let mut updates: u32 = 0;
     let mut cursor_shown = true; // the initial render includes the caret
     let mut last_activity = Instant::now();
@@ -416,6 +419,38 @@ fn open_buffer(storage: &Storage, ed: &mut Editor, path: String, scope: Scope) {
             ed.set_notice(format!("can't open {}", file_stem(&path)));
         }
     }
+}
+
+/// Enumerate the palette's openable files: the top-level regular files in
+/// `/sd/repo` and `/sd/local`, as absolute paths. Skips dotfiles (so `.git`,
+/// `.typoena.toml`, and the like never show) and anything that isn't a plain
+/// file. Best-effort: an unreadable directory (e.g. no `/sd/local` yet)
+/// contributes nothing rather than failing. The editor sorts and dedupes.
+fn enumerate_files() -> Vec<String> {
+    let mut out = Vec::new();
+    for dir in [REPO_DIR, LOCAL_DIR] {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if name.starts_with('.') {
+                continue;
+            }
+            // Stat rather than trust d_type — FatFS's dirent type can read back
+            // as unknown; a plain metadata call is reliable here.
+            if !std::fs::metadata(&path).map(|m| m.is_file()).unwrap_or(false) {
+                continue;
+            }
+            if let Some(p) = path.to_str() {
+                out.push(p.to_string());
+            }
+        }
+    }
+    out
 }
 
 /// A file's display name — its basename without extension (`/sd/repo/notes.md`

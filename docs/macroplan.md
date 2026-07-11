@@ -332,18 +332,39 @@ saved before it is evicted (nothing leaves RAM unsaved); `:e <path>` opens by
 prefix (`/sd/repo` → Tracked, `/sd/local` → Local); `:sync` is refused in-core in
 a Local buffer. Firmware drains the queue **to empty** each batch (a `Load` can
 cascade an eviction `Save`), and `persistence::{load_path,save_path}` generalise
-the atomic save off the hard-coded `notes.md`. 93 editor tests pass; the default
-(no-git) firmware binary builds clean. Remaining v0.5 slices: 2 palette + fuzzy +
-transient panel, 3 `:enew` + delete, 4 prefs + palette command mode.
+the atomic save off the hard-coded `notes.md`.
 
-- [ ] `Ctrl-P` opens fuzzy file palette over **both** `/sd/repo/` and
-      `/sd/local/`, with a scope marker (e.g. `[git]` / `[local]`) per result
+**Slice 2 of 4 landed in core 2026-07-11**, host-tested: the `Cmd-P` file
+**palette** — a modal transient panel over the writing column with a bare
+fuzzy-search input (no `>` prefix: `>` is reserved for the command palette,
+slice 4 — VS Code semantics), the ranked list, and the selected row in reverse
+video. A pure host-testable fuzzy matcher (`fuzzy_score`: subsequence match,
+boundary + consecutive-run bonuses, no penalties) ranks results; an in-core MRU
+floats recently-opened files to the top on an empty query and is **shared with
+`:e`** (both flow through `open_path`). The host feeds the file list once at boot
+(`set_file_list`, enumerating `/sd/repo` + `/sd/local`, dotfiles skipped);
+`Ctrl-n`/`Ctrl-p` (fzf-style; `Ctrl-d`/`Ctrl-u` too) move the selection — the
+60 % board has no arrow keys — Enter opens via the same park/evict path as `:e`,
+Esc (or `Cmd-P` again) closes. Same slice: **`Ctrl-n`/`Ctrl-p` also work as
+down/up line motions in Normal mode** (vim `CTRL-N`≡`j`, `CTRL-P`≡`k`,
+count-aware), which is why the palette opener moved to `Cmd-P` alone. Scope
+shows as the inline `repo/…` vs `local/…` label rather than the planned
+`[git]`/`[local]` badge — it also disambiguates subpaths, not just scope. 111
+editor tests + 28 keymap tests pass; the no-git firmware binary builds clean. The
+transient-panel refresh on the panel is the **Spike 11** on-device gate (still
+pending); file-list refresh after create/delete arrives with slice 3. Remaining
+v0.5 slices: 3 `:enew` + delete, 4 prefs + palette command mode.
+
+- [~] `Cmd-P` opens fuzzy file palette over **both** `/sd/repo/` and
+      `/sd/local/` — **landed in core (host-tested)**; scope shows as the inline
+      `repo/…` / `local/…` label instead of a `[git]`/`[local]` badge. On-device
+      transient-panel refresh (Spike 11) is the remaining gate.
 - [~] Open, switch, close buffers (keep ≤ 3 in memory) — **open + switch + the
       ≤ 3 LRU-resident model with dirty-aware save-before-evict done in core**
-      (host-tested); `:e <path>` drives it today. Explicit **close** (and the
-      palette that surfaces switching) still to come.
-- [~] `:e` and palette share the same recent-files list — **`:e <path>` landed**
-      (prefix → scope); the shared recent-files list arrives with the palette.
+      (host-tested); `:e <path>` **and the palette** drive it today. Explicit
+      **close** still to come.
+- [x] `:e` and palette share the same recent-files list — both open via
+      `open_path`, which pushes to the in-core MRU that orders the palette.
 - [ ] `:enew` creates a new file — prompts for scope (tracked vs local)
 - [ ] Delete a file — removes it from the SD card; for a Tracked file the
       removal reaches the next `Ctrl-G` Publish's staged set (`git rm` / `add -A`

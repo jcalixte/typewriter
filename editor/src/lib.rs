@@ -89,6 +89,11 @@ pub enum Mode {
     /// Enter runs it, Esc cancels. Handles `:fmt` (in-core) plus `:w`/`:sync`
     /// (which ask the host to persist/publish via an [`Effect`]).
     Command,
+    /// File palette (`Cmd-P`) — a modal transient panel over the writing column.
+    /// Typing fuzzy-filters the file list ([`Editor::set_file_list`]); `Ctrl-n`/
+    /// `Ctrl-p` move the selection, Enter opens it, Esc (or `Cmd-P` again)
+    /// cancels. See [`Editor::palette_key`].
+    Palette,
 }
 
 /// Which of the two file scopes ([`CONTEXT.md`]) a buffer belongs to. Fixed at
@@ -191,6 +196,58 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
+/// Fuzzy-match `query` against `text` (the file palette's matcher). Returns a
+/// relevance score if every `query` character appears in `text` in order
+/// (a subsequence match, case-insensitive over ASCII), else `None`. Higher is
+/// better; a higher score is a "tighter" match.
+///
+/// Scoring rewards two things prose filenames make meaningful: a match at a
+/// **word boundary** (start of string, or just after `/ _ - . space`) scores far
+/// above one mid-word, and a **run** of consecutive matches scores extra per
+/// char. So typing `notes` ranks `repo/notes.md` above `promo-tests.md` even
+/// though both contain the letters. There are no penalties, so a score is always
+/// ≥ the query length; ties are broken by the caller (recency, then list order).
+/// An empty query matches everything with score 0.
+fn fuzzy_score(query: &str, text: &str) -> Option<i32> {
+    let q: Vec<char> = query.chars().collect();
+    if q.is_empty() {
+        return Some(0);
+    }
+    let mut qi = 0;
+    let mut score = 0i32;
+    let mut prev_matched = false;
+    let mut prev: Option<char> = None;
+    for (i, tc) in text.chars().enumerate() {
+        if qi < q.len() && tc.eq_ignore_ascii_case(&q[qi]) {
+            score += 1;
+            let boundary =
+                i == 0 || matches!(prev, Some('/') | Some('_') | Some('-') | Some('.') | Some(' '));
+            if boundary {
+                score += 10;
+            }
+            if prev_matched {
+                score += 5;
+            }
+            qi += 1;
+            prev_matched = true;
+        } else {
+            prev_matched = false;
+        }
+        prev = Some(tc);
+    }
+    (qi == q.len()).then_some(score)
+}
+
+/// The palette's display label for an absolute path: `/sd/` stripped, so
+/// `/sd/repo/notes.md` shows as `repo/notes.md` and `/sd/local/journal.md` as
+/// `local/journal.md`. The scope dir (`repo`/`local`) stays, which both
+/// disambiguates same-named files across scopes and reads as a scope tag. A path
+/// not under `/sd/` is shown verbatim. Matching (`fuzzy_score`) runs on this
+/// label, so you can filter by scope (`local`) or subpath, not just basename.
+fn palette_label(path: &str) -> &str {
+    path.strip_prefix("/sd/").unwrap_or(path)
+}
+
 /// A pending operator awaiting a motion or text object (`d`elete / `c`hange /
 /// `y`ank).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -289,6 +346,21 @@ pub struct Editor {
     /// Host-effect queue, drained by [`take_effects`](Self::take_effects) after a
     /// key batch. See [`Effect`].
     requests: Vec<Effect>,
+    /// Every openable file, as absolute paths, fed by the host at boot via
+    /// [`set_file_list`](Self::set_file_list) (an enumeration of `/sd/repo` and
+    /// `/sd/local`). The palette fuzzy-filters this; empty until the host feeds it.
+    files: Vec<String>,
+    /// Recently-opened files, most-recent-first (an MRU), deduped and bounded to
+    /// [`MRU_MAX`]. Every `:e`/palette open pushes to the front
+    /// ([`note_recent`](Self::note_recent)); it orders the palette when the query
+    /// is empty, so the file you were just in is one keystroke away.
+    recent: Vec<String>,
+    /// The palette's fuzzy query (valid only in [`Mode::Palette`]).
+    palette_query: String,
+    /// The selected row in the palette's *filtered* result list (index into
+    /// [`palette_matches`](Self::palette_matches), not into [`files`](Self::files)).
+    /// Reset to 0 whenever the query changes.
+    palette_sel: usize,
 }
 
 /// A resident-but-inactive buffer: everything needed to restore a file's editing
@@ -310,6 +382,12 @@ struct Buffer {
 /// parked (v0.5 keeps ≤ 3). Beyond this the least-recently-used parked buffer is
 /// evicted; it is saved first if dirty, so an evicted buffer is never lost.
 const MAX_RESIDENT: usize = 3;
+
+/// Recent-files (MRU) list length — how many opens the palette remembers to
+/// float to the top on an empty query. Far more than [`MAX_RESIDENT`] (recency
+/// outlives residency: a file evicted from memory is still recently *used*), but
+/// bounded so the list can't grow without limit over a long session.
+const MRU_MAX: usize = 16;
 
 /// Maximum undo depth (change-groups). A full-buffer snapshot per group means
 /// worst-case memory is `UNDO_DEPTH × buffer size`; for note-sized files on the
@@ -352,6 +430,10 @@ impl Editor {
             dirty: false,
             parked: Vec::new(),
             requests: Vec::new(),
+            files: Vec::new(),
+            recent: Vec::new(),
+            palette_query: String::new(),
+            palette_sel: 0,
         }
     }
 
@@ -504,6 +586,7 @@ impl Editor {
             Mode::Visual | Mode::VisualLine => self.visual_key(key),
             Mode::View => self.view_key(key),
             Mode::Command => self.command_key(key),
+            Mode::Palette => self.palette_key(key),
         }
 
         if !self.replaying {
@@ -573,10 +656,12 @@ impl Editor {
             Key::Backspace => self.backspace(),
             Key::DeleteWord => self.delete_word_before(),
             Key::DeleteLine => self.delete_to_line_start(),
-            // Half-page scroll is a navigation gesture — Normal/View only. In
-            // Insert it's a no-op rather than yanking the caret off the text
-            // you're typing. Redo (Ctrl-r) is likewise Normal-only here.
-            Key::HalfPageDown | Key::HalfPageUp | Key::Redo => {}
+            // Half-page scroll and the Ctrl-n/Ctrl-p line motions are navigation
+            // gestures — Normal/View only. In Insert they're a no-op rather than
+            // yanking the caret off the text you're typing. Redo (Ctrl-r) and the
+            // palette (Cmd-p) are likewise ignored here.
+            Key::HalfPageDown | Key::HalfPageUp | Key::Redo | Key::Palette | Key::Down
+            | Key::Up => {}
             Key::Escape => {
                 self.mode = Mode::Normal;
                 // vim drops the caret onto the last inserted char.
@@ -605,10 +690,31 @@ impl Editor {
                 self.move_display_rows(-(HALF_PAGE as isize));
                 return;
             }
+            // Ctrl-n/Ctrl-p: move down/up a line (vim CTRL-N ≡ j, CTRL-P ≡ k),
+            // honouring a leading count (`3<C-n>`) then abandoning the rest of any
+            // pending command like a plain motion.
+            Key::Down => {
+                let n = self.count.max(1);
+                self.reset_pending();
+                self.move_by('j', n);
+                return;
+            }
+            Key::Up => {
+                let n = self.count.max(1);
+                self.reset_pending();
+                self.move_by('k', n);
+                return;
+            }
             // Ctrl-r redo: like any non-motion key it abandons a pending command.
             Key::Redo => {
                 self.reset_pending();
                 self.redo();
+                return;
+            }
+            // Cmd-p: open the file palette (abandoning any pending command).
+            Key::Palette => {
+                self.reset_pending();
+                self.open_palette();
                 return;
             }
             // Esc and other non-character events cancel any pending command.
@@ -1007,6 +1113,7 @@ impl Editor {
         if path == self.path {
             return; // already the active buffer
         }
+        self.note_recent(&path); // float it to the top of the palette's MRU
         match self.parked.iter().position(|b| b.path == path) {
             Some(i) => {
                 let target = self.parked.remove(i);
@@ -1102,6 +1209,129 @@ impl Editor {
         }
         let (path, scope) = resolve_path(arg, self.scope);
         self.open_path(path, scope);
+    }
+
+    // --- File palette (Ctrl-P) ---------------------------------------------
+
+    /// Feed the palette its file list: every openable file as an absolute path,
+    /// enumerated by the host from `/sd/repo` and `/sd/local` (at boot for v0.5).
+    /// Sorted + deduped for a stable base order; the MRU floats recents above it.
+    /// The palette is a pure view over this — nothing is read from disk until a
+    /// file is actually opened.
+    pub fn set_file_list(&mut self, mut files: Vec<String>) {
+        files.sort();
+        files.dedup();
+        self.files = files;
+    }
+
+    /// Push `path` to the front of the recent-files MRU (dropping any earlier
+    /// occurrence), bounded to [`MRU_MAX`]. Drives the palette's empty-query
+    /// order, so the file you were just in sits at the top.
+    fn note_recent(&mut self, path: &str) {
+        self.recent.retain(|p| p != path);
+        self.recent.insert(0, path.to_string());
+        self.recent.truncate(MRU_MAX);
+    }
+
+    /// `Ctrl-P` — open the file palette: empty query (full list, recents first),
+    /// selection on the first row.
+    fn open_palette(&mut self) {
+        self.mode = Mode::Palette;
+        self.palette_query.clear();
+        self.palette_sel = 0;
+    }
+
+    /// Leave the palette back to Normal, clearing its query and selection.
+    fn close_palette(&mut self) {
+        self.mode = Mode::Normal;
+        self.palette_query.clear();
+        self.palette_sel = 0;
+    }
+
+    /// Dispatch a key in [`Mode::Palette`]. Typing fuzzy-filters; `Ctrl-n`/`Ctrl-p`
+    /// (or `Ctrl-d`/`Ctrl-u`) move the selection down/up; Enter opens the selected
+    /// file; Esc or `Cmd-P` closes. Backspace on an empty query also closes
+    /// (mirrors the `:` line). Any query edit resets the selection to the top.
+    fn palette_key(&mut self, key: Key) {
+        match key {
+            Key::Char(c) => {
+                self.palette_query.push(c);
+                self.palette_sel = 0;
+            }
+            Key::Backspace => {
+                if self.palette_query.pop().is_none() {
+                    self.close_palette();
+                } else {
+                    self.palette_sel = 0;
+                }
+            }
+            // Readline Ctrl-W: drop trailing spaces then the last word.
+            Key::DeleteWord => {
+                while self.palette_query.ends_with(' ') {
+                    self.palette_query.pop();
+                }
+                while !self.palette_query.is_empty() && !self.palette_query.ends_with(' ') {
+                    self.palette_query.pop();
+                }
+                self.palette_sel = 0;
+            }
+            Key::DeleteLine => {
+                self.palette_query.clear();
+                self.palette_sel = 0;
+            }
+            // Ctrl-n/Ctrl-p move the selection (fzf-style); Ctrl-d/Ctrl-u do too.
+            // Clamped to the result list.
+            Key::Down | Key::HalfPageDown => {
+                let n = self.palette_matches().len();
+                self.palette_sel = (self.palette_sel + 1).min(n.saturating_sub(1));
+            }
+            Key::Up | Key::HalfPageUp => self.palette_sel = self.palette_sel.saturating_sub(1),
+            Key::Enter => self.palette_open_selected(),
+            // Esc, or Cmd-P again, closes the palette.
+            Key::Escape | Key::Palette => self.close_palette(),
+            Key::Redo => {}
+        }
+    }
+
+    /// Open the palette's selected file (Enter). A no-op on an empty result set.
+    /// Closes the palette first, then routes through [`open_path`](Self::open_path)
+    /// exactly like `:e`, so the switch/park/evict/MRU path is shared.
+    fn palette_open_selected(&mut self) {
+        let idx = self.palette_matches().get(self.palette_sel).copied();
+        self.close_palette();
+        let Some(idx) = idx else { return };
+        let (path, scope) = resolve_path(&self.files[idx], self.scope);
+        self.open_path(path, scope);
+    }
+
+    /// The palette's filtered, ranked result as indices into [`files`](Self::files).
+    /// Base order is MRU-first (recents in use order, then the rest as sorted). A
+    /// non-empty query keeps only fuzzy matches and stable-sorts them by score, so
+    /// equal scores keep their MRU/base position. See [`fuzzy_score`].
+    fn palette_matches(&self) -> Vec<usize> {
+        let mut order: Vec<usize> = Vec::with_capacity(self.files.len());
+        for r in &self.recent {
+            if let Some(i) = self.files.iter().position(|f| f == r) {
+                order.push(i);
+            }
+        }
+        for i in 0..self.files.len() {
+            if !order.contains(&i) {
+                order.push(i);
+            }
+        }
+        if self.palette_query.is_empty() {
+            return order;
+        }
+        let mut scored: Vec<(usize, i32)> = order
+            .into_iter()
+            .filter_map(|i| {
+                fuzzy_score(&self.palette_query, palette_label(&self.files[i])).map(|s| (i, s))
+            })
+            .collect();
+        // Stable sort by descending score — ties keep their MRU/base position.
+        scored.sort_by_key(|&(_, s)| core::cmp::Reverse(s));
+        scored.into_iter().map(|(i, _)| i).collect()
     }
 
     // --- Visual mode -------------------------------------------------------
@@ -1289,8 +1519,9 @@ impl Editor {
 
     fn view_key(&mut self, key: Key) {
         match key {
-            Key::Char('j') => self.scroll_top += 1, // clamped in draw()
-            Key::Char('k') => self.scroll_top = self.scroll_top.saturating_sub(1),
+            // j/k and Ctrl-n/Ctrl-p both step one row (View is a pure viewport).
+            Key::Char('j') | Key::Down => self.scroll_top += 1, // clamped in draw()
+            Key::Char('k') | Key::Up => self.scroll_top = self.scroll_top.saturating_sub(1),
             Key::Char(' ') => self.scroll_top += ROWS,
             // Half-page scroll, mirroring Normal mode — here it's a pure
             // viewport move (View has no caret to chase). Clamped in draw().
@@ -2109,6 +2340,12 @@ impl Editor {
 
         self.draw_panel(&mut f);
         self.draw_cmdline(&mut f);
+        // The file palette is a modal transient panel: it paints over the whole
+        // writing column (the side panel stays, showing the PALETTE mode). Drawn
+        // last so it covers the buffer text/caret rendered above.
+        if self.mode == Mode::Palette {
+            self.draw_palette(&mut f);
+        }
         f
     }
 
@@ -2175,6 +2412,7 @@ impl Editor {
                 Mode::Visual => "VISUAL",
                 Mode::VisualLine => "V-LINE",
                 Mode::View => "VIEW",
+                Mode::Palette => "PALETTE",
                 Mode::Command => unreachable!(),
             };
             let mut s = format!("-- {name} --");
@@ -2230,6 +2468,94 @@ impl Editor {
         let s = format!(":{}", self.cmdline);
         let style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
         Text::with_baseline(&s, Point::new(2, HEIGHT as i32 - CH), style, Baseline::Top)
+            .draw(f)
+            .unwrap();
+    }
+
+    /// Draw the file palette (the modal transient panel, [`Mode::Palette`]) over
+    /// the writing column — the side panel stays put. Top row: a `> query`
+    /// prompt with a block caret. Then a rule, the fuzzy-ranked file list (the
+    /// selected row in reverse video), and a key hint on the bottom row. The list
+    /// scrolls to keep the selection visible. Body font (FONT_10X20) throughout.
+    /// The whole column repaints, so the host renders this as one full-area
+    /// partial — the Spike 11 transient-panel refresh worth eyeballing for
+    /// e-ink ghosting.
+    fn draw_palette(&self, f: &mut Frame) {
+        // Cover the writing column with white (left of the divider only).
+        Rectangle::new(Point::new(0, 0), Size::new(DIVIDER_X as u32, HEIGHT as u32))
+            .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
+            .draw(f)
+            .unwrap();
+        let style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+        let inv = MonoTextStyle::new(&FONT_10X20, BinaryColor::Off);
+
+        // The query on the top row with a block caret at the end. No `>` prefix:
+        // a bare input is "go to file" (VS Code Cmd-P); the `>` prefix is reserved
+        // for the command palette (v0.5 slice 4). An empty query is just the caret
+        // over a `Go to file` placeholder that clears on the first keystroke.
+        if self.palette_query.is_empty() {
+            Text::with_baseline("Go to file", Point::new(2 + CW, 0), style, Baseline::Top)
+                .draw(f)
+                .unwrap();
+        } else {
+            Text::with_baseline(&self.palette_query, Point::new(2, 0), style, Baseline::Top)
+                .draw(f)
+                .unwrap();
+        }
+        let cx = (2 + self.palette_query.chars().count() as i32 * CW).min(DIVIDER_X - 2);
+        Rectangle::new(Point::new(cx, 0), Size::new(2, CH as u32))
+            .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+            .draw(f)
+            .unwrap();
+
+        // Rule under the prompt.
+        Rectangle::new(Point::new(0, CH), Size::new(DIVIDER_X as u32, 1))
+            .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+            .draw(f)
+            .unwrap();
+
+        let matches = self.palette_matches();
+        let max_chars = WRITE_COLS - 1; // leave a right margin
+        let list_top = CH + 3;
+        let hint_y = HEIGHT as i32 - CH; // bottom row holds the key hint
+        let visible = ((hint_y - list_top) / CH).max(1) as usize;
+
+        if matches.is_empty() {
+            let msg = if self.files.is_empty() {
+                "(no files on card)"
+            } else {
+                "(no match)"
+            };
+            Text::with_baseline(msg, Point::new(2, list_top), style, Baseline::Top)
+                .draw(f)
+                .unwrap();
+        } else {
+            let sel = self.palette_sel.min(matches.len() - 1);
+            // Scroll the window so the selection stays visible.
+            let start = if sel >= visible { sel - visible + 1 } else { 0 };
+            for (row, &idx) in matches.iter().enumerate().skip(start).take(visible) {
+                let y = list_top + (row - start) as i32 * CH;
+                let label: String =
+                    palette_label(&self.files[idx]).chars().take(max_chars).collect();
+                if row == sel {
+                    // Reverse video: black fill across the column, white glyphs.
+                    Rectangle::new(Point::new(0, y), Size::new(DIVIDER_X as u32, CH as u32))
+                        .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+                        .draw(f)
+                        .unwrap();
+                    Text::with_baseline(&label, Point::new(2, y), inv, Baseline::Top)
+                        .draw(f)
+                        .unwrap();
+                } else {
+                    Text::with_baseline(&label, Point::new(2, y), style, Baseline::Top)
+                        .draw(f)
+                        .unwrap();
+                }
+            }
+        }
+
+        let hint = "^N/^P move  Enter open  Esc close";
+        Text::with_baseline(hint, Point::new(2, hint_y), style, Baseline::Top)
             .draw(f)
             .unwrap();
     }
@@ -3513,5 +3839,234 @@ mod tests {
         e.take_effects();
         e.install_loaded("/sd/repo/d.md".into(), Scope::Tracked, "D".into());
         assert!(e.take_effects().is_empty()); // clean buffer: no save on evict
+    }
+
+    // ---- File palette (Ctrl-P) ----
+
+    /// A fresh editor over `/sd/repo/notes.md` with a palette file list.
+    fn palette_editor(files: &[&str]) -> Editor {
+        let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+        e.set_file_list(files.iter().map(|s| s.to_string()).collect());
+        e
+    }
+
+    /// The palette's current result as display labels, in ranked order.
+    fn palette_labels(e: &Editor) -> Vec<&str> {
+        e.palette_matches().iter().map(|&i| palette_label(&e.files[i])).collect()
+    }
+
+    #[test]
+    fn fuzzy_score_matches_subsequence_case_insensitively() {
+        assert!(fuzzy_score("notes", "repo/notes.md").is_some());
+        assert!(fuzzy_score("NOTES", "repo/notes.md").is_some()); // case-insensitive
+        assert!(fuzzy_score("rpnm", "repo/notes.md").is_some()); // scattered subsequence
+        assert!(fuzzy_score("xyz", "repo/notes.md").is_none()); // not a subsequence
+        assert_eq!(fuzzy_score("", "anything"), Some(0)); // empty query matches all
+    }
+
+    #[test]
+    fn fuzzy_score_ranks_word_boundaries_above_midword() {
+        // "no" after the "/" boundary in repo/notes beats a mid-word hit.
+        let boundary = fuzzy_score("no", "repo/notes.md").unwrap();
+        let midword = fuzzy_score("no", "cannotes.md").unwrap();
+        assert!(boundary > midword, "{boundary} !> {midword}");
+    }
+
+    #[test]
+    fn set_file_list_sorts_and_dedups() {
+        let mut e = Editor::new();
+        e.set_file_list(vec![
+            "/sd/repo/b.md".into(),
+            "/sd/repo/a.md".into(),
+            "/sd/repo/b.md".into(),
+        ]);
+        assert_eq!(e.files, vec!["/sd/repo/a.md", "/sd/repo/b.md"]);
+    }
+
+    #[test]
+    fn cmd_p_opens_the_palette_and_esc_closes_it() {
+        let mut e = palette_editor(&["/sd/repo/notes.md", "/sd/repo/todo.md"]);
+        e.handle(Key::Palette);
+        assert_eq!(e.mode(), Mode::Palette);
+        e.handle(Key::Escape);
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn cmd_p_toggles_the_palette_closed() {
+        let mut e = palette_editor(&["/sd/repo/notes.md"]);
+        e.handle(Key::Palette);
+        e.handle(Key::Palette); // same chord closes
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn cmd_p_is_ignored_in_insert_mode() {
+        let mut e = typed("hi");
+        e.handle(Key::Palette);
+        assert_eq!(e.mode(), Mode::Insert); // a Normal gesture only; no-op here
+    }
+
+    #[test]
+    fn typing_filters_and_enter_opens_the_picked_file() {
+        let mut e = palette_editor(&[
+            "/sd/repo/notes.md",
+            "/sd/repo/todo.md",
+            "/sd/local/journal.md",
+        ]);
+        e.handle(Key::Palette);
+        for c in "todo".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Enter);
+        assert_eq!(e.mode(), Mode::Normal); // palette closed
+        let effs = e.take_effects();
+        assert_eq!(kinds(&effs), vec![Kind::Load]);
+        match &effs[0] {
+            Effect::Load { path, scope } => {
+                assert_eq!(path, "/sd/repo/todo.md");
+                assert_eq!(*scope, Scope::Tracked);
+            }
+            other => panic!("expected a Load, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn opening_a_local_file_from_the_palette_carries_local_scope() {
+        let mut e = palette_editor(&["/sd/repo/notes.md", "/sd/local/journal.md"]);
+        e.handle(Key::Palette);
+        for c in "journal".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Enter);
+        match &e.take_effects()[0] {
+            Effect::Load { path, scope } => {
+                assert_eq!(path, "/sd/local/journal.md");
+                assert_eq!(*scope, Scope::Local); // scope derived from the /sd/local path
+            }
+            other => panic!("expected a Local Load, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn opening_the_active_file_from_the_palette_is_a_noop() {
+        let mut e = palette_editor(&["/sd/repo/notes.md", "/sd/repo/todo.md"]);
+        e.handle(Key::Palette);
+        for c in "notes".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Enter);
+        // notes.md is already active: no Load, just a closed palette.
+        assert!(e.take_effects().is_empty());
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn half_page_keys_move_the_selection_clamped() {
+        let mut e = palette_editor(&["/sd/repo/a.md", "/sd/repo/b.md", "/sd/repo/c.md"]);
+        e.handle(Key::Palette);
+        assert_eq!(e.palette_sel, 0);
+        e.handle(Key::HalfPageDown);
+        assert_eq!(e.palette_sel, 1);
+        e.handle(Key::HalfPageDown);
+        e.handle(Key::HalfPageDown); // clamps at the last row
+        assert_eq!(e.palette_sel, 2);
+        e.handle(Key::HalfPageUp);
+        assert_eq!(e.palette_sel, 1);
+    }
+
+    #[test]
+    fn ctrl_n_p_navigate_the_palette() {
+        let mut e = palette_editor(&["/sd/repo/a.md", "/sd/repo/b.md", "/sd/repo/c.md"]);
+        e.handle(Key::Palette);
+        e.handle(Key::Down); // Ctrl-n
+        assert_eq!(e.palette_sel, 1);
+        e.handle(Key::Down);
+        e.handle(Key::Down); // clamps at the last row
+        assert_eq!(e.palette_sel, 2);
+        e.handle(Key::Up); // Ctrl-p
+        assert_eq!(e.palette_sel, 1);
+    }
+
+    #[test]
+    fn ctrl_n_p_move_by_a_line_in_normal_mode() {
+        // Three lines; caret starts on the last char of line 3 (with_file posture).
+        let mut e = Editor::with_file("/sd/repo/n.md".into(), Scope::Tracked, "aa\nbb\ncc".into());
+        e.handle(Key::Char('g')); // gg → top (line 1)
+        e.handle(Key::Char('g'));
+        assert_eq!(e.caret, 0);
+        e.handle(Key::Down); // Ctrl-n → line 2
+        assert_eq!(e.caret, 3); // start of "bb"
+        e.handle(Key::Down); // → line 3
+        assert_eq!(e.caret, 6); // start of "cc"
+        e.handle(Key::Up); // Ctrl-p → line 2
+        assert_eq!(e.caret, 3);
+    }
+
+    #[test]
+    fn ctrl_n_takes_a_count_in_normal_mode() {
+        let mut e = Editor::with_file("/sd/repo/n.md".into(), Scope::Tracked, "aa\nbb\ncc".into());
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g')); // top
+        e.handle(Key::Char('2'));
+        e.handle(Key::Down); // 2<C-n> → down two lines
+        assert_eq!(e.caret, 6); // start of "cc"
+    }
+
+    #[test]
+    fn ctrl_n_p_scroll_in_view_mode() {
+        let mut e = Editor::with_file("/sd/repo/n.md".into(), Scope::Tracked, "a\nb\nc\nd".into());
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('r')); // gr → View
+        assert_eq!(e.mode(), Mode::View);
+        let top = e.scroll_top();
+        e.handle(Key::Down); // Ctrl-n scrolls like j
+        assert_eq!(e.scroll_top(), top + 1);
+        e.handle(Key::Up); // Ctrl-p scrolls like k
+        assert_eq!(e.scroll_top(), top);
+    }
+
+    #[test]
+    fn editing_the_query_resets_the_selection_to_the_top() {
+        let mut e = palette_editor(&["/sd/repo/a.md", "/sd/repo/b.md"]);
+        e.handle(Key::Palette);
+        e.handle(Key::HalfPageDown);
+        assert_eq!(e.palette_sel, 1);
+        e.handle(Key::Char('a')); // a query edit resets the selection
+        assert_eq!(e.palette_sel, 0);
+    }
+
+    #[test]
+    fn backspace_on_an_empty_query_closes_the_palette() {
+        let mut e = palette_editor(&["/sd/repo/a.md"]);
+        e.handle(Key::Palette);
+        e.handle(Key::Backspace);
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn empty_query_orders_recents_first_then_sorted() {
+        let mut e = palette_editor(&["/sd/repo/b.md", "/sd/repo/a.md", "/sd/repo/c.md"]);
+        // No opens yet: pure sorted order.
+        assert_eq!(palette_labels(&e), vec!["repo/a.md", "repo/b.md", "repo/c.md"]);
+        // Open c.md through the palette; it should float to the front next time.
+        e.handle(Key::Palette);
+        for ch in "c.md".chars() {
+            e.handle(Key::Char(ch));
+        }
+        e.handle(Key::Enter);
+        e.take_effects(); // drop the queued Load; we only care about the MRU
+        assert_eq!(palette_labels(&e), vec!["repo/c.md", "repo/a.md", "repo/b.md"]);
+    }
+
+    #[test]
+    fn draw_in_palette_mode_does_not_panic() {
+        let mut e = palette_editor(&["/sd/repo/a.md", "/sd/local/j.md"]);
+        e.handle(Key::Palette);
+        let _ = e.draw(true);
+        // Empty file list: the "(no files on card)" path must also be safe.
+        let mut empty = Editor::new();
+        empty.handle(Key::Palette);
+        let _ = empty.draw(true);
     }
 }

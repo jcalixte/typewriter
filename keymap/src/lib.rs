@@ -37,6 +37,16 @@ pub enum Key {
     /// Ctrl+R — redo (vim `Ctrl-r`); the inverse of `u`. Meaningful in Normal;
     /// ignored elsewhere.
     Redo,
+    /// Cmd+P — open the file palette (fuzzy open, v0.5), VS Code "Go to File"
+    /// style. A Normal-mode gesture; **inside** the palette the same chord closes
+    /// it (toggle). Esc also closes. Ignored in Insert.
+    Palette,
+    /// Ctrl+N — move down: one line in Normal/View (vim `CTRL-N` ≡ `j`), or one
+    /// row in the file palette. Ignored in Insert.
+    Down,
+    /// Ctrl+P — move up: one line in Normal/View (vim `CTRL-P` ≡ `k`), or one row
+    /// in the file palette. Ignored in Insert.
+    Up,
     /// Caps Lock tapped on its own. A no-op for now; groundwork for a future
     /// vim-style normal mode.
     Escape,
@@ -150,6 +160,9 @@ fn translate(usage: u8, shift: bool, ctrl: bool, cmd: bool) -> Option<Key> {
         0x07 if ctrl => return Some(Key::HalfPageDown), // Ctrl+D, half-page down
         0x18 if ctrl => return Some(Key::HalfPageUp), // Ctrl+U, half-page up
         0x15 if ctrl => return Some(Key::Redo),       // Ctrl+R, redo
+        0x13 if ctrl => return Some(Key::Up),   // Ctrl+P, move up (vim CTRL-P)
+        0x13 if cmd => return Some(Key::Palette), // Cmd+P, file palette
+        0x11 if ctrl => return Some(Key::Down), // Ctrl+N, move down (vim CTRL-N)
         _ => {}
     }
 
@@ -394,8 +407,14 @@ mod tests {
         assert_eq!(translate(0x07, false, true, false), Some(Key::HalfPageDown)); // Ctrl+D
         assert_eq!(translate(0x18, false, true, false), Some(Key::HalfPageUp)); // Ctrl+U
         assert_eq!(translate(0x15, false, true, false), Some(Key::Redo)); // Ctrl+R
-        // Without Ctrl these are ordinary letters, not intents.
+        assert_eq!(translate(0x13, false, true, false), Some(Key::Up)); // Ctrl+P, up
+        assert_eq!(translate(0x13, false, false, true), Some(Key::Palette)); // Cmd+P, palette
+        assert_eq!(translate(0x11, false, true, false), Some(Key::Down)); // Ctrl+N, down
+        assert_eq!(translate(0x11, false, false, true), None); // Cmd+N reserved (:enew, v0.5)
+        // Without a modifier these are ordinary letters, not intents.
         assert_eq!(translate(0x15, false, false, false), Some(Key::Char('r')));
+        assert_eq!(translate(0x13, false, false, false), Some(Key::Char('p')));
+        assert_eq!(translate(0x11, false, false, false), Some(Key::Char('n')));
     }
 
     #[test]

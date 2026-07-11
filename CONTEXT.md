@@ -48,7 +48,7 @@ _Avoid_: tab, window, document (a buffer is not a UI chrome element); "the file"
 when you mean the in-memory copy rather than the bytes on the card.
 
 **Open**:
-Bringing a **File** into the **active buffer**, via `Ctrl-P` (the file palette)
+Bringing a **File** into the **active buffer**, via `Cmd-P` (the file palette)
 or `:e`. Scope is read from where the file lives (`/sd/repo` → **Tracked**,
 `/sd/local` → **Local**), never chosen at open time.
 _Avoid_: load (implementation talk for the disk read behind an Open).
