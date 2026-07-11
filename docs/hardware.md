@@ -30,5 +30,5 @@ live in [`spikes.md`](spikes.md) and
 [`v0.1-mvp-technical.md`](v0.1-mvp-technical.md#hardware-bring-up-order),
 with failure write-ups in [`postmortems/`](postmortems/README.md). Notable: the
 keyboard runs bus-powered on the S3's native USB port, and the SD/FAT stack is
-verified on a 32 GB card (2026-07-11), now moving to its own SPI3 host per
-ADR-012 ([postmortem](postmortems/2026-07-05-spike3-sd-cmd59.md)).
+verified on a 32 GB card on its own SPI3 host (2026-07-11, ADR-012)
+([postmortem](postmortems/2026-07-05-spike3-sd-cmd59.md)).
