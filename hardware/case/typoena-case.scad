@@ -86,6 +86,18 @@ sd_w     = 12;   sd_h   = 2.4;               // microSD slot
 // X positions of the three openings along the back << MEASURE to your board >>
 port_x   = [W/2 - 15, W/2, W/2 + 17];        // usb-c (kbd), usb-c (power), µSD
 
+// ---- reset button (momentary wired to EN/GND) -----------------------------
+// Our OWN switch, soldered to the board's EN + GND header pins — NOT the
+// DevKitC's on-board buttons (top-actuated and buried once the board lies flat
+// on its standoffs). It sits on the back wall, out past the µSD, so it's never
+// hit while typing. BOOT is left off on purpose: on the S3, auto-download
+// (UART-bridge DTR/RTS or the native USB-Serial-JTAG) makes it recovery-only —
+// not worth a fat-fingerable button on a writing appliance.
+rst_btn  = true;             // set false to omit the reset hole entirely
+rst_d    = 7.2;              // through-hole Ø for the switch barrel   << MEASURE >>
+rst_x    = W/2 + 40;         // X along the back wall (past the µSD @ +17)  << MEASURE >>
+rst_z    = 12;               // centre height off the desk             << MEASURE >>
+
 // ---- baseplate / chassis --------------------------------------------------
 bp_t       = 2.6;  // baseplate thickness
 bp_gap     = 0.5;  // clearance so it drops into the shell
@@ -202,6 +214,13 @@ module port_cuts() {
     }
 }
 
+// reset switch mounting hole through the back wall (y = D)
+module reset_cut() {
+    if (rst_btn)
+        translate([rst_x, D-wall-1, rst_z])
+            rotate([-90,0,0]) cylinder(h=wall+2, r=rst_d/2);
+}
+
 // engraved nameplate on the DECK, in the band between the front edge and the
 // screen — faces the user as they write. Sits flat on the reclined deck.
 module nameplate() {
@@ -221,6 +240,7 @@ module case_body() {
         }
         screen_cuts();
         port_cuts();
+        reset_cut();
         nameplate();                 // engrave (comment out for a blank face)
     }
 }

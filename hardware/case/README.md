@@ -114,6 +114,13 @@ from below — far easier than fishing screws inside a shell.
 - The **DESPI-C579 breakout** sits in the cavity on the **left**, right under the
   FPC exit; short SPI jumpers (MOSI/SCLK/CS/DC/RST/BUSY + 3V3/GND) run across to
   the ESP32. Keep that left channel clear.
+- A **reset button** — a small momentary switch, soldered to the board's **EN**
+  and **GND** header pins — mounts through a hole in the back wall, out past the
+  µSD slot so it's never hit while typing (`rst_*` params, `<< MEASURE >>`). This
+  is our own switch, not the DevKitC's on-board buttons: those are top-actuated
+  and buried once the board lies flat. **BOOT is deliberately omitted** — on the
+  S3, auto-download (UART-bridge DTR/RTS or the native USB-Serial-JTAG) makes it
+  recovery-only, not worth a fat-fingerable button on a writing appliance.
 - The baseplate screws **up into 4 corner posts** in the shell.
 - A **cable relief** notch at the back lets the keyboard's USB-C cable exit and
   route around to the front.
@@ -146,7 +153,8 @@ Or inspect each half alone — `plan_up` (the deck/lid, shown from below) and
 - **`Hb` (back height) → deck angle.** 18–22° is typewriter-shallow; raise `Hb`
   toward ~28–35° if the screen reads too edge-on when you're sitting close.
 - **`<< MEASURE >>` items:** `esp_holes`, `brk_holes`, `port_x`, `port_z`,
-  `active_off_x/y` (the panel's active area sits off-centre from the glass).
+  `rst_x`/`rst_z`/`rst_d` (reset button), `active_off_x/y` (the panel's active
+  area sits off-centre from the glass).
 
 ## Print notes
 
@@ -189,7 +197,9 @@ name.
 
 - [ ] Confirm the GDEY0579T93 active-area **offset** (FPC confirmed on the left
       edge); adjust `active_off_x/y`.
-- [ ] Real ESP32-S3-DevKitC-1 mounting-hole + port coordinates.
+- [ ] Real board mounting-hole + port coordinates. **A custom carrier PCB is
+      planned** — when it lands, re-fix `esp_holes`, `port_x/z`, and the reset
+      `rst_*` to the PCB (and decide there whether to expose BOOT as a test pad).
 - [ ] Optional **hinged lid** over the deck (portable-typewriter-case echo,
       protects the glass in a bag) — `docs/hardware.md` calls for one; not yet
       modelled.
