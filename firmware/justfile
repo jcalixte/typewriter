@@ -31,27 +31,25 @@ git_env := "LIBGIT2_SRC=" + libgit2_src + " LIBGIT2_NO_VENDOR=1 PKG_CONFIG_ALLOW
 default:
     @just --list
 
-# compile (release)
+# compile (release) — the nominal product build: full firmware WITH git
+# publishing (compiles libgit2 + mbedTLS, links git2). For fast iteration on the
+# editor / EPD / USB / SD without paying for libgit2, use `build-light`.
 build:
-    {{esp_env}} cargo build --release --bin firmware
-
-# build + flash + open serial monitor
-flash:
-    {{esp_env}} cargo run --release --bin firmware
-
-# Full editor firmware WITH git publishing — the HEAVY build: compiles libgit2 +
-# mbedTLS and links git2. The `build`/`flash` recipes above stay light (no
-# libgit2 component — LIBGIT2_SRC unset — and no git2 crate, `git` feature off),
-# so use those for iterating on the editor / EPD / USB / SD. Only reach for this
-# to exercise `:sync`'s push. Bakes the TW_* creds into flash like the git
-# spikes (ADR-005: not for a shipping image). NB: git isn't wired into main.rs
-# yet, so today this just builds slower and behaves like the light build.
-build-firmware-git:
     {{esp_env}} {{git_env}} cargo build --release --bin firmware --features git
 
-# Full firmware — build + flash + monitor (see build-firmware-git).
-flash-firmware-git:
+# build + flash + open serial monitor (full firmware, see `build`)
+flash:
     {{esp_env}} {{git_env}} cargo run --release --bin firmware --features git
+
+# LIGHT editor build — no git: no libgit2 component (LIBGIT2_SRC unset) and no
+# git2 crate (`git` feature off), so it builds much faster. `:sync` saves locally
+# and skips the push. Use for anything but exercising publish.
+build-light:
+    {{esp_env}} cargo build --release --bin firmware
+
+# light build + flash + open serial monitor (see `build-light`)
+flash-light:
+    {{esp_env}} cargo run --release --bin firmware
 
 # serial monitor only, with decoded backtraces
 monitor:
