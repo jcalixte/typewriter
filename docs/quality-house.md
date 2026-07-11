@@ -441,7 +441,7 @@ market"), not as a fair head-to-head buyer's guide.
   \foreach \c/\tgt/\abs/\rel in {%
     1/{$\leq$200\,ms}/148/10,
     2/{$\leq$1 line}/177/11,
-    3/{1 : 20}/144/9,
+    3/{1 : 64}/144/9,
     4/{$\leq$5\,s}/62/4,
     5/{$\geq$1\,h}/111/7,
     6/{$\geq$95\,\%}/134/9,
