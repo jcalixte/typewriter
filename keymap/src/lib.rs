@@ -34,6 +34,9 @@ pub enum Key {
     HalfPageDown,
     /// Ctrl+U — scroll up half a screen (vim `Ctrl-u`).
     HalfPageUp,
+    /// Ctrl+R — redo (vim `Ctrl-r`); the inverse of `u`. Meaningful in Normal;
+    /// ignored elsewhere.
+    Redo,
     /// Caps Lock tapped on its own. A no-op for now; groundwork for a future
     /// vim-style normal mode.
     Escape,
@@ -146,6 +149,7 @@ fn translate(usage: u8, shift: bool, ctrl: bool, cmd: bool) -> Option<Key> {
         0x1a if ctrl => return Some(Key::DeleteWord), // Ctrl+W, readline-style
         0x07 if ctrl => return Some(Key::HalfPageDown), // Ctrl+D, half-page down
         0x18 if ctrl => return Some(Key::HalfPageUp), // Ctrl+U, half-page up
+        0x15 if ctrl => return Some(Key::Redo),       // Ctrl+R, redo
         _ => {}
     }
 
@@ -383,6 +387,15 @@ mod tests {
         // 0x29 (the physical Esc key) types `/~ now; Escape comes from a Caps tap.
         assert_eq!(translate(0x29, false, false, false), Some(Key::Char('`')));
         assert_eq!(translate(0x29, true, false, false), Some(Key::Char('~')));
+    }
+
+    #[test]
+    fn translate_ctrl_navigation_and_redo_chords() {
+        assert_eq!(translate(0x07, false, true, false), Some(Key::HalfPageDown)); // Ctrl+D
+        assert_eq!(translate(0x18, false, true, false), Some(Key::HalfPageUp)); // Ctrl+U
+        assert_eq!(translate(0x15, false, true, false), Some(Key::Redo)); // Ctrl+R
+        // Without Ctrl these are ordinary letters, not intents.
+        assert_eq!(translate(0x15, false, false, false), Some(Key::Char('r')));
     }
 
     #[test]
