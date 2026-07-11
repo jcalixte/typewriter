@@ -114,23 +114,20 @@ risk early.
     a design decision this spike hands data to.)
 
 13. **Spike 13 — Line-number gutter.** Draw a fixed-width digit column left of
-    the text area. The v0.2 spec is the hard case: **relative** numbers in
-    Normal mode (current line as its absolute number), **absolute** in Insert.
-    The naive part — reserving columns and drawing digits — is trivial; the
-    e-ink risk is churn. Relative numbering renumbers the *entire visible gutter
-    on every `j`/`k`*, so a single cursor move becomes a partial refresh of a
-    tall digit column, straight into the Spike 5 windowed-Y path and the "20
-    partials → forced full refresh" ghosting counter
-    ([`firmware/src/epd.rs`](../firmware/src/epd.rs), render module). Absolute
-    numbering is cheap by comparison — only the rows below an inserted/deleted
-    line renumber. Two more interactions: the gutter steals horizontal columns
-    from the render-time soft-wrap, and wrapped continuation rows have no number
-    (blank vs. tilde — a layout decision). Prove: measure gutter partial-refresh
-    cost for (a) a held-`j` scan that renumbers the whole relative gutter vs.
-    (b) a single-line absolute edit, and confirm neither blows the ghosting
-    budget or forces extra full refreshes. Decides whether relative numbering is
-    viable on this panel or must be gated (absolute-only, or a batched/coalesced
-    gutter repaint). (Feeds v0.2's line-number gutter; genuine new e-ink risk.)
+    the text area. **Absolute numbering only** — relative numbering was dropped
+    (2026-07-11). It renumbered the *entire visible gutter on every `j`/`k`*, so
+    a single cursor move became a partial refresh of a tall digit column,
+    straight into the Spike 5 windowed-Y path and the "20 partials → forced full
+    refresh" ghosting counter ([`firmware/src/epd.rs`](../firmware/src/epd.rs),
+    render module) — real e-ink cost for no proportionate gain on a
+    distraction-first panel. Dropping it removes the genuine e-ink risk this
+    spike existed to prove: absolute numbering is cheap — only the rows below an
+    inserted/deleted line renumber. What remains is a **layout decision**, not a
+    latency one: the gutter steals horizontal columns from the render-time
+    soft-wrap, and wrapped continuation rows have no number (blank vs. tilde).
+    Prove: reserve the gutter width, then confirm a single-line edit repaints
+    only the rows at/below the change and forces no extra full refresh. (Feeds
+    v0.2's line-number gutter; now low-risk after the relative drop.)
 
 14. **Spike 14 — Multi-file navigation (open / switch / new / delete).** The
     panel *mechanism* is already Spike 11 (which names this v0.5 file palette),

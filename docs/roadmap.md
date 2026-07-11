@@ -198,8 +198,10 @@ gutter. Shipped early beyond scope: a read-only **View** mode and the full
 - [~] Movement: `h j k l`, `w b e`, `0 $`, `gg G` (✓); `Ctrl-d Ctrl-u` remain
 - [x] `i a o O A` to enter Insert
 - [x] `Esc` returns to Normal
-- [ ] Line numbers in the left gutter: relative in Normal mode (current line
-      shown as its absolute number), absolute in Insert mode — Spike 13 first
+- [ ] Line numbers in the left gutter: **absolute** — Spike 13 first. Relative
+      numbering was dropped (2026-07-11): renumbering the whole gutter on every
+      `j`/`k` burns the e-ink ghosting budget for no proportionate gain, whereas
+      absolute renumbers only the rows below an edit.
 - [x] Groundwork — UTF-8-correct buffer: caret motions and edits step by
       character, not byte (dropped the ASCII == byte-offset assumption), so every
       motion stays correct with accented input. **Done 2026-07-11** alongside
