@@ -112,7 +112,7 @@ build-git-push:
 # (so the `storage` FAT partition exists) and sets 16 MB flash. Uses espflash
 # directly, not `cargo run`, so the table is applied only to this binary.
 flash-git-push: build-git-push
-    espflash flash --monitor --partition-table {{partition_table}} --flash-size 16mb {{elf_git_push}}
+    espflash flash --monitor --baud 921600 --partition-table {{partition_table}} --flash-size 16mb {{elf_git_push}}
 
 # serial monitor for the git push, with decoded backtraces
 monitor-git-push:
@@ -125,7 +125,7 @@ build-git-sync:
 # Milestone #2A — flash + monitor. Applies the same custom partition table as
 # git-push (the `storage` FAT partition holds the persistent clone).
 flash-git-sync: build-git-sync
-    espflash flash --monitor --partition-table {{partition_table}} --flash-size 16mb {{elf_git_sync}}
+    espflash flash --monitor --baud 921600 --partition-table {{partition_table}} --flash-size 16mb {{elf_git_sync}}
 
 # serial monitor for the git sync, with decoded backtraces
 monitor-git-sync:
