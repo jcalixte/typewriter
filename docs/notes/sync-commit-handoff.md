@@ -22,6 +22,32 @@ the toy `typoena-test` (`notes.md`) has. The repo cannot be shrunk (the 150 MB o
 images serve another app — see the images note). So the fix is a **new commit
 mechanism**, not a tuning knob.
 
+> **Splice bench result (2026-07-12, later the same day): 6.5 s — do NOT wire it
+> in yet.** The walk is in `git_bench` (`splice stage→tree`) and its O(depth)
+> shape is confirmed on the real repo (flat pack reads, heap healthy, no OOM),
+> but each of its 4 loose-object writes costs **~1.5 s** — isolated `odb.write`
+> regressed 142 ms → 1.5 s vs the previous run, with **0 mmap-cache hits**.
+> Projected full commit ≈ 8–9 s.
+>
+> **Root cause found the same evening (sd_bench seek op): FatFS lseek walks the
+> FAT cluster chain** — seek+read(4 KB) into the 263 MB pack costs **198.7 ms at
+> the end vs 5.8 ms at offset 0**, and each loose write pays ~8 such walks via
+> the freshen path's small `p_mmap`s → the ~1.5 s. Fix landed in
+> `sdkconfig.defaults`: `CONFIG_FATFS_USE_FASTSEEK=y` +
+> `FAST_SEEK_BUFFER_SIZE=256` (O(1) lseek for read-mode files, i.e. the pack —
+> see [FatFS f_lseek/CLMT](http://elm-chan.org/fsw/ff/doc/lseek.html) and the
+> [ESP-IDF FatFS docs](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/fatfs.html)).
+> **Verified on device: far seek 198.7 → 20.4 ms.** The A/B (splice 6.5 → 2.8 s,
+> odb.write 1.5 s → 416 ms) plus new probes then localized the residual to ~7–8
+> repeated small (~4 KB) pack reads per op that the mmap cache's 64 KB floor
+> excluded (`odb.read_header(packed)` = 470 ms; the strict-object-creation
+> theory was refuted — strict-off changed nothing). **esp_map.c v2 built**:
+> cache admission keyed on FILE size ≥ 1 MB so the hot small windows cache, and
+> evict-on-`p_munmap` to a 2 MB low-water mark fixes the 7.4 MB OOM. **Final
+> `git_bench` verdict pending — if splice lands sub-second, proceed with the
+> firmware plumbing below.** Full trail: the splice-bench, root-cause and
+> second-localization sections of the tradeoff curve.
+
 ## The fix — O(depth) TreeBuilder walk
 
 Rebuild only the edited file's ancestor subtree chain onto HEAD's tree. Never
@@ -70,11 +96,24 @@ tree), and path splitting on `/` (paths are repo-relative POSIX).
 **Bench it first** (per the established discipline): add a `treebuilder splice→tree`
 op to `firmware/src/bin/git_bench.rs` alongside the existing ones and confirm it's
 sub-second cold on the real repo, with heap staying healthy (no OOM). Only then wire
-it into the firmware.
+it into the firmware. While in there, two bench-hygiene fixes: (a) the `edit_path`
+seed block does the cold `read_tree(HEAD)` **untimed** (the 77 s number came from
+log timestamps), so the `Index::new + read_tree` bench only ever measures warm —
+wrap the seed in a timer so a re-run prints the cold number; (b) the "3) THE
+PROPOSED FIX — index-free commit tree" comment is now stale — the real-repo run
+refuted that path (77 s + OOM) and this handoff supersedes it — retitle it as the
+refuted alternative.
 
 ## Firmware plumbing (after the bench validates)
 
 1. **`firmware/src/git_sync.rs`**
+   - **Set the mwindow options at service start** (before the first
+     `Repository::open`): `git2::opts::set_mwindow_size(256 * 1024)` +
+     `set_mwindow_mapped_limit(4 * 1024 * 1024)`. Today only `git_bench.rs` sets
+     them — the shipping service runs libgit2's 32-bit defaults (**32 MB window /
+     256 MB mapped limit**, mwindow.c:16), so the first pack access on the 570 MB
+     clone would try to `git__malloc` a 32 MB window and die on the 8 MB PSRAM
+     heap before the walk even runs.
    - Rewrite `stage_and_commit` (currently ~L271–332) to the `splice`-walk above.
      Drop `add_all`/`update_all`/`index.write`/`index.write_tree`. Keep the
      `commit split —` timing log, the `tree unchanged → nothing to publish` check,
@@ -89,13 +128,26 @@ it into the firmware.
    - The macOS-cruft filter (`skip_macos_cruft`) is no longer needed — the walk only
      ever touches paths the editor explicitly hands it, so `._*`/`.DS_Store` can't
      sneak in. (Keep a note; don't silently lose the Spike-14 lesson.)
+   - **Deliberate behavior change to record:** the walk commits *only* the
+     editor's dirty set. Files changed on the card outside the editor (e.g. the
+     card mounted on a Mac) were swept in by `add_all` before; they will now never
+     be committed, and the working tree will show a permanent diff against HEAD if
+     inspected on a desktop. Correct for the appliance (it's also what makes the
+     cruft filter unnecessary), but it must be intentional, not accidental.
 
 2. **Dirty-set source — `firmware/src/persistence.rs` + `main.rs`**
-   - Writes funnel through `Storage::save_path` (~L296) and deletes through
-     `Storage::delete_path` (~L332), both `&self`. Accumulate a dirty/deleted set
+   - Writes funnel through `Storage::save_path` (~L316) and deletes through
+     `Storage::delete_path` (~L352), both `&self`. Accumulate a dirty/deleted set
      (needs `RefCell` interior mutability, or move the set up to `main.rs`).
    - `Effect::Publish` handler in `main.rs` (~L222) builds the `PublishRequest` from
      that set and clears it on a successful `Pushed`/`UpToDate` outcome.
+   - **FD budget: `main.rs` (~L413) mounts with `Storage::mount()` = 4 open
+     files, and the git thread shares that mount.** libgit2 keeps the pack +
+     `.idx` (+ commit-graph) descriptors open and opens loose objects on top —
+     that's why `git_bench` needed `mount_for_git` (16). On the real repo the
+     shipping `:sync` will fail with "no free file descriptors" long before any
+     latency question. Either mount with the 16-file budget in `main.rs` (the
+     editor's 2-FD peak coexists fine) or split the budgets some other way.
 
 3. **`esp_map.c` cache fix (same pass) — `firmware/components/libgit2/esp_map.c`**
    - Bug: cached buffers are freed only lazily in `p_mmap`'s `evict_for`, so a
@@ -128,11 +180,22 @@ the toy pack understates everything by ~2 orders of magnitude.
 
 ## What's proven vs open
 
-**Proven (2026-07-12, real repo):** `odb.write` 142 ms (mmap cache holds);
-`index.write` 611 s (whole-tree re-hash via `truncate_racily_clean`, index.c:822 /
-index.h:117); index-free `read_tree` 77 s cold; mmap cache OOM at 7.4 MB → zlib
-crash. `Repository::open` 88 ms, odb-open ~6 s cold (maps 1.7 MB `.idx`).
+**Proven (2026-07-12, real repo):** `index.write` 611 s (whole-tree re-hash via
+`truncate_racily_clean`, index.c:822 / index.h:117); index-free `read_tree`
+77–82 s cold (reproduced across both runs); mmap cache OOM at 7.4 MB → zlib crash
+(reproduced). `Repository::open` ~90–99 ms, odb-open ~6–8 s cold (maps 1.7 MB
+`.idx`). **Splice walk benched (second run): 6.5 s p50, warm ≈ cold** — O(depth)
+shape confirmed (flat reads ~40 KB/write, 6.4 MB heap free), cost is 4 loose
+writes × ~1.6 s. `commit(None)` 1.7 s.
 
-**Open:** the TreeBuilder walk is **designed but not yet benched or built.** Confirm
-its cold-real-repo latency and heap before wiring. Push (network half, ~6.5 s) is a
-separate floor, untouched here.
+**Open — the new gating question: why does one loose-object write cost ~1.5 s?**
+`odb.write(blob)` measured 142 ms in the first real-repo run but 1.5 s in the
+second (same `esp_map.c`, same card, **0 cache hits** the whole second run) — the
+two runs are unreconciled. Suspects, cheapest first: (a) FAT free-cluster scan on
+the ~740 MB-full card → re-run `sd_bench` as-is on this card; (b) loose-write
+internals (filebuf tmp + rename, per-write `git_odb_refresh` readdir) under the
+accumulating orphan objects from bench runs → re-provision a fresh clone and A/B;
+(c) the ~10 small 4 KB `p_mmap`s per write (sub-64 KB, uncacheable) — bounded
+~100 ms, secondary. Also open: whether the esp_map cache earns its keep at all
+(0 hits this run), the ref/reflog-update cost on the real repo, and the push
+(network ~6.5 s) floor — all untouched here.

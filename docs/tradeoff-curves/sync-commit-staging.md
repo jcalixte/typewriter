@@ -4,10 +4,19 @@
 > nor an index-free `read_tree`+`write_tree` is viable on the real
 > `jcalixte/notes` clone — **both are O(N_tree)** and blow up on the 570 MB pack /
 > 1179-file tree (611 s hash one end, 77 s tree-read + OOM the other; see
-> [Real-repo run](#real-repo-run-2026-07-12-jcalixtenotes-570 mb-pack--the-index-is-the-wrong-primitive)
+> [Real-repo run](#real-repo-run-2026-07-12-jcalixtenotes-570-mb-pack--the-index-is-the-wrong-primitive)
 > below). The commit must be rebuilt with an **O(depth) TreeBuilder walk** —
 > patch only the edited file's ancestor subtree chain onto HEAD's tree, never
-> materialise all 1179 entries. Shrinking the repo is **not** an option
+> materialise all 1179 entries.
+>
+> **Splice-bench update (2026-07-12, later the same day):** the walk was built
+> into `git_bench` and measured on the real repo — **6.5 s, failing the
+> sub-second bar.** The O(depth) *shape* holds (flat pack reads, healthy heap),
+> but each of its 4 loose-object writes costs **~1.5 s** (isolated `odb.write`
+> regressed from the 142 ms above; the mmap cache scored **0 hits** this run).
+> Localizing the loose-write cost is now the gating work — see
+> [Splice bench](#splice-bench-2026-07-12-second-real-repo-run--the-walk-is-right-the-loose-object-write-is-the-new-wall).
+> Shrinking the repo is **not** an option
 > ([`../notes/git-sync-images-and-repo-size.md`](../notes/git-sync-images-and-repo-size.md):
 > the images are load-bearing for another app), which is exactly why the O(depth)
 > mechanism is the only lever left. This note records the cost model and the full
@@ -221,6 +230,139 @@ needs an evict-on-`munmap` fix (drop the cap, free past a low-water mark) so it 
 never again starve a downstream `git__malloc`, but with the TreeBuilder walk the
 pressure it was under largely disappears.
 
+### Splice bench (2026-07-12, second real-repo run) — the walk is right, the loose-object write is the new wall
+
+The O(depth) splice op was added to `git_bench` (1 blob + 3 tree writes onto the
+depth-3 path `.claude/commands/bsky.md`, run FIRST so its first iteration is
+cold; the index ops moved last so their OOM can't cost the new data — it did
+crash again, after everything was logged):
+
+| op | result | reading |
+| --- | ---: | --- |
+| `splice stage→tree` (1 blob + 3 trees) | **6.5 s p50, warm ≈ cold** | O(depth) confirmed — cost is 4 loose writes × ~1.6 s |
+| `commit(None)` orphan obj | 1.7 s p50 | one more loose write |
+| `odb.write(blob)` | **1.5 s p50** | ⚠️ was 142 ms in the previous run |
+| `repo.index()` load | 524 ms max | matches previous run |
+| seed `read_tree(HEAD)` cold (now timed) | 81.6 s | reproduces the 77 s |
+| `index-free stage→tree` | 💥 crash, 508 KB heap | reproduces the zlib OOM exactly |
+
+Three readings:
+
+1. **The splice mechanism is validated as a mechanism.** Pack reads stayed flat
+   (~40 KB per write; 6.4 MB heap free through splice + commit + odb.write), so
+   it really is O(depth) and it cannot OOM. The 6.5 s is not tree-walk cost.
+2. **The wall moved to the loose-object write: ~1.5 s each, ×4 per splice.**
+   The isolated `odb.write(blob)` — one tiny orphan blob — took 1.5 s where the
+   raw FAT composite is 86 ms. Projected full commit (splice 6.5 s + commit-obj
+   1.7 s + ref/reflog update) ≈ **8–9 s**: enormously better than 611 s, still
+   far off the bar.
+3. **The mmap cache scored 0 hits over the entire run** — the documented
+   862→142 ms `odb.write` win did **not reproduce** (same `esp_map.c`, same
+   card). Either the earlier run's conditions differed (orphan-object
+   population? FAT allocation state?) or the win was misattributed. Whatever the
+   1.5 s is, it is *not* SD data volume: each write moves ~40 KB read + ~1 KB
+   written.
+
+### ROOT CAUSE FOUND (2026-07-12, `sd_bench` seek op): FatFS lseek walks the cluster chain
+
+Two `sd_bench` re-runs on the ~740 MB-full card settled it:
+
+1. **Free-cluster-scan hypothesis: refuted.** Raw FAT write ops are unchanged on
+   the full card — loose-object composite **77 ms p50** (was 86 ms), create
+   20 ms, rename 10 ms. The card is exonerated a second time.
+2. **Long seeks are the cost.** A new op opens the repo's largest packfile
+   (263 MB — the "570 MB pack" was actually the whole `.git`) read-only and does
+   seek+read(4 KB): **@offset 0 = 5.8 ms; @end = 198.7 ms** — dead constant
+   across 20 iters. Without `CONFIG_FATFS_USE_FASTSEEK`, FatFS resolves lseek by
+   walking the file's FAT cluster chain over SPI: forward from the current
+   position, **from the chain head on any backward seek**. 263 MB ≈ 16.8k
+   clusters ≈ ~67 KB of FAT reads ≈ ~190 ms per long walk.
+
+**Why FAT behaves this way:** FAT has no extent map or inode — a file is a
+singly-linked list of clusters, and the only way to find "byte 260,000,000" is
+to follow that list entry by entry through the allocation table. FatFS walks
+forward from the current position when it can, but a backward seek restarts
+from the chain head ([FatFS `f_lseek` docs, elm-chan.org](http://elm-chan.org/fsw/ff/doc/lseek.html)).
+The fast-seek feature fixes exactly this: a pre-computed **cluster link map
+table (CLMT)** per file object, "(fragments + 1) × 2" words, after which "no
+FAT access is occured in subsequent f_read/f_write/f_lseek" (same page). On
+esp-idf it's `CONFIG_FATFS_USE_FASTSEEK` — the official docs recommend it "for
+read-heavy workloads with long backward seeks" and note it does not apply to
+files opened in write mode
+([ESP-IDF FatFS docs](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/fatfs.html)).
+
+The budget closes: each loose write does ~8–10 small (~4 KB) `p_mmap`s (freshen
+→ trailer/idx probes) interleaved with low-offset reads, so ~8 of them pay a
+fresh ~190 ms walk → **~1.5 s per object**. It also explains everything the
+cache couldn't: warm ≈ cold (the walk is paid inside `lseek` before any data
+moves, and the maps are below the 64 KB cache floor), the 142 ms vs 1.5 s
+run-1/run-2 discrepancy (run 1's `odb.write` bench ran first and hammered only
+the trailer — the file position stayed there, so its seeks were forward/no-ops),
+and a large slice of the 81.6 s `read_tree` (133 windows × backward seeks ≈ 25 s
+of walking on top of the 25 MB of data).
+
+**Fix (config, not code): `CONFIG_FATFS_USE_FASTSEEK=y` +
+`CONFIG_FATFS_FAST_SEEK_BUFFER_SIZE=256`** (landed in `sdkconfig.defaults`
+2026-07-12). Fast seek builds an in-memory cluster-link map per read-mode file —
+exactly how the pack is opened — making lseek O(1); write-mode files fall back
+to the walk transparently. 256 words = 1 KB per open read-only file, covering
+~127 fragments (default 64 covers ~31; a fragmented pack would silently fall
+back to slow seeks, so the headroom matters).
+
+**A/B measured (same evening): a 2.3× partial win, not a full one.**
+
+| op | fast-seek off | fast-seek on |
+| --- | ---: | ---: |
+| `splice stage→tree` | 6.5 s | **2.81 s** |
+| `odb.write(blob)` | 1.5 s | **416 ms** |
+| `commit(None)` | 1.7 s | **1.72 s — unchanged** |
+
+`odb.write` dropped by almost exactly the ~6 chain walks the model predicted —
+the seek theory holds — but two residuals remain: **~400 ms per loose write**
+(vs the 77 ms raw-FAT floor) and **`commit(None)`'s ~1.3 s premium over a plain
+write, which was never seek-bound at all**. Prime suspect for the commit
+premium: strict object creation makes `git_commit_create` validate its parent +
+tree OIDs with pack header resolves, and `git_treebuilder_insert` does the same
+per inserted entry — `git_bench` grew `odb.read_header(packed)` /
+`odb.exists(missing)` probes and strict-off re-benches to test it.
+
+### Second localization round (2026-07-12, run 3b + sd_bench re-run)
+
+**Fast-seek verified on the metal:** re-running the sd_bench seek op with
+`CONFIG_FATFS_USE_FASTSEEK=y` dropped `pack seek+read 4KB @end` from
+**198.7 ms → 20.4 ms** (the CLMT fits the pack in the 256-word buffer — the
+pack is not too fragmented). A far seek is now ~15 ms, i.e. effectively fixed.
+
+**The strict-creation theory is refuted; the probes found the real unit cost:**
+
+| op | p50 | reading |
+| --- | ---: | --- |
+| `odb.read_header(packed)` | **470 ms** | ONE pack header resolve costs ~½ s |
+| `odb.exists(missing)` | **968 ms** (±0.1 ms) | miss path (scan → refresh → rescan) ≈ 2× |
+| `commit(None)` strict OFF | 1.80 s | vs 1.93 s strict on — validation is NOT the premium |
+| `splice` strict OFF | 5.7 s | noise-worse; also not validation |
+
+The ±0.1 ms constancy of `exists(missing)` = a fixed, deterministic SD-op
+sequence. The map counters identify it: **~7–8 small (~4 KB) `p_mmap` reads per
+op** — pack trailer probes, idx fanout reads and delta-base windows, repeated
+at the *same offsets* on every freshen/refresh. Post-fast-seek those cost
+~20 ms each (~150 ms/op); the rest of `read_header`'s 470 ms is CPU-side
+delta-chain inflation on the 160 MHz core plus repeated re-reads. Two other
+observations from run 3b: the loose-object orphan population from bench runs
+is creeping costs upward (splice 2.81 s → 3.21 s between consecutive
+fast-seek runs — a re-provision resets it), and the mmap cache STILL scored 0
+hits — because its 64 KB map-length floor excluded exactly these hot small
+maps.
+
+**Fix built (esp_map.c v2, pending re-bench):** cache admission re-keyed from
+map length to **file size ≥ 1 MB** — the pack/idx's small repeated windows now
+cache (RAM hits after first touch) while small mutable working-tree files stay
+excluded — plus **evict-on-`p_munmap` down to a 2 MB low-water mark**, fixing
+the 7.4 MB OOM from the first real-repo run (released windows are actually
+returned to `git__malloc`, so `MWINDOW_MAPPED_LIMIT` stays honest). Expected:
+`read_header` collapses toward CPU-only, `odb.write` toward ~150–250 ms,
+splice at or under the sub-second bar, and no end-of-run zlib OOM.
+
 ### The walk is ~1.4 s even at N ≈ 2
 
 Mostly fixed cost — the worktree-diff setup and the second (`update_all`) pass —
@@ -245,7 +387,9 @@ work, ranked:
    flat in repo size, small heap, images carried forward untouched. Replaces
    `stage_and_commit`'s `add_all`/`update_all`/`index.write`/`write_tree`. Needs the
    editor's dirty set (+ deleted set) plumbed to the git service — the editor
-   already knows both. **Bench the walk on the real repo before wiring it in.**
+   already knows both. **Benched 2026-07-12: 6.5 s — the shape is right but it
+   fails the sub-second bar**; wiring it in is blocked on localizing the ~1.5 s
+   loose-object write (see the splice-bench section above).
 2. **Fix the `esp_map.c` cache so it can't OOM (do it alongside #1).** It grew to
    7.4 MB resident past its 4 MB cap and starved zlib. Evict on `p_munmap` (not
    only lazily on the next `p_mmap`) down to a low-water mark, and lower the cap, so
