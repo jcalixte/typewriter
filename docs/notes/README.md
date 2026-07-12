@@ -12,3 +12,4 @@
 | [`git-sync-images-and-repo-size.md`](git-sync-images-and-repo-size.md) | Why we don't shrink the notes repo — its 153 MB of media is remanso's image CDN, so rewriting history to slim the on-device clone breaks the web app. |
 | [`boot-time-budget.md`](boot-time-budget.md) | Where the ~4.3 s to cursor goes — and why the ≤ 3 s v1.0 target is hard: one ~1.9 s full refresh is unavoidable at cold boot, so the splash is nearly free. |
 | [`sync-latency.md`](sync-latency.md) | Where the ~16 s cold `:sync` goes — Wi-Fi + SNTP + one TLS push; why optimistic-retry cut a whole handshake, and why the rest is close to the protocol floor. |
+| [`sync-commit-handoff.md`](sync-commit-handoff.md) | **Handoff:** the on-device commit must become an O(depth) TreeBuilder walk — `add_all`/`index.write` re-hash the whole 570 MB-pack tree (611 s / OOM) and the real repo has never synced. Design + firmware plumbing + bench steps for the next session. |

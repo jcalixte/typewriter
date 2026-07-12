@@ -1,12 +1,17 @@
 # Commit-staging cost vs working-tree size
 
-> **Decision (pending measurement):** keep the file-agnostic `add_all(["*"])`
-> staging, or switch to explicit-path staging (`add_path` over the editor's dirty
-> set)? The fork is worth taking **only if the FAT working-tree walk dominates the
-> ~4 s commit** — which the split-timer added to
-> [`../../firmware/src/git_sync.rs`](../../firmware/src/git_sync.rs)
-> (`stage_and_commit`, the `commit split —` log line) resolves. This note records
-> the cost model and the rule the measurement decides.
+> **Decision (RESOLVED 2026-07-12, real-repo bench):** neither `add_all(["*"])`
+> nor an index-free `read_tree`+`write_tree` is viable on the real
+> `jcalixte/notes` clone — **both are O(N_tree)** and blow up on the 570 MB pack /
+> 1179-file tree (611 s hash one end, 77 s tree-read + OOM the other; see
+> [Real-repo run](#real-repo-run-2026-07-12-jcalixtenotes-570 mb-pack--the-index-is-the-wrong-primitive)
+> below). The commit must be rebuilt with an **O(depth) TreeBuilder walk** —
+> patch only the edited file's ancestor subtree chain onto HEAD's tree, never
+> materialise all 1179 entries. Shrinking the repo is **not** an option
+> ([`../notes/git-sync-images-and-repo-size.md`](../notes/git-sync-images-and-repo-size.md):
+> the images are load-bearing for another app), which is exactly why the O(depth)
+> mechanism is the only lever left. This note records the cost model and the full
+> measurement trail that got here.
 >
 > Tradeoff-curves index: [`README.md`](README.md). Docs index:
 > [`../README.md`](../README.md). Where the whole sync goes:
@@ -124,9 +129,97 @@ write amplification / better card / SPI-clock" framing is refuted: **the SD card
 not the bottleneck.** fsync is still confirmed off; the extra ~600 ms/op is CPU or
 repeated `.git` I/O *inside* libgit2 (candidates: ODB refresh scanning
 `objects/`, the treebuilder's per-entry `git_odb_exists`, ref-lock + reflog writes,
-config/attributes re-reads). `git_bench` (`firmware/src/bin/git_bench.rs`) times
-`odb.write` / `index.write` / `write_tree` in isolation to localize it — **run
-pending.**
+config/attributes re-reads). `git_bench` (`firmware/src/bin/git_bench.rs`) localizes
+it — see below.
+
+### It's the pack, read through an un-caching emulated mmap (`git_bench`, 2026-07-12)
+
+`git_bench` times the git2 primitives in isolation on `/sd/repo` (git ops on the
+same 96 KB thread the real service uses — the main-task stack overflows on
+`index.write`, which is itself the reason the service has a dedicated thread):
+
+| git2 op | p50 | note |
+| --- | ---: | --- |
+| `Repository::open` | 100 ms | one-time |
+| `odb.write(blob)` (unique) | **45 ms** | writes a fresh object; touches no existing object |
+| `repo.index()` open | ~0 ms | cached |
+| `index.write()` | 376 ms | index + `index.lock` rename + tree-cache |
+| `write_tree` [unchanged] | ~0 ms | tree exists → freshen-skips the write |
+| **`write_tree` [changed]** | **1136 ms** | writes ONE 45 ms object |
+| **`commit(None)` orphan obj** | **563 ms** | writes ONE 45 ms object, no ref/reflog |
+
+Writing a fresh object is 45 ms; the ops that wrap one are 8–25×. The cause, from
+the vendored source: `git_odb_write` calls `git_odb__freshen` (odb.c:1011), which
+on a not-found object runs **`git_odb_refresh`** (re-reads the pack dir + reloads
+pack indexes), and existence checks (`freshen(tree)` in `commit.c:169`, base-object
+lookups in `write_tree`) hit the **pack**. Pack access goes through our
+`p_mmap` (`esp_map.c`), which **`malloc`s and `read()`s the mapped range from the
+card on every call — no cache** — with a 32 MB window on this 32-bit target. So
+each write re-reads pack bytes from SD; `odb.write` of a fresh blob is 45 ms only
+because it touches no packed object.
+
+**This scales with pack size.** The toy repo's pack is tiny; the real
+`jcalixte/notes` clone has a **570 MB pack**, and provisioning rsyncs a full clone
+onto the card — so a real-repo commit has **never been benchmarked** and, on this
+mechanism, will be far worse than the ~3.3 s toy number. That is the single biggest
+open risk in sync.
+
+### Real-repo run (2026-07-12, `jcalixte/notes`, 570 MB pack) — the index is the wrong primitive
+
+`git_bench` was finally run against a full clone of the real repo (1179 files, 158
+dirs, 570 MB pack). It settles the design: **any index-based commit is O(N_tree)
+and does not fit this device.** Two independent walls:
+
+| op | result | reading |
+| --- | ---: | --- |
+| `Repository::open` | 88 ms | fine |
+| odb open (implicit) | ~6 s cold | maps the 1.7 MB pack `.idx` once (16 miss / 1790 KB) |
+| `odb.write(blob)` | **142 ms** p50 | the mmap cache win **holds** (was 862 ms uncached) ✅ |
+| `repo.index()` load (1179 entries) | 514 ms max | the on-disk index we were trying to avoid |
+| `index.write()` | **min 360 ms / p50 12.8 s / max 611 s** | ⚠️ hangs — see root cause |
+| **seed `read_tree(HEAD)` (cold, 1×)** | **~77 s** | ⚠️ reads all ~158 tree objects, 22.7 MB of pack windows |
+| `Index::new + read_tree` (warm) | 447 ms p50 | windows still mapped → pure CPU |
+| **index-free `stage→tree`** | **💥 crash** | `zlib (5)`: `deflateInit` failed, **508 KB heap left** |
+
+**Wall 1 — `index.write()` hashes the whole working tree (up to 611 s).**
+`git_index_write` unconditionally calls `truncate_racily_clean` (index.c:822),
+which runs `git_diff_index_to_workdir` over **every** entry flagged "racy" and
+re-hashes its file. On a fresh FAT clone the mtime granularity is 2 s and
+`index.stamp.mtime <= entry.mtime` for ~all 1179 entries (index.h:117), so the
+whole tree looks racy → it re-hashes ~170 MB (mostly the 150 MB of images) over
+10 MHz SPI. The 611 s → 12.8 s → 360 ms decay across three iterations is the
+signature: each write bumps the index mtime, shrinking the racy set. **Implication:
+the shipping `stage_and_commit` calls `index.write()`, so `:sync` on the real repo
+effectively bricks on the first commit** — the user sees a 10-minute freeze,
+resets, the index mtime never advances, and it re-hashes forever. The real repo has
+almost certainly never completed a sync on device (only the toy `typoena-test` has).
+
+**Wall 2 — the index-free path is still O(N_tree), and the mmap cache OOMs.**
+Skipping `index.write()` entirely (fresh `Index::new()`, stamp = 0, so
+`truncate_racily_clean` can never fire) removes Wall 1. But to seed the in-memory
+index, `read_tree(HEAD)` materialises all 1179 entries and reads every tree object
+from the 570 MB pack — **77 s cold** (447 ms only once the windows are resident).
+`write_tree_to` is O(changed), but you pay O(N_tree) to build the cache it needs, so
+the index-free path only trades a 611 s hash for a 77 s tree-read. Worse, that
+`read_tree` drove the `esp_map.c` cache to **7.4 MB resident** — past its own 4 MB
+soft cap — which left 508 KB of heap and made `repo.blob()`'s zlib `deflateInit`
+fail. **The one write we cannot skip crashed.** Root cause of the OOM: our cache
+holds pack windows *after* libgit2 `p_munmap`s them (refcount 0, freed only lazily
+on the next `p_mmap`), which **defeats `GIT_OPT_SET_MWINDOW_MAPPED_LIMIT`** —
+libgit2 thinks it released the memory; we didn't.
+
+**Conclusion — use an O(depth) TreeBuilder walk.** "Replace K files in a 1179-file
+tree" should touch `O(depth × K)` objects, not `O(N_tree)`. Walk HEAD's tree down
+the edited path (`tree.get_name`/`get_path` → read ~depth subtree objects), then
+rebuild bottom-up with `repo.treebuilder(Some(&subtree))` → `insert`/`remove` →
+`write()`, and `commit` the new root. That never materialises the 1179 entries,
+never re-hashes anything, never visits the 150 MB of images, reads only a handful
+of tree windows (so the cache stays small and zlib keeps its heap), and — crucially
+— **carries the image entries forward untouched from HEAD's tree, so the device
+does not even need the images in its working tree.** The `esp_map.c` cache still
+needs an evict-on-`munmap` fix (drop the cap, free past a low-water mark) so it can
+never again starve a downstream `git__malloc`, but with the TreeBuilder walk the
+pressure it was under largely disappears.
 
 ### The walk is ~1.4 s even at N ≈ 2
 
@@ -139,27 +232,42 @@ For orientation: `publish(commit+push)` was 9846 ms cold, so the **network half 
 ~6.5 s** — still the biggest single block of a warm sync (10.1 s total), a separate
 floor ([`../notes/sync-latency.md`](../notes/sync-latency.md)).
 
-## The verdict (provisional — pending `git_bench`)
+## The verdict
 
-Two things are now settled and one is open:
+The real-repo run (above) overturned the earlier ranking. Both index strategies
+are O(N_tree) and fail on the 570 MB-pack clone, and the repo cannot be shrunk. The
+work, ranked:
 
-- **Settled: the card is fast.** The SD-clock and better-card levers are off the
-  table — they target I/O that costs ~86 ms, not the ~700 ms we see. Do not spend
-  the PCB's 20 MHz budget expecting a commit-latency win here.
-- **Settled: explicit-path staging is still worth doing** — but on *design +
-  big-repo* grounds, not toy-repo latency (its measured payoff there is ~0.7 s). It
-  **caps the O(N) walk on the 1179-file target**, **never visits the ~260 images**
-  (150 MB it would otherwise scan), lets us **drop the macOS-cruft filter**, and
-  aligns the git layer with what the editor changed.
-- **Open: the ~600 ms/op libgit2 overhead** is now the largest single mystery in
-  the commit and likely the highest-value fix — if it's ODB refresh or reflog
-  writes, it may be a cheap config/flag change that speeds up *every* commit
-  regardless of repo size or staging. `git_bench` decides. **Localize it before
-  committing effort to (a).**
+1. **Rewrite the commit as an O(depth) TreeBuilder walk (the fix — build this).**
+   Rebuild only the edited path's ancestor subtree chain onto HEAD's tree; never
+   materialise the 1179-entry index, never `index.write()`, never `read_tree` the
+   whole tree. This is the ONLY mechanism that fits: O(depth × dirty) reads/writes,
+   flat in repo size, small heap, images carried forward untouched. Replaces
+   `stage_and_commit`'s `add_all`/`update_all`/`index.write`/`write_tree`. Needs the
+   editor's dirty set (+ deleted set) plumbed to the git service — the editor
+   already knows both. **Bench the walk on the real repo before wiring it in.**
+2. **Fix the `esp_map.c` cache so it can't OOM (do it alongside #1).** It grew to
+   7.4 MB resident past its 4 MB cap and starved zlib. Evict on `p_munmap` (not
+   only lazily on the next `p_mmap`) down to a low-water mark, and lower the cap, so
+   a released window's memory is actually returned to `git__malloc`. The cache's
+   `odb.write` win (862 → 142 ms) is real and worth keeping — this is a
+   memory-discipline fix, not a removal.
+3. **Retired: `add_all`/explicit-path *index* staging.** Explicit-path `add_path`
+   still goes through the index and `index.write` → `truncate_racily_clean`, so it
+   hits Wall 1 just the same. The TreeBuilder walk supersedes it entirely; the
+   "explicit-path staging" idea survives only as "the editor's dirty set feeds the
+   walk."
+4. **Retired: SD clock / better card.** The card does a full object write in
+   ~86 ms; raw I/O is not the bottleneck. Do not spend the PCB's 20 MHz budget
+   expecting a commit-latency win.
+5. **Kept: the mmap cache + mwindow tuning** (`GIT_OPT_SET_MWINDOW_*`, 256 KB
+   window / 4 MB mapped limit). It fixed `odb.write` and the push read path; #2 just
+   makes it well-behaved under memory pressure.
 
-**Recommendation:** run `git_bench` to pin the libgit2 overhead; then implement
-explicit-path staging for the design + big-repo reasons; the SD/card levers are
-retired.
+**Recommendation:** build #1 (O(depth) TreeBuilder walk) with #2 (cache
+evict-on-munmap) in the same pass. See
+[`../notes/sync-commit-handoff.md`](../notes/sync-commit-handoff.md) for the
+concrete next-session plan (bench design, firmware plumbing, exact call sites).
 
 ## Adjacent lever: should the images be on the card at all?
 
