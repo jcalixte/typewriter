@@ -36,6 +36,22 @@ name = "sd_fat"
 path = "src/bin/sd_fat.rs"
 harness = false
 
+# SD/FAT primitive-op micro-benchmark — attributes the ~700 ms/loose-object write
+# floor (see docs/tradeoff-curves/sync-commit-staging.md). Pure SD, no git feature.
+# Flash with `just flash-bench`.
+[[bin]]
+name = "sd_bench"
+path = "src/bin/sd_bench.rs"
+harness = false
+
+# git-level micro-benchmark — localizes the ~700 ms/object libgit2 overhead (see
+# docs/tradeoff-curves/sync-commit-staging.md). Needs the `git` feature.
+[[bin]]
+name = "git_bench"
+path = "src/bin/git_bench.rs"
+harness = false
+required-features = ["git"]
+
 # Spike 9 — boot splash. Standalone bench program that paints the Typoena
 # wordmark-in-a-circle on the EPD. No git, no SD, no Wi-Fi. Flash with
 # `just flash-splash`.

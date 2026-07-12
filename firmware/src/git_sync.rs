@@ -276,6 +276,13 @@ fn stage_and_commit(repo: &Repository) -> Result<Option<git2::Oid>> {
             _ => 0,                                                            // add
         }
     };
+    // Split the commit window into its sub-phases so we can tell the FAT
+    // working-tree *walk* (`add_all`/`update_all` stat every file over SPI) apart
+    // from the FAT object *writes* (index/tree/commit). This decides whether
+    // explicit-path staging is worth it: the walk is O(tree size) and avoidable
+    // (the editor knows the dirty paths), the writes are O(churn) and a floor.
+    // See docs/tradeoff-curves/sync-commit-staging.md.
+    let t_walk = Instant::now();
     index
         .add_all(["*"], IndexAddOption::DEFAULT, Some(&mut skip_macos_cruft))
         .context("staging new/modified (add --all)")?;
@@ -284,11 +291,23 @@ fn stage_and_commit(repo: &Repository) -> Result<Option<git2::Oid>> {
     index
         .update_all(["*"], Some(&mut skip_macos_cruft))
         .context("staging deletions (add -u)")?;
+    let walk_ms = t_walk.elapsed().as_millis();
+
+    let t_index = Instant::now();
     index.write().context("writing index")?;
+    let index_ms = t_index.elapsed().as_millis();
+
+    let t_tree = Instant::now();
     let tree = repo.find_tree(index.write_tree().context("writing tree")?)?;
+    let tree_ms = t_tree.elapsed().as_millis();
 
     // Commit on top of the current branch tip (None on an empty/unborn remote).
+    let t_parent = Instant::now();
     let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+    let parent_ms = t_parent.elapsed().as_millis();
+    log::info!(
+        "commit split — walk(add_all+update_all) {walk_ms}ms, index.write {index_ms}ms, write_tree {tree_ms}ms, parent-load {parent_ms}ms"
+    );
     if let Some(p) = &parent {
         if p.tree_id() == tree.id() {
             log::info!("nothing to publish — tree unchanged @ {}", short(p.id()));
@@ -299,10 +318,16 @@ fn stage_and_commit(repo: &Repository) -> Result<Option<git2::Oid>> {
     let sig = Signature::now(AUTHOR_NAME, AUTHOR_EMAIL).context("building signature")?;
     let message = format!("Typoena publish — unix {}", now_unix());
     let parents: Vec<&Commit> = parent.iter().collect();
+    let t_commit = Instant::now();
     let oid = repo
         .commit(Some("HEAD"), &sig, &sig, &message, &tree, &parents)
         .context("creating commit")?;
-    log::info!("committed {} — free heap {}", short(oid), free_heap());
+    let commit_ms = t_commit.elapsed().as_millis();
+    log::info!(
+        "commit split — commit-obj {commit_ms}ms; committed {} — free heap {}",
+        short(oid),
+        free_heap()
+    );
     Ok(Some(oid))
 }
 

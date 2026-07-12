@@ -75,10 +75,12 @@ The big rocks are physics or protocol, not slack:
 - **TLS handshake ~2.4 s** and **push negotiate/upload ~4.4 s** are inherent to
   libgit2-over-mbedTLS on this part; the payload is tiny, so there's little to
   shave.
-- **stage + commit ~3.1 s** is the one soft spot: staging `notes.md` directly
-  instead of `add_all(["*"])` would skip the SD/FAT tree walk (likely →
-  sub-second), at the cost of the file-agnostic design that a future multi-file
-  publish wants. Deferred, on purpose.
+- **stage + commit ~3.1 s** is the one soft spot: staging over the editor's dirty
+  set (`add_path`) instead of `add_all(["*"])` would skip the SD/FAT tree walk
+  (likely → sub-second) *without* losing multi-file — the dirty set is the file
+  list. Whether the walk actually dominates the ~4 s commit is now being measured
+  by the `commit split —` log line; the cost model and the rule it decides live in
+  [`../tradeoff-curves/sync-commit-staging.md`](../tradeoff-curves/sync-commit-staging.md).
 
 **Conclusion:** ~16 s cold / ~10 s warm is close to the floor for "commit to FAT +
 one TLS push over Wi-Fi with a fresh clock." It reads as slow only if you wait on

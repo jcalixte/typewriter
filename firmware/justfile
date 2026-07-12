@@ -80,6 +80,32 @@ flash-sd:
 monitor-sd:
     espflash monitor --elf {{elf_sd}}
 
+# SD primitive-op micro-benchmark — attributes the ~700 ms/loose-object write
+# floor (docs/tradeoff-curves/sync-commit-staging.md). Writes only to /sd/sdbench.
+build-bench:
+    {{esp_env}} cargo build --release --bin sd_bench
+
+# build + flash + monitor the SD bench
+flash-bench:
+    {{esp_env}} cargo run --release --bin sd_bench
+
+# serial monitor for the SD bench, with decoded backtraces
+monitor-bench:
+    espflash monitor --elf target/xtensa-esp32s3-espidf/release/sd_bench
+
+# git-level micro-benchmark — localizes the ~700 ms/object libgit2 overhead
+# (docs/tradeoff-curves/sync-commit-staging.md). Read-mostly on /sd/repo.
+build-gitbench:
+    {{esp_env}} {{git_env}} cargo build --release --bin git_bench --features git
+
+# build + flash + monitor the git-level bench
+flash-gitbench:
+    {{esp_env}} {{git_env}} cargo run --release --bin git_bench --features git
+
+# serial monitor for the git-level bench, with decoded backtraces
+monitor-gitbench:
+    espflash monitor --elf target/xtensa-esp32s3-espidf/release/git_bench
+
 # Spike 9 — build the boot splash spike (no .env needed)
 build-splash:
     {{esp_env}} cargo build --release --bin splash
