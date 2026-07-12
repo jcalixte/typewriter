@@ -13,6 +13,9 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Circle, PrimitiveStyleBuilder};
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyleBuilder};
 
+mod glyphs;
+pub use glyphs::{blit_glyph, extra_glyph, Glyph};
+
 pub const WIDTH: u16 = 792;
 pub const HEIGHT: u16 = 272;
 

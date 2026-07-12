@@ -20,7 +20,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
 
-use display::{Frame, HEIGHT, WIDTH};
+use display::{blit_glyph, extra_glyph, Frame, HEIGHT, WIDTH};
 use keymap::Key;
 
 /// FONT_10X20 cell size (writing column) and the grid it tiles into.
@@ -3109,6 +3109,34 @@ impl Editor {
         (1..=6).contains(&hashes) && b.get(i) == Some(&b' ')
     }
 
+    /// Paint the non-Latin-9 glyphs (`→ ≠ Σ … – — ' ' " " •`) that the base font
+    /// can't draw, overlaying them onto the cells `embedded-graphics` just filled
+    /// with fallback boxes. `line` is a laid-out display line; `x0` is its
+    /// x-origin (`gx`, or `gx + 1` for the heading double-strike). Only the
+    /// half-open display-column range `[col_start, col_end)` is painted, so the
+    /// visual-selection pass can invert just the selected span. `ink = On` draws
+    /// black-on-white; `ink = Off` draws white-on-black for reverse-video cells.
+    /// Because every extra glyph is one cell wide (like the font), cell x is
+    /// `x0 + col * CW` — the same grid the layout and caret math already use.
+    fn overlay_extras(
+        f: &mut Frame,
+        line: &str,
+        x0: i32,
+        y: i32,
+        col_start: usize,
+        col_end: usize,
+        ink: BinaryColor,
+    ) {
+        for (col, ch) in line.chars().enumerate() {
+            if col < col_start || col >= col_end {
+                continue;
+            }
+            if let Some(g) = extra_glyph(ch) {
+                blit_glyph(f, x0 + col as i32 * CW, y, g, ink);
+            }
+        }
+    }
+
     /// Render the current state into a frame. `cursor_on` gates the caret: the
     /// Insert bar caret is suppressed while typing and shown after a pause, and
     /// `false` also suppresses the Normal block caret so callers can render pure
@@ -3156,10 +3184,17 @@ impl Editor {
             // Markdown heading (`#`..`######` + space): faux-bold by double-
             // striking the whole display line 1px to the right (no bold Latin-9
             // font exists). Checks the logical line so wrapped headings stay bold.
-            if self.is_heading_at(self.line_start(lay[li].start)) {
+            let heading = self.is_heading_at(self.line_start(lay[li].start));
+            if heading {
                 Text::with_baseline(&lay[li].text, Point::new(gx + 1, y), text_style, Baseline::Top)
                     .draw(&mut f)
                     .unwrap();
+            }
+            // Repaint any non-Latin-9 glyphs over the fallback boxes the font
+            // left. Double-struck at gx+1 too on headings, to stay faux-bold.
+            Self::overlay_extras(&mut f, &lay[li].text, gx, y, 0, usize::MAX, BinaryColor::On);
+            if heading {
+                Self::overlay_extras(&mut f, &lay[li].text, gx + 1, y, 0, usize::MAX, BinaryColor::On);
             }
         }
 
@@ -3196,6 +3231,8 @@ impl Editor {
                         .draw(&mut f)
                         .unwrap();
                 }
+                // Any extra glyphs in the selected span: repaint white-on-black.
+                Self::overlay_extras(&mut f, &lay[li].text, gx, y, col_a, col_b, BinaryColor::Off);
             }
         }
 
@@ -3210,16 +3247,20 @@ impl Editor {
                         .draw(&mut f)
                         .unwrap();
                     if let Some(ch) = lay[crow].text.chars().nth(ccol) {
-                        let mut buf = [0u8; 4];
-                        let inv = MonoTextStyle::new(&FONT_10X20, BinaryColor::Off);
-                        Text::with_baseline(
-                            ch.encode_utf8(&mut buf),
-                            Point::new(x, y),
-                            inv,
-                            Baseline::Top,
-                        )
-                        .draw(&mut f)
-                        .unwrap();
+                        if let Some(g) = extra_glyph(ch) {
+                            blit_glyph(&mut f, x, y, g, BinaryColor::Off);
+                        } else {
+                            let mut buf = [0u8; 4];
+                            let inv = MonoTextStyle::new(&FONT_10X20, BinaryColor::Off);
+                            Text::with_baseline(
+                                ch.encode_utf8(&mut buf),
+                                Point::new(x, y),
+                                inv,
+                                Baseline::Top,
+                            )
+                            .draw(&mut f)
+                            .unwrap();
+                        }
                     }
                 }
                 Mode::Insert if cursor_on => {
@@ -3238,15 +3279,19 @@ impl Editor {
                         .draw(&mut f)
                         .unwrap();
                     if let Some(ch) = lay[crow].text.chars().nth(ccol) {
-                        let mut buf = [0u8; 4];
-                        Text::with_baseline(
-                            ch.encode_utf8(&mut buf),
-                            Point::new(x, y),
-                            text_style,
-                            Baseline::Top,
-                        )
-                        .draw(&mut f)
-                        .unwrap();
+                        if let Some(g) = extra_glyph(ch) {
+                            blit_glyph(&mut f, x, y, g, BinaryColor::On);
+                        } else {
+                            let mut buf = [0u8; 4];
+                            Text::with_baseline(
+                                ch.encode_utf8(&mut buf),
+                                Point::new(x, y),
+                                text_style,
+                                Baseline::Top,
+                            )
+                            .draw(&mut f)
+                            .unwrap();
+                        }
                     }
                 }
                 _ => {}
@@ -3948,6 +3993,63 @@ mod tests {
         let mut e = typed("café naïve garçon çÿ");
         let frame = e.draw(true);
         assert_eq!(frame.bytes().len(), display::FB_BYTES);
+    }
+
+    #[test]
+    fn extra_glyph_covers_snippet_and_prose_symbols() {
+        // The curated non-Latin-9 set the overlay draws (→ ≠ Σ … – — ' ' " " •).
+        let targets = [
+            '\u{2192}', '\u{2260}', '\u{03A3}', '\u{2026}', '\u{2013}', '\u{2014}', '\u{2018}',
+            '\u{2019}', '\u{201C}', '\u{201D}', '\u{2022}',
+        ];
+        for c in targets {
+            assert!(extra_glyph(c).is_some(), "missing glyph for U+{:04X}", c as u32);
+        }
+        // The base font already draws these — the overlay must defer to it,
+        // including œ/€ (which *are* in ISO-8859-15, at 0xBD/0xA4).
+        for c in ['a', 'é', 'œ', '€', ' ', '#', '-'] {
+            assert!(extra_glyph(c).is_none(), "should defer to base font: {c}");
+        }
+    }
+
+    #[test]
+    fn draw_runs_for_symbol_buffer() {
+        // Insert the whole extra set and render with a caret — no panic, right size.
+        let mut e = typed("\u{2192} \u{2260} \u{03A3} \u{2026} \u{2013} \u{2014} \u{2018}x\u{2019} \u{201C}y\u{201D} \u{2022}");
+        let frame = e.draw(true);
+        assert_eq!(frame.bytes().len(), display::FB_BYTES);
+        assert!(e.text.is_char_boundary(e.caret));
+    }
+
+    /// 1 = white paper, 0 = black ink (SSD16xx convention). Reads one pixel.
+    fn ink_at(frame: &Frame, x: usize, y: usize) -> bool {
+        frame.bytes()[y * display::FB_BYTES_W + x / 8] & (0x80 >> (x % 8)) == 0
+    }
+
+    #[test]
+    fn overlay_paints_extra_glyph_over_fallback_box() {
+        // The em dash is two solid mid-height bars and nothing else; a fallback
+        // box would ink the cell's top row. Gutter off so it lands in column 0.
+        let mut e = Editor::with_text("\u{2014}".into()); // —
+        e.prefs.line_numbers = false;
+        let f = e.draw(false); // no caret
+        assert!((0..10).all(|x| !ink_at(&f, x, 0)), "cell top row must be blank");
+        assert!((0..10).all(|x| ink_at(&f, x, 9)), "row 9 must be solid ink");
+        assert!((0..10).all(|x| ink_at(&f, x, 10)), "row 10 must be solid ink");
+    }
+
+    #[test]
+    fn overlay_inverts_extra_glyph_under_selection() {
+        // Same em dash, but selected: reverse-video flips the cell — the fill
+        // goes black and the dash bars punch back to white paper.
+        let mut e = Editor::with_text("\u{2014}x".into());
+        e.prefs.line_numbers = false;
+        e.handle(Key::Char('0')); // to column 0 (the em dash)
+        e.handle(Key::Char('v')); // charwise Visual selects the char under the caret
+        let f = e.draw(false); // no active-end caret punch, just the selection
+        assert!((0..10).all(|x| ink_at(&f, x, 0)), "selected cell top row must be inked");
+        assert!((0..10).all(|x| !ink_at(&f, x, 9)), "row 9 dash must punch to white");
+        assert!((0..10).all(|x| !ink_at(&f, x, 10)), "row 10 dash must punch to white");
     }
 
     #[test]
