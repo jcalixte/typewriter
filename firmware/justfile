@@ -173,8 +173,9 @@ init repo_src sd_volume="":
     just _write-conf "$vol" "{{repo_src}}"
     just _eject "$vol"
 
-# (Re)copy just the notes repo to /sd/repo (full clone, gitignored paths
-# excluded), then eject — e.g. to refresh the card after big upstream changes.
+# (Re)copy just the notes repo to /sd/repo: fast-forward the source clone from
+# its remote first, then rsync it across (full clone, gitignored paths excluded)
+# and eject — e.g. to refresh the card after the device pushed new notes.
 load repo_src sd_volume="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -260,6 +261,29 @@ _load-repo repo_src vol:
     if [ -n "${TW_REMOTE_URL:-}" ] && [ -n "$origin" ] && [ "$origin" != "${TW_REMOTE_URL}" ]; then
         echo "warning: origin ($origin) != TW_REMOTE_URL (${TW_REMOTE_URL})"
     fi
+
+    # Refresh the source clone from its remote before mirroring, so the card
+    # carries the latest — e.g. notes the device pushed since the last load.
+    # Fast-forward-only and best-effort: a dirty tree, diverged history, detached
+    # HEAD, or being offline just warns and copies the current on-disk state
+    # rather than aborting the card prep. Set TW_NO_PULL=1 to skip the pull.
+    case "$origin" in
+        https://*|git@*|ssh://*|git://*)
+            if [ -n "${TW_NO_PULL:-}" ]; then
+                echo "TW_NO_PULL set — skipping pull, copying current on-disk state"
+            else
+                branch="$(git -C "$src" symbolic-ref --quiet --short HEAD || true)"
+                if [ -z "$branch" ]; then
+                    echo "warning: '$src' is in detached HEAD — skipping pull, copying current state" >&2
+                elif git -C "$src" pull --ff-only origin "$branch"; then
+                    :
+                else
+                    echo "warning: 'git pull --ff-only origin $branch' failed (dirty, diverged, or offline) —" >&2
+                    echo "         copying the current on-disk state instead" >&2
+                fi
+            fi
+            ;;
+    esac
 
     dest="{{vol}}/{{sd_repo_dir}}"
     echo "copying repo: $src  ->  $dest"
