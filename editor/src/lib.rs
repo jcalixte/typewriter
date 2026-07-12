@@ -571,16 +571,23 @@ fn palette_label(path: &str) -> &str {
     path.strip_prefix("/sd/").unwrap_or(path)
 }
 
-/// A palette command (the `>` mode). v0.5 exposes the three boolean prefs as
-/// live toggles; each command's *label* carries the pref's current state
-/// ([`Editor::command_label`]), so the list doubles as a settings readout. This
-/// registry is the discoverable surface later features (`:fmt`, font) grow into.
-/// A boolean flips on Enter; a preset like [`Theme`](PaletteCmd::Theme) or
-/// [`AutoSync`](PaletteCmd::AutoSync) rotates to its next option and wraps.
-/// `auto_sync` has no behaviour yet (v0.7), so cycling it only changes the
-/// stored/displayed value — see [`Prefs::auto_sync`].
+/// A `>` palette command — a real action registry, not a settings box (v0.6).
+/// Three dispatch shapes, distinguished by [`PaletteCmd::kind`]:
+/// - a **[one-shot](CmdKind::OneShot)** ([`Format`](PaletteCmd::Format),
+///   [`Publish`](PaletteCmd::Publish)) runs and closes the palette;
+/// - a **[parameterised](CmdKind::Param)** command ([`NewFile`](PaletteCmd::NewFile))
+///   morphs the palette into a filename input step;
+/// - a **[toggle](CmdKind::Toggle)** — the boolean prefs and the
+///   [`Theme`](PaletteCmd::Theme)/[`AutoSync`](PaletteCmd::AutoSync) rotations —
+///   applies live and keeps the list open, so several settings flip in a row. Each
+///   toggle's *label* carries the pref's current state ([`Editor::command_label`]),
+///   so the list still doubles as a settings readout. `auto_sync` has no behaviour
+///   yet (v0.7); cycling it only changes the stored/displayed value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PaletteCmd {
+    NewFile,
+    Format,
+    Publish,
     SaveOnIdle,
     FormatOnSave,
     LineNumbers,
@@ -588,14 +595,52 @@ enum PaletteCmd {
     AutoSync,
 }
 
-/// The palette command list, in display order (empty `>` query shows them all).
-const PALETTE_CMDS: [PaletteCmd; 5] = [
+/// How a [`PaletteCmd`] behaves on Enter — see [`PaletteCmd::kind`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CmdKind {
+    /// Applies live and keeps the palette open (the pref toggles/rotations).
+    Toggle,
+    /// Runs once and closes the palette (`format`, `publish`).
+    OneShot,
+    /// Opens a second input step in the palette (`new file`).
+    Param,
+}
+
+impl PaletteCmd {
+    /// The command's dispatch shape, which decides what Enter does in
+    /// [`Editor::palette_run_command`].
+    fn kind(self) -> CmdKind {
+        match self {
+            PaletteCmd::NewFile => CmdKind::Param,
+            PaletteCmd::Format | PaletteCmd::Publish => CmdKind::OneShot,
+            _ => CmdKind::Toggle,
+        }
+    }
+}
+
+/// The palette command list, in display order (empty `>` query shows them all):
+/// the actions first, the settings after.
+const PALETTE_CMDS: [PaletteCmd; 8] = [
+    PaletteCmd::NewFile,
+    PaletteCmd::Format,
+    PaletteCmd::Publish,
     PaletteCmd::SaveOnIdle,
     PaletteCmd::FormatOnSave,
     PaletteCmd::LineNumbers,
     PaletteCmd::Theme,
     PaletteCmd::AutoSync,
 ];
+
+/// Which step the palette is showing. Most of its life it is a
+/// [`List`](PaletteStep::List) — files, `>` commands, or `$` snippets, chosen by
+/// the query's leading sigil. Selecting a [parameterised](CmdKind::Param) `>`
+/// command switches it to an input step ([`NewFile`](PaletteStep::NewFile)), where
+/// the query is a value (a filename) rather than a filter, and Enter commits it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaletteStep {
+    List,
+    NewFile,
+}
 
 /// A pending operator awaiting a motion or text object (`d`elete / `c`hange /
 /// `y`ank).
@@ -712,6 +757,9 @@ pub struct Editor {
     /// [`palette_matches`](Self::palette_matches), not into [`files`](Self::files)).
     /// Reset to 0 whenever the query changes.
     palette_sel: usize,
+    /// Which step the palette is in ([`List`](PaletteStep::List) filter vs the
+    /// `New file` filename input). `List` whenever the palette is closed.
+    palette_step: PaletteStep,
     /// The snippet library, fed by the host at boot via
     /// [`set_snippets`](Self::set_snippets) from `.typoena.snippets.json`. Empty
     /// until fed (and after a missing/malformed file). Drives inline
@@ -801,6 +849,7 @@ impl Editor {
             recent: Vec::new(),
             palette_query: String::new(),
             palette_sel: 0,
+            palette_step: PaletteStep::List,
             snippets: Vec::new(),
             snippet_stops: Vec::new(),
             snippet_hint: None,
@@ -1412,15 +1461,10 @@ impl Editor {
     /// therefore just save (the "quit" half is dropped).
     fn execute_command(&mut self) {
         let cmd = self.cmdline.trim().to_string();
-        // `:enew <path>` — create a new file (checked before `:e ` so it isn't
-        // swallowed by it; "enew foo" never starts with "e ").
+        // `:enew <path>` — create a new file. (`:e` was retired in v0.6: bare
+        // `Cmd-P` opens files, and `> new file` creates them.)
         if let Some(arg) = cmd.strip_prefix("enew ") {
             self.new_file(arg);
-            return;
-        }
-        // `:e <path>` — open another file (multi-file, v0.5).
-        if let Some(arg) = cmd.strip_prefix("e ") {
-            self.edit_file(arg);
             return;
         }
         match cmd.as_str() {
@@ -1434,21 +1478,8 @@ impl Editor {
                 }
                 self.request_save_active();
             }
-            "sync" => {
-                // Publish is Tracked-only (CONTEXT.md): a Local buffer never
-                // reaches the remote, so `:sync` there is a no-op with a notice.
-                if self.scope == Scope::Local {
-                    self.set_notice("Publish unavailable (Local)");
-                    return;
-                }
-                // fmt → save → push: format in-core, queue the save of the current
-                // buffer, then the git publish. The host services them in order.
-                if self.prefs.format_on_save {
-                    self.format_buffer();
-                }
-                self.request_save_active();
-                self.requests.push(Effect::Publish);
-            }
+            // fmt → save → push, shared with the `>` publish command.
+            "sync" => self.run_publish(),
             "gl" => self.requests.push(Effect::Pull),
             _ => {}
         }
@@ -1653,18 +1684,6 @@ impl Editor {
         self.reset_pending();
     }
 
-    /// `:e <arg>` — resolve `arg` to an absolute path + scope and open it. A path
-    /// under `/sd/local/` is Local, one under `/sd/repo/` is Tracked; a bare name
-    /// (no slash) lands in the current buffer's scope directory.
-    fn edit_file(&mut self, arg: &str) {
-        let arg = arg.trim();
-        if arg.is_empty() {
-            self.set_notice("usage: :e <file>");
-            return;
-        }
-        let (path, scope) = resolve_path(arg, self.scope);
-        self.open_path(path, scope);
-    }
 
     /// `:enew <arg>` — create a new file and make it the active buffer. Scope is
     /// read from the path exactly like `:e` (`local/…` → Local, else Tracked;
@@ -1768,6 +1787,7 @@ impl Editor {
         self.mode = Mode::Palette;
         self.palette_query.clear();
         self.palette_sel = 0;
+        self.palette_step = PaletteStep::List;
     }
 
     /// `:settings` — open the palette straight into `>` command mode (the
@@ -1777,21 +1797,28 @@ impl Editor {
         self.mode = Mode::Palette;
         self.palette_query = ">".to_string();
         self.palette_sel = 0;
+        self.palette_step = PaletteStep::List;
     }
 
-    /// Leave the palette back to Normal, clearing its query and selection.
+    /// Leave the palette back to Normal, clearing its query, selection, and step.
     fn close_palette(&mut self) {
         self.mode = Mode::Normal;
         self.palette_query.clear();
         self.palette_sel = 0;
+        self.palette_step = PaletteStep::List;
     }
 
-    /// Dispatch a key in [`Mode::Palette`]. Typing fuzzy-filters; `Ctrl-n`/`Ctrl-p`
-    /// (or `Ctrl-d`/`Ctrl-u`) move the selection down/up; Enter acts on the
-    /// selection per the leading sigil (open a file, run a `>` command, or insert a
-    /// `$` snippet); Esc or `Cmd-P` closes. Backspace on an empty query also closes
-    /// (mirrors the `:` line). Any query edit resets the selection to the top.
+    /// Dispatch a key in [`Mode::Palette`]. In the `New file` input step the keys
+    /// build a filename ([`new_file_step_key`](Self::new_file_step_key)); otherwise
+    /// typing fuzzy-filters, `Ctrl-n`/`Ctrl-p` (or `Ctrl-d`/`Ctrl-u`) move the
+    /// selection, and Enter acts on it per the leading sigil (open a file, run a
+    /// `>` command, or insert a `$` snippet). Esc or `Cmd-P` closes; Backspace on
+    /// an empty query also closes (mirrors the `:` line). Any query edit resets the
+    /// selection to the top.
     fn palette_key(&mut self, key: Key) {
+        if self.palette_step == PaletteStep::NewFile {
+            return self.new_file_step_key(key);
+        }
         match key {
             Key::Char(c) => {
                 self.palette_query.push(c);
@@ -1839,6 +1866,46 @@ impl Editor {
             // Esc, or Cmd-P again, closes the palette.
             Key::Escape | Key::Palette => self.close_palette(),
             Key::Redo => {}
+        }
+    }
+
+    /// Keys in the `> new file` input step: the query is a filename, not a filter.
+    /// Enter creates it (scope resolved from a `repo/`/`local/` prefix, exactly as
+    /// `:enew` did) and closes; an empty name is a no-op that stays in the step.
+    /// Backspacing past the start steps **back** to the `>` command list rather
+    /// than closing, so the step is escapable without losing the palette. Esc or
+    /// `Cmd-P` closes outright.
+    fn new_file_step_key(&mut self, key: Key) {
+        match key {
+            Key::Char(c) => self.palette_query.push(c),
+            Key::Backspace => {
+                if self.palette_query.pop().is_none() {
+                    // Nothing left to erase — return to the command list.
+                    self.palette_step = PaletteStep::List;
+                    self.palette_query = ">".to_string();
+                    self.palette_sel = 0;
+                }
+            }
+            Key::DeleteWord => {
+                while self.palette_query.ends_with(' ') {
+                    self.palette_query.pop();
+                }
+                while !self.palette_query.is_empty() && !self.palette_query.ends_with(' ') {
+                    self.palette_query.pop();
+                }
+            }
+            Key::DeleteLine => self.palette_query.clear(),
+            Key::Enter => {
+                let name = self.palette_query.trim().to_string();
+                if name.is_empty() {
+                    return; // nothing typed yet — stay in the step
+                }
+                self.close_palette();
+                self.new_file(&name);
+            }
+            Key::Escape | Key::Palette => self.close_palette(),
+            // No list to move over in this step.
+            Key::Up | Key::Down | Key::HalfPageUp | Key::HalfPageDown | Key::Redo => {}
         }
     }
 
@@ -1899,12 +1966,18 @@ impl Editor {
         self.palette_query.strip_prefix('>').unwrap_or("").trim()
     }
 
-    /// A command's display label, carrying its pref's current state (so the list
-    /// reads as a live settings panel and the toggle's effect is legible before
-    /// and after). This is also the text [`fuzzy_score`] matches against.
+    /// A command's display label. An action's label is a plain verb (with a
+    /// trailing `...` on the parameterised `new file`, VS-Code-style, to flag the
+    /// second step — ASCII dots, since Latin-9 has no `…` glyph); a toggle's label
+    /// carries its pref's current state, so the list reads as a live settings panel
+    /// and the effect is legible before and after. This is also the text
+    /// [`fuzzy_score`] matches against.
     fn command_label(&self, cmd: PaletteCmd) -> String {
         let on = |b| if b { "on" } else { "off" };
         match cmd {
+            PaletteCmd::NewFile => "new file...".to_string(),
+            PaletteCmd::Format => "format".to_string(),
+            PaletteCmd::Publish => "publish".to_string(),
             PaletteCmd::SaveOnIdle => format!("save on idle: {}", on(self.prefs.save_on_idle)),
             PaletteCmd::FormatOnSave => format!("format on save: {}", on(self.prefs.format_on_save)),
             PaletteCmd::LineNumbers => format!("line numbers: {}", on(self.prefs.line_numbers)),
@@ -1927,16 +2000,63 @@ impl Editor {
         scored.into_iter().map(|(i, _)| i).collect()
     }
 
-    /// Enter in `>` command mode: run the selected command (toggle its pref) and
-    /// **stay open**, so several prefs can be flipped in a row — the toggled
-    /// label updates in place. `Esc` (or `Cmd-P`) closes. A no-op on an empty
-    /// result set (nothing selected), which also stays open so the query can be
-    /// fixed. Contrast [`palette_open_selected`](Self::palette_open_selected),
-    /// which closes: opening a file switches away, toggling a pref does not.
+    /// Enter in `>` command mode, dispatched by the selected command's
+    /// [`kind`](PaletteCmd::kind):
+    /// - a **[toggle](CmdKind::Toggle)** flips its pref and the palette **stays
+    ///   open** (flip several in a row; the label updates in place);
+    /// - a **[one-shot](CmdKind::OneShot)** (`format`/`publish`) runs and **closes**
+    ///   — an action switches you back to writing, a toggle does not;
+    /// - a **[parameterised](CmdKind::Param)** command (`new file`) opens the
+    ///   filename input step ([`begin_new_file_step`](Self::begin_new_file_step)).
+    ///
+    /// A no-op on an empty result set (nothing selected), staying open so the
+    /// query can be fixed.
     fn palette_run_command(&mut self) {
-        if let Some(&ci) = self.palette_command_matches().get(self.palette_sel) {
-            self.cycle_pref(PALETTE_CMDS[ci]);
+        let Some(&ci) = self.palette_command_matches().get(self.palette_sel) else {
+            return;
+        };
+        let cmd = PALETTE_CMDS[ci];
+        match cmd.kind() {
+            CmdKind::Toggle => self.cycle_pref(cmd),
+            CmdKind::OneShot => {
+                self.close_palette();
+                match cmd {
+                    PaletteCmd::Format => {
+                        self.format_buffer();
+                        self.set_notice("formatted");
+                    }
+                    PaletteCmd::Publish => self.run_publish(),
+                    _ => {}
+                }
+            }
+            CmdKind::Param => self.begin_new_file_step(),
         }
+    }
+
+    /// Switch the open palette into its `new file` filename input step: the list
+    /// gives way to a prompt, and the next Enter creates the typed file. Reached
+    /// only from [`palette_run_command`](Self::palette_run_command), so the palette
+    /// is already open.
+    fn begin_new_file_step(&mut self) {
+        self.palette_step = PaletteStep::NewFile;
+        self.palette_query.clear();
+        self.palette_sel = 0;
+    }
+
+    /// The publish path shared by `:sync` and the `>` `publish` command: format on
+    /// save (if enabled), queue the buffer save, then the git push — the host
+    /// services them in order. Tracked-only: a Local buffer never reaches the
+    /// remote, so it is a no-op with a notice.
+    fn run_publish(&mut self) {
+        if self.scope == Scope::Local {
+            self.set_notice("Publish unavailable (Local)");
+            return;
+        }
+        if self.prefs.format_on_save {
+            self.format_buffer();
+        }
+        self.request_save_active();
+        self.requests.push(Effect::Publish);
     }
 
     /// Advance the pref a command targets to its next value, apply it live (the
@@ -1957,6 +2077,13 @@ impl Editor {
             }
             PaletteCmd::AutoSync => {
                 self.prefs.auto_sync = next_option(&self.prefs.auto_sync, &AUTO_SYNC_OPTIONS).to_string()
+            }
+            // Actions, not prefs: palette_run_command routes them away, so we never
+            // arrive here. Return before the SavePrefs/notice below rather than
+            // panicking the firmware on a would-be routing bug.
+            PaletteCmd::NewFile | PaletteCmd::Format | PaletteCmd::Publish => {
+                debug_assert!(false, "cycle_pref called with a non-toggle command");
+                return;
             }
         }
         self.requests.push(Effect::SavePrefs {
@@ -3295,6 +3422,44 @@ impl Editor {
         let style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
         let inv = MonoTextStyle::new(&FONT_10X20, BinaryColor::Off);
 
+        // The `> new file` input step: a labelled filename prompt with a block
+        // caret and a create hint — no list. The query is the filename being
+        // typed; an empty one shows a placeholder naming the scope-prefix rule.
+        if self.palette_step == PaletteStep::NewFile {
+            Text::with_baseline("New file:", Point::new(2, 0), style, Baseline::Top)
+                .draw(f)
+                .unwrap();
+            let y = CH + 3;
+            if self.palette_query.is_empty() {
+                Text::with_baseline(
+                    "name  (repo/ or local/ prefix)",
+                    Point::new(2 + CW, y),
+                    style,
+                    Baseline::Top,
+                )
+                .draw(f)
+                .unwrap();
+            } else {
+                Text::with_baseline(&self.palette_query, Point::new(2, y), style, Baseline::Top)
+                    .draw(f)
+                    .unwrap();
+            }
+            let cx = (2 + self.palette_query.chars().count() as i32 * CW).min(DIVIDER_X - 2);
+            Rectangle::new(Point::new(cx, y), Size::new(2, CH as u32))
+                .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+                .draw(f)
+                .unwrap();
+            Text::with_baseline(
+                "Enter create  Esc cancel",
+                Point::new(2, HEIGHT as i32 - CH),
+                style,
+                Baseline::Top,
+            )
+            .draw(f)
+            .unwrap();
+            return;
+        }
+
         // The query on the top row with a block caret at the end. A bare input is
         // "go to file" (VS Code Cmd-P); a leading `>` switches to the command list
         // (`command_mode`). An empty query is just the caret over a `Go to file`
@@ -4583,9 +4748,18 @@ mod tests {
 
     // ---- Multi-file buffers (v0.5) ----
 
-    /// Drive `:e {arg}<Enter>` from Normal.
+    /// Open `arg` the way a user now does — via the file palette. (`:e` was
+    /// retired in v0.6; bare `Cmd-P` opens files.) Lists the target, opens the
+    /// palette, and types its exact label so the fuzzy matcher ranks it first,
+    /// then Enter selects it — routing through the same `open_path` `:e` used.
     fn edit(e: &mut Editor, arg: &str) {
-        ex(e, &format!("e {arg}"));
+        let (path, _) = resolve_path(arg, e.scope);
+        e.add_to_file_list(&path);
+        e.open_palette();
+        for c in palette_label(&path).chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Enter);
     }
 
     /// Drive an arbitrary `:{cmd}<Enter>` from Normal.
@@ -4666,7 +4840,7 @@ mod tests {
     }
 
     #[test]
-    fn e_command_queues_a_load_for_a_nonresident_file() {
+    fn opening_a_nonresident_file_queues_a_load() {
         let mut e = Editor::with_file("/sd/repo/a.md".into(), Scope::Tracked, "A".into());
         edit(&mut e, "/sd/local/j.md");
         assert_eq!(
@@ -5246,19 +5420,26 @@ mod tests {
 
     #[test]
     fn command_mode_stays_open_across_multiple_toggles() {
-        // Flip line numbers, then move to save-on-idle and flip that, without the
-        // palette closing between them; each toggle persists.
-        let mut e = palette_type(&["/sd/repo/notes.md"], ">");
-        // Registry order is save_on_idle, format_on_save, line_numbers.
-        e.handle(Key::Down); // -> format on save
-        e.handle(Key::Down); // -> line numbers
+        // Flip line numbers, then retype the query for save-on-idle and flip that,
+        // without the palette closing between them; each toggle persists. Navigate
+        // by fuzzy filter, not registry position.
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">line");
+        let before = e.prefs().line_numbers;
         e.handle(Key::Enter);
-        assert!(!e.prefs().line_numbers);
-        assert_eq!(e.mode(), Mode::Palette);
+        assert_eq!(e.prefs().line_numbers, !before); // applied live
+        assert_eq!(e.mode(), Mode::Palette); // stays open
         assert_eq!(kinds(&e.take_effects()), vec![Kind::SavePrefs]);
-        e.handle(Key::Up); // back to format on save
+        // Still open: retype the query for a different pref (">idle" is unique to
+        // "save on idle").
+        for _ in 0.."line".len() {
+            e.handle(Key::Backspace);
+        }
+        for c in "idle".chars() {
+            e.handle(Key::Char(c));
+        }
+        let before = e.prefs().save_on_idle;
         e.handle(Key::Enter);
-        assert!(!e.prefs().format_on_save);
+        assert_eq!(e.prefs().save_on_idle, !before);
         assert_eq!(e.mode(), Mode::Palette);
         assert_eq!(kinds(&e.take_effects()), vec![Kind::SavePrefs]);
     }
@@ -5377,6 +5558,119 @@ mod tests {
         let _ = e.draw(true);
         let mut none = palette_type(&["/sd/repo/notes.md"], ">zzzzz"); // "(no command)"
         let _ = none.draw(true);
+    }
+
+    // ---- `>` command palette generalisation (v0.6) ----
+
+    #[test]
+    fn command_labels_for_the_new_actions() {
+        let e = Editor::new();
+        assert_eq!(e.command_label(PaletteCmd::NewFile), "new file...");
+        assert_eq!(e.command_label(PaletteCmd::Format), "format");
+        assert_eq!(e.command_label(PaletteCmd::Publish), "publish");
+    }
+
+    #[test]
+    fn format_command_runs_and_closes() {
+        // A one-shot: it formats the buffer (extra trailing blanks collapse) and
+        // closes the palette — and, being an action not a toggle, queues no
+        // SavePrefs. `>format` ranks the action above `format on save` (registry
+        // order breaks the tie).
+        let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "a\n\n\n".into());
+        e.handle(Key::Palette);
+        for c in ">format".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Enter);
+        assert_eq!(e.text(), "a\n"); // formatted → not the FormatOnSave toggle
+        assert_eq!(e.mode(), Mode::Normal); // one-shot closes
+        assert!(!kinds(&e.take_effects()).contains(&Kind::SavePrefs));
+    }
+
+    #[test]
+    fn publish_command_saves_and_pushes_then_closes() {
+        let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "hi".into());
+        e.handle(Key::Palette);
+        for c in ">publish".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Enter);
+        assert_eq!(e.mode(), Mode::Normal);
+        assert_eq!(kinds(&e.take_effects()), vec![Kind::Save, Kind::Publish]);
+    }
+
+    #[test]
+    fn publish_command_is_unavailable_in_a_local_buffer() {
+        let mut e = Editor::with_file("/sd/local/j.md".into(), Scope::Local, "hi".into());
+        e.handle(Key::Palette);
+        for c in ">publish".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Enter);
+        assert_eq!(e.mode(), Mode::Normal);
+        assert!(e.take_effects().is_empty()); // Local never reaches the remote
+    }
+
+    #[test]
+    fn new_file_command_opens_the_filename_input_step() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">new");
+        e.handle(Key::Enter);
+        assert_eq!(e.mode(), Mode::Palette); // still open — now the input step
+        assert_eq!(e.palette_step, PaletteStep::NewFile);
+        assert!(e.palette_query.is_empty()); // the list filter gave way to the name
+    }
+
+    #[test]
+    fn new_file_step_creates_the_typed_file_and_switches() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">new");
+        e.handle(Key::Enter); // → input step
+        for c in "draft.md".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Enter);
+        assert_eq!(e.mode(), Mode::Normal); // committed and closed
+        assert_eq!(e.path(), "/sd/repo/draft.md"); // scope inherited from notes.md
+        assert!(e.dirty()); // a fresh, unsaved file
+    }
+
+    #[test]
+    fn new_file_step_backspace_returns_to_the_command_list() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">new");
+        e.handle(Key::Enter); // input step, empty name
+        e.handle(Key::Backspace); // nothing to erase → step back to the `>` list
+        assert_eq!(e.palette_step, PaletteStep::List);
+        assert!(e.palette_command_mode()); // query restored to ">"
+        assert_eq!(e.mode(), Mode::Palette);
+    }
+
+    #[test]
+    fn new_file_step_empty_enter_stays_in_the_step() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">new");
+        e.handle(Key::Enter); // input step
+        e.handle(Key::Enter); // empty name → no-op, still awaiting one
+        assert_eq!(e.palette_step, PaletteStep::NewFile);
+        assert_eq!(e.mode(), Mode::Palette);
+        assert_eq!(e.path(), "/sd/repo/notes.md"); // unchanged
+    }
+
+    #[test]
+    fn draw_in_new_file_step_does_not_panic() {
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">new");
+        e.handle(Key::Enter);
+        let _ = e.draw(true); // empty-name placeholder path
+        for c in "draft.md".chars() {
+            e.handle(Key::Char(c));
+        }
+        let _ = e.draw(true); // with a typed name
+    }
+
+    #[test]
+    fn e_command_is_retired() {
+        // `:e` no longer opens files — bare Cmd-P does. `:e foo` is now a no-op.
+        let mut e = Editor::with_file("/sd/repo/a.md".into(), Scope::Tracked, "A".into());
+        ex(&mut e, "e /sd/repo/b.md");
+        assert_eq!(e.path(), "/sd/repo/a.md"); // unchanged
+        assert!(e.take_effects().is_empty()); // nothing queued
     }
 
     // ---- Snippets (v0.6) ----
