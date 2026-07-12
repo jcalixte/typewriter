@@ -127,9 +127,11 @@ rather than refusing to start over a stray comma.
   the device on the next clone/sync. This is deliberately where the heavy editing
   happens; the appliance is for writing, not for maintaining a JSON library.
 - **First-time setup.** [`just init`](../firmware/README.md#provisioning-an-sd-card)
-  seeds this file from a curated catalog — you pick which snippet groups you
-  want and it writes the selected subset into `repo/.typoena.snippets.json`
-  (committed on the device's first `:sync`). See
+  seeds this file from a curated catalog (`firmware/snippets-catalog/`) — you pick
+  which snippet groups you want and it `jq`-merges the selected subset into
+  `repo/.typoena.snippets.json` (committed on the device's first `:sync`). It
+  writes **only if the file is absent**, so re-running `init` on a card whose
+  clone already carries your library never overwrites it. See
   [`v0.6-markdown.md`](v0.6-markdown.md) for the catalog.
 - **On-device hand-edit — deferred.** The palette hides dotfiles, and `:e` was
   dropped in v0.6, so there is no in-editor path to this file yet. When one is
