@@ -551,36 +551,61 @@ fn delete_buffer(storage: &Storage, ed: &mut Editor, path: String, scope: Scope)
     }
 }
 
-/// Enumerate the palette's openable files: the top-level regular files in
-/// `/sd/repo` and `/sd/local`, as absolute paths. Skips dotfiles (so `.git`,
-/// `.typoena.toml`, and the like never show) and anything that isn't a plain
-/// file. Best-effort: an unreadable directory (e.g. no `/sd/local` yet)
-/// contributes nothing rather than failing. The editor sorts and dedupes.
+/// Enumerate the palette's openable files: the regular files under `/sd/repo`
+/// and `/sd/local`, recursively, as absolute paths. Skips dot entries at every
+/// level (so `.git` and its thousands of object files, `.typoena.toml`, and the
+/// like never show or get walked). Best-effort: an unreadable directory (e.g.
+/// no `/sd/local` yet) contributes nothing rather than failing. The editor
+/// sorts and dedupes. Runs once at boot, so the walk time is logged — on a big
+/// repo the FAT directory IO is the cost to watch.
 fn enumerate_files() -> Vec<String> {
+    let start = std::time::Instant::now();
     let mut out = Vec::new();
     for dir in [REPO_DIR, LOCAL_DIR] {
-        let Ok(entries) = std::fs::read_dir(dir) else {
+        walk_files(std::path::Path::new(dir), 0, &mut out);
+    }
+    log::info!("file walk: {} files in {}ms", out.len(), start.elapsed().as_millis());
+    out
+}
+
+/// Depth bound for [`walk_files`] — belt-and-braces against pathological
+/// nesting on a hand-edited card; notes trees are a couple of levels deep.
+const WALK_MAX_DEPTH: usize = 8;
+
+/// Recursive helper for [`enumerate_files`]: push `dir`'s files onto `out`,
+/// then descend into its subdirectories. Reads each directory fully before
+/// recursing (the `remove_dir_recursive` pattern in `git_sync`), so only one
+/// FatFS directory handle is open at a time regardless of depth — relevant on
+/// the FD-bounded SD mount.
+fn walk_files(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) {
+    if depth > WALK_MAX_DEPTH {
+        log::warn!("file walk: {} exceeds depth {WALK_MAX_DEPTH}, skipped", dir.display());
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let paths: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+    for path in paths {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                continue;
-            };
-            if name.starts_with('.') {
-                continue;
-            }
-            // Stat rather than trust d_type — FatFS's dirent type can read back
-            // as unknown; a plain metadata call is reliable here.
-            if !std::fs::metadata(&path).map(|m| m.is_file()).unwrap_or(false) {
-                continue;
-            }
+        if name.starts_with('.') {
+            continue;
+        }
+        // Stat rather than trust d_type — FatFS's dirent type can read back
+        // as unknown; a plain metadata call is reliable here.
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        if meta.is_file() {
             if let Some(p) = path.to_str() {
                 out.push(p.to_string());
             }
+        } else if meta.is_dir() {
+            walk_files(&path, depth + 1, out);
         }
     }
-    out
 }
 
 /// A file's display name — its basename without extension (`/sd/repo/notes.md`
