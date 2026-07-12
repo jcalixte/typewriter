@@ -585,24 +585,27 @@ fn walk_files(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
-    let paths: Vec<_> = entries.flatten().map(|e| e.path()).collect();
-    for path in paths {
+    // Keep the dirent's own file type: esp-idf's FAT VFS always fills d_type
+    // (DT_DIR/DT_REG, straight from the FILINFO readdir already holds), so
+    // `file_type()` is free. A per-entry `metadata()` stat instead re-walks
+    // the directory by path every time — measured at ~32ms/file on the SD
+    // card, it turned a 1098-file walk into 35s.
+    let children: Vec<_> = entries
+        .flatten()
+        .filter_map(|e| e.file_type().ok().map(|t| (e.path(), t)))
+        .collect();
+    for (path, ftype) in children {
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
         if name.starts_with('.') {
             continue;
         }
-        // Stat rather than trust d_type — FatFS's dirent type can read back
-        // as unknown; a plain metadata call is reliable here.
-        let Ok(meta) = std::fs::metadata(&path) else {
-            continue;
-        };
-        if meta.is_file() {
+        if ftype.is_file() {
             if let Some(p) = path.to_str() {
                 out.push(p.to_string());
             }
-        } else if meta.is_dir() {
+        } else if ftype.is_dir() {
             walk_files(&path, depth + 1, out);
         }
     }
