@@ -83,9 +83,10 @@ handler, alongside the existing list-continuation transform.)
 
 On a **typing pause** — the same throttle as the word-count / cursor refresh, so
 never a per-keystroke e-ink flash — if the word before the caret is a prefix, the
-right side panel shows a quiet hint (`↹ fiche de lecture`). The panel is ~17
-columns, so the hint is the **snippet name / first line**, not the whole body;
-the full preview is what the `$` palette is for.
+right side panel shows a quiet hint (`» Book notes`), on the row above the mode
+line. The panel is ~15 columns, so the hint is the **snippet name**, not the whole
+body; the full preview is what the `$` palette is for. (The marker is `»`, not a
+tab glyph: the panel font is ISO-8859-15, which has no `↹`.)
 
 ### `$` palette (browse + insert)
 

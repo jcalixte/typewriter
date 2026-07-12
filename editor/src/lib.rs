@@ -723,6 +723,11 @@ pub struct Editor {
     /// shift by the edit's length delta (they are all at/after the caret), so they
     /// track the text; Tab pops the next one, and leaving Insert clears them.
     snippet_stops: Vec<usize>,
+    /// Snapshot of the snippet name inline Tab would expand right now (the word
+    /// before the caret is a prefix), or `None`. Refreshed by
+    /// [`refresh_stats`](Self::refresh_stats) on the typing pause — the same
+    /// throttle as the word count — so the panel hint never repaints per keystroke.
+    snippet_hint: Option<String>,
 }
 
 /// A resident-but-inactive buffer: everything needed to restore a file's editing
@@ -798,6 +803,7 @@ impl Editor {
             palette_sel: 0,
             snippets: Vec::new(),
             snippet_stops: Vec::new(),
+            snippet_hint: None,
         }
     }
 
@@ -887,11 +893,30 @@ impl Editor {
         self.scroll_top
     }
 
-    /// Recompute the panel word-count snapshot from the buffer. The main loop
-    /// calls this on a typing pause and on non-Insert actions, so the panel
-    /// count stays current without repainting on every keystroke.
+    /// Recompute the throttled panel snapshots from the buffer: the word count and
+    /// the inline-snippet hint. The main loop calls this on a typing pause and on
+    /// non-Insert actions, so the panel stays current without repainting on every
+    /// keystroke.
     pub fn refresh_stats(&mut self) {
         self.shown_words = self.word_count();
+        self.snippet_hint = self.current_snippet_hint();
+    }
+
+    /// The snippet name inline Tab would expand at the caret right now, or `None`.
+    /// Only in Insert mode outside a live tab-stop session (mid-session Tab
+    /// advances stops, it doesn't expand), and only when the word immediately
+    /// before the caret is exactly a snippet prefix — the same test
+    /// [`try_expand_snippet`](Self::try_expand_snippet) uses. Snapshotted into
+    /// [`snippet_hint`](Self::snippet_hint) by [`refresh_stats`](Self::refresh_stats).
+    fn current_snippet_hint(&self) -> Option<String> {
+        if self.mode != Mode::Insert || !self.snippet_stops.is_empty() {
+            return None;
+        }
+        let (_, word) = self.word_before_caret()?;
+        self.snippets
+            .iter()
+            .find(|s| s.prefix == word)
+            .map(|s| s.name.clone())
     }
 
     /// Tell the editor whether a keyboard is attached (for the panel flag).
@@ -3158,11 +3183,23 @@ impl Editor {
             }
         }
 
-        // Keyboard-disconnect flag, just above the mode line, shown only while
-        // the keyboard is dropped. Latin-9 has no ⌨/✗ glyph, so plain text.
+        // Just above the mode line: the keyboard-disconnect flag, or — while
+        // typing a recognised prefix — a quiet snippet hint. Mutually exclusive:
+        // the hint means you're typing, which needs the keyboard. Latin-9 has no
+        // ⌨/✗ or ↹ glyph, so the flag is plain text and the hint leads with `»`.
         if !self.keyboard_present {
             Text::with_baseline(
                 "NO KBD",
+                Point::new(PANEL_X, HEIGHT as i32 - 2 * PANEL_CH),
+                style,
+                Baseline::Top,
+            )
+            .draw(f)
+            .unwrap();
+        } else if let Some(name) = &self.snippet_hint {
+            let hint: String = format!("» {name}").chars().take(PANEL_COLS).collect();
+            Text::with_baseline(
+                &hint,
                 Point::new(PANEL_X, HEIGHT as i32 - 2 * PANEL_CH),
                 style,
                 Baseline::Top,
@@ -5597,5 +5634,59 @@ mod tests {
         let _ = e.draw(true);
         let mut filtered = snippet_palette(TWO_SNIPPETS, "$link");
         let _ = filtered.draw(true);
+    }
+
+    // ---- hint-on-pause ----
+
+    /// Type `word` into a fresh Insert-mode buffer with the two snippets loaded.
+    fn typed_in_insert(word: &str) -> Editor {
+        let mut e = with_snippets(TWO_SNIPPETS);
+        e.handle(Key::Char('i'));
+        for c in word.chars() {
+            e.handle(Key::Char(c));
+        }
+        e
+    }
+
+    #[test]
+    fn pause_hint_names_the_snippet_a_prefix_would_expand() {
+        let mut e = typed_in_insert("link");
+        assert_eq!(e.snippet_hint, None); // not computed per keystroke
+        e.refresh_stats(); // the typing-pause throttle
+        assert_eq!(e.snippet_hint.as_deref(), Some("Markdown link"));
+    }
+
+    #[test]
+    fn pause_hint_is_absent_without_a_matching_prefix() {
+        let mut e = typed_in_insert("zz");
+        e.refresh_stats();
+        assert_eq!(e.snippet_hint, None);
+    }
+
+    #[test]
+    fn pause_hint_clears_when_leaving_insert() {
+        let mut e = typed_in_insert("link");
+        e.refresh_stats();
+        assert!(e.snippet_hint.is_some());
+        e.handle(Key::Escape); // → Normal
+        e.refresh_stats(); // the main loop refreshes on non-Insert actions
+        assert_eq!(e.snippet_hint, None);
+    }
+
+    #[test]
+    fn pause_hint_is_absent_during_a_live_session() {
+        let mut e = typed_in_insert("link");
+        e.handle(Key::Char('\t')); // expand → session live, caret on $1
+        assert!(!e.snippet_stops.is_empty());
+        e.refresh_stats();
+        assert_eq!(e.snippet_hint, None, "mid-session Tab advances, not expands");
+    }
+
+    #[test]
+    fn draw_with_a_pause_hint_does_not_panic() {
+        let mut e = typed_in_insert("link");
+        e.refresh_stats();
+        assert!(e.snippet_hint.is_some());
+        let _ = e.draw(true); // the `» name` panel row must render cleanly
     }
 }
