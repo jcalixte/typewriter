@@ -79,6 +79,15 @@ pub const MAX_FILE_BYTES: u64 = 256 * 1024;
 /// The C mount point (`/sd\0`) for the esp-idf FFI calls.
 const MOUNT_C: &std::ffi::CStr = c"/sd";
 
+/// VFS open-file budget for the editor path: it opens only a note and its
+/// `*.tmp`, so a tight budget keeps FatFS's per-file buffers off the heap.
+const MAX_FILES_EDITOR: i32 = 4;
+/// VFS open-file budget for the git tooling. libgit2 keeps the pack + `.idx`
+/// (and commit-graph) descriptors open for the repo's lifetime and opens loose
+/// objects on top, so a `read_tree` walk overruns [`MAX_FILES_EDITOR`] with a
+/// "no free file descriptors" error. Matches the flash-FAT git binaries' 16.
+const MAX_FILES_GIT: i32 = 16;
+
 /// A mounted SD card. Holds the live card handle for its lifetime; v0.1 never
 /// unmounts (the card stays up for the whole power session). Not `Send` — the
 /// handle lives on the task that mounted it (the ui/main task). The git thread
@@ -113,6 +122,17 @@ impl Storage {
     /// (The Spike 3 bench binary sets it true for convenience on blank cards;
     /// this path must not.)
     pub fn mount() -> Result<Self> {
+        Self::mount_with_max_files(MAX_FILES_EDITOR)
+    }
+
+    /// Like [`Storage::mount`], but with the larger [`MAX_FILES_GIT`] open-file
+    /// budget the git tooling (bench / sync) needs — libgit2 holds several
+    /// descriptors open at once, which the editor's default budget can't cover.
+    pub fn mount_for_git() -> Result<Self> {
+        Self::mount_with_max_files(MAX_FILES_GIT)
+    }
+
+    fn mount_with_max_files(max_files: i32) -> Result<Self> {
         // 1) SPI3 with the SD's four lines. Dedicated bus (ADR-012) — no EPD
         //    deselect needed: the panel is on SPI2 and can't contend here.
         // SAFETY: a zeroed spi_bus_config_t is valid (all pins default 0); we
@@ -177,7 +197,7 @@ impl Storage {
         // 4) Mount config. format_if_mount_failed = FALSE — see method docs.
         let mount = sys::esp_vfs_fat_mount_config_t {
             format_if_mount_failed: false,
-            max_files: 4,
+            max_files,
             allocation_unit_size: 16 * 1024,
             disk_status_check_enable: false,
             use_one_fat: false,
