@@ -298,6 +298,161 @@ fn next_option<'a>(current: &str, options: &[&'a str]) -> &'a str {
     }
 }
 
+/// The git-tracked snippet library, read at boot like [`PREFS_PATH`]. The host
+/// reads this file and hands the parsed list to [`Editor::set_snippets`]; a
+/// missing or malformed file is non-fatal (no snippets, editor runs). It lives in
+/// the Tracked repo so the library syncs across devices. Full format reference:
+/// `docs/typoena-snippets.md`.
+pub const SNIPPETS_PATH: &str = "/sd/repo/.typoena.snippets.json";
+
+/// One snippet: an inline trigger [`prefix`](Snippet::prefix), a
+/// [`body`](Snippet::body) carrying `$1..$n`/`$0` tab stops, and a
+/// [`name`](Snippet::name)/[`description`](Snippet::description) the `$` palette
+/// shows. Parsed from the Zed-compatible JSON by [`Snippets::parse`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snippet {
+    /// Display name — the top-level JSON key. What the `$` palette lists.
+    pub name: String,
+    /// The word that triggers inline Tab-expansion.
+    pub prefix: String,
+    /// Literal body text with `$1..$n`/`$0` stops. `${n:label}` placeholders are
+    /// stripped to bare `$n` at parse time (no completion popup to show a label,
+    /// no overtype model to fill it) — see [`strip_stop_labels`].
+    pub body: String,
+    /// Human description; the `$` palette fuzzy-matches and shows it. Empty if the
+    /// JSON entry omits it.
+    pub description: String,
+}
+
+/// A parsed snippet library. [`parse`](Snippets::parse) reads the Zed JSON shape;
+/// [`Editor::set_snippets`] installs it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Snippets(pub Vec<Snippet>);
+
+/// The Zed JSON value for one snippet: `body` is a string or an array of lines.
+#[derive(serde::Deserialize)]
+struct RawSnippet {
+    prefix: String,
+    body: RawBody,
+    #[serde(default)]
+    description: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum RawBody {
+    /// `"body": ["line", "line"]` — Zed's multi-line form (joined with `\n`).
+    Lines(Vec<String>),
+    /// `"body": "one line"`.
+    Text(String),
+}
+
+impl Snippets {
+    /// Parse the Zed-compatible `.typoena.snippets.json`: an object keyed by
+    /// display name, each value `{ prefix, body, description? }` where `body` is a
+    /// string or an array of lines. Labels in `${n:label}` stops are stripped to
+    /// `$n`. Entries come back sorted by name (a `BTreeMap` parse — deterministic,
+    /// and the empty-`$` palette order; a query re-ranks by fuzzy score anyway). A
+    /// malformed file is an `Err` the host logs before booting with no snippets.
+    pub fn parse(src: &str) -> Result<Self, serde_json::Error> {
+        let raw: std::collections::BTreeMap<String, RawSnippet> = serde_json::from_str(src)?;
+        let snippets = raw
+            .into_iter()
+            .map(|(name, r)| {
+                let body = match r.body {
+                    RawBody::Text(s) => s,
+                    RawBody::Lines(v) => v.join("\n"),
+                };
+                Snippet {
+                    name,
+                    prefix: r.prefix,
+                    body: strip_stop_labels(&body),
+                    description: r.description,
+                }
+            })
+            .collect();
+        Ok(Self(snippets))
+    }
+}
+
+/// Rewrite `${n:label}` (and `${n}`) tab stops to a bare `$n`, leaving plain
+/// `$n`/`$0` and every other `$` untouched. The editor has no completion popup to
+/// surface a label and no selection/overtype model to fill one, so the label is
+/// only noise to delete — dropping it is what lets a Zed snippet file with
+/// `${1:Titre}` load unchanged. Byte-indexed but UTF-8-safe: it only ever indexes
+/// the ASCII `$ { } :` and digits; any multi-byte char is copied whole.
+fn strip_stop_labels(body: &str) -> String {
+    let b = body.as_bytes();
+    let mut out = String::with_capacity(body.len());
+    let mut i = 0;
+    while i < body.len() {
+        if b[i] == b'$' && i + 1 < body.len() && b[i + 1] == b'{' {
+            // Read the digits right after "${".
+            let mut j = i + 2;
+            while j < body.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            // A numbered placeholder `${<digits>…}` → `$<digits>`, dropping the rest.
+            if j > i + 2 {
+                if let Some(close) = body[j..].find('}') {
+                    out.push('$');
+                    out.push_str(&body[i + 2..j]);
+                    i = j + close + 1;
+                    continue;
+                }
+            }
+            // Not a numbered placeholder (or unclosed) — emit the `$` literally.
+            out.push('$');
+            i += 1;
+            continue;
+        }
+        let c = body[i..].chars().next().unwrap();
+        out.push(c);
+        i += c.len_utf8();
+    }
+    out
+}
+
+/// Split a snippet body into its literal text (tab-stop markers removed) and the
+/// caret **visit order** of those stops as byte offsets into that literal: `$1 …
+/// $n` ascending, then `$0` last. If the body has numbered stops but no explicit
+/// `$0`, a final stop at the body end is appended (so the last Tab lands past the
+/// text). A body with no stops returns an empty stop list (the caret just lands at
+/// the end — no session). `$` not followed by a digit is literal.
+fn parse_snippet_body(body: &str) -> (String, Vec<usize>) {
+    let b = body.as_bytes();
+    let mut literal = String::with_capacity(body.len());
+    let mut stops: Vec<(u32, usize)> = Vec::new(); // (stop number, offset in `literal`)
+    let mut i = 0;
+    while i < body.len() {
+        if b[i] == b'$' {
+            let mut j = i + 1;
+            while j < body.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j > i + 1 {
+                let num: u32 = body[i + 1..j].parse().unwrap_or(0);
+                stops.push((num, literal.len()));
+                i = j;
+                continue;
+            }
+            literal.push('$'); // a lone `$` (e.g. a price) is literal text
+            i += 1;
+            continue;
+        }
+        let c = body[i..].chars().next().unwrap();
+        literal.push(c);
+        i += c.len_utf8();
+    }
+    // Ensure a final resting stop: `$0` if present, else an implicit one at the end.
+    if !stops.is_empty() && !stops.iter().any(|&(n, _)| n == 0) {
+        stops.push((0, literal.len()));
+    }
+    // Visit order: $1..$n ascending, $0 (the final rest) last.
+    stops.sort_by_key(|&(n, _)| if n == 0 { u32::MAX } else { n });
+    (literal, stops.into_iter().map(|(_, off)| off).collect())
+}
+
 /// Resolve a `:e`/`:enew` argument (or palette pick) to an absolute path +
 /// [`Scope`]. Everything the writer can reach lives on the card under `/sd`, so
 /// the `/sd` prefix is **optional**: `/sd/repo/x`, `/repo/x`, and `repo/x` all
@@ -557,6 +712,17 @@ pub struct Editor {
     /// [`palette_matches`](Self::palette_matches), not into [`files`](Self::files)).
     /// Reset to 0 whenever the query changes.
     palette_sel: usize,
+    /// The snippet library, fed by the host at boot via
+    /// [`set_snippets`](Self::set_snippets) from `.typoena.snippets.json`. Empty
+    /// until fed (and after a missing/malformed file). Drives inline
+    /// Tab-expansion and the `$` palette.
+    snippets: Vec<Snippet>,
+    /// Active snippet tab-stop session: the byte offsets of the **remaining**
+    /// stops to visit, in order, with the caret sitting on the current one. Empty
+    /// when no session is running. On each Insert-mode edit the pending offsets
+    /// shift by the edit's length delta (they are all at/after the caret), so they
+    /// track the text; Tab pops the next one, and leaving Insert clears them.
+    snippet_stops: Vec<usize>,
 }
 
 /// A resident-but-inactive buffer: everything needed to restore a file's editing
@@ -630,6 +796,8 @@ impl Editor {
             recent: Vec::new(),
             palette_query: String::new(),
             palette_sel: 0,
+            snippets: Vec::new(),
+            snippet_stops: Vec::new(),
         }
     }
 
@@ -753,6 +921,13 @@ impl Editor {
         self.prefs = prefs;
     }
 
+    /// Install the snippet library the host parsed from [`SNIPPETS_PATH`] at boot
+    /// (via [`Snippets::parse`]). Mirrors [`set_prefs`](Self::set_prefs): a
+    /// missing or malformed file simply yields an empty library and no snippets.
+    pub fn set_snippets(&mut self, snippets: Snippets) {
+        self.snippets = snippets.0;
+    }
+
     /// Whitespace-delimited word count of the whole buffer.
     fn word_count(&self) -> usize {
         self.text.split_whitespace().count()
@@ -797,6 +972,14 @@ impl Editor {
             Mode::View => self.view_key(key),
             Mode::Command => self.command_key(key),
             Mode::Palette => self.palette_key(key),
+        }
+
+        // A snippet tab-stop session lives only in Insert. Leaving Insert — Esc,
+        // or any mode change — ends it (the buffer is then just text, so Tab
+        // inserts a tab again). The natural end (Tab past the last stop) already
+        // empties `snippet_stops` while still in Insert.
+        if !self.snippet_stops.is_empty() && self.mode != Mode::Insert {
+            self.snippet_stops.clear();
         }
 
         if !self.replaying {
@@ -859,8 +1042,20 @@ impl Editor {
     // --- Insert mode -------------------------------------------------------
 
     fn insert_key(&mut self, key: Key) {
+        // A live snippet session (non-empty `snippet_stops`) makes Tab advance to
+        // the next stop instead of inserting a tab, and needs its pending offsets
+        // kept in step with any edit at the caret (below).
+        let session = !self.snippet_stops.is_empty();
+        let len_before = self.text.len();
         match key {
-            Key::Char('\t') => self.insert_str(TAB),
+            Key::Char('\t') if session => self.snippet_advance(),
+            // Tab expands a snippet if the word before the caret is a prefix;
+            // otherwise it inserts spaces as before.
+            Key::Char('\t') => {
+                if !self.try_expand_snippet() {
+                    self.insert_str(TAB);
+                }
+            }
             Key::Char(c) => self.insert_char(c),
             Key::Enter => self.insert_newline(),
             Key::Backspace => self.backspace(),
@@ -877,6 +1072,17 @@ impl Editor {
                 // vim drops the caret onto the last inserted char.
                 if self.caret > self.line_start(self.caret) {
                     self.caret = self.prev_char(self.caret);
+                }
+            }
+        }
+        // Every pending stop sits at/after the caret, so an edit at the caret
+        // shifts them all by its signed length delta — keeping `$2 … $0` correct
+        // while you type at `$1`. (Tab-advance and Esc don't change the length.)
+        if session && !self.snippet_stops.is_empty() {
+            let delta = self.text.len() as isize - len_before as isize;
+            if delta != 0 {
+                for s in &mut self.snippet_stops {
+                    *s = s.saturating_add_signed(delta);
                 }
             }
         }
@@ -1556,8 +1762,9 @@ impl Editor {
     }
 
     /// Dispatch a key in [`Mode::Palette`]. Typing fuzzy-filters; `Ctrl-n`/`Ctrl-p`
-    /// (or `Ctrl-d`/`Ctrl-u`) move the selection down/up; Enter opens the selected
-    /// file; Esc or `Cmd-P` closes. Backspace on an empty query also closes
+    /// (or `Ctrl-d`/`Ctrl-u`) move the selection down/up; Enter acts on the
+    /// selection per the leading sigil (open a file, run a `>` command, or insert a
+    /// `$` snippet); Esc or `Cmd-P` closes. Backspace on an empty query also closes
     /// (mirrors the `:` line). Any query edit resets the selection to the top.
     fn palette_key(&mut self, key: Key) {
         match key {
@@ -1587,19 +1794,18 @@ impl Editor {
                 self.palette_sel = 0;
             }
             // Ctrl-n/Ctrl-p move the selection (fzf-style); Ctrl-d/Ctrl-u do too.
-            // Clamped to the result list (files, or `>` commands).
+            // Clamped to the current result list (files, `>` commands, `$` snippets).
             Key::Down | Key::HalfPageDown => {
-                let n = if self.palette_command_mode() {
-                    self.palette_command_matches().len()
-                } else {
-                    self.palette_matches().len()
-                };
+                let n = self.palette_len();
                 self.palette_sel = (self.palette_sel + 1).min(n.saturating_sub(1));
             }
             Key::Up | Key::HalfPageUp => self.palette_sel = self.palette_sel.saturating_sub(1),
-            // Enter runs the selected `>` command, or opens the selected file.
+            // Enter acts on the selection by mode: insert a `$` snippet, run a `>`
+            // command, or open the selected file.
             Key::Enter => {
-                if self.palette_command_mode() {
+                if self.palette_snippet_mode() {
+                    self.palette_insert_selected();
+                } else if self.palette_command_mode() {
                     self.palette_run_command();
                 } else {
                     self.palette_open_selected();
@@ -1733,6 +1939,79 @@ impl Editor {
         });
         // The label already reflects the just-changed state (e.g. "theme: dark").
         self.set_notice(format!("{} - saved", self.command_label(cmd)));
+    }
+
+    // --- Palette snippet mode (`$`) ----------------------------------------
+
+    /// Whether the palette is in `$` snippet mode. Same sigil mechanism as `>`: a
+    /// leading `$` in the query switches the file search to the snippet launcher,
+    /// and backspacing it off returns to file mode with no extra state. `$` and `>`
+    /// are mutually exclusive (a query starts with at most one).
+    fn palette_snippet_mode(&self) -> bool {
+        self.palette_query.starts_with('$')
+    }
+
+    /// The snippet filter: everything after the leading `$`, trimmed. `$` alone is
+    /// an empty filter, which lists every snippet.
+    fn snippet_filter(&self) -> &str {
+        self.palette_query.strip_prefix('$').unwrap_or("").trim()
+    }
+
+    /// The text a snippet is fuzzy-matched against: name, prefix, and description
+    /// together, so you find a snippet by whichever you remember. Matching runs on
+    /// this joined haystack (see [`fuzzy_score`]); [`snippet_label`] is the shorter
+    /// string actually drawn.
+    fn snippet_haystack(s: &Snippet) -> String {
+        format!("{} {} {}", s.name, s.prefix, s.description)
+    }
+
+    /// A snippet's palette row: the display name with its inline trigger in
+    /// brackets (`Markdown link [link]`), so browsing also teaches the prefix you'd
+    /// type for the fast inline path. Truncated to the column width by the caller.
+    fn snippet_label(s: &Snippet) -> String {
+        format!("{} [{}]", s.name, s.prefix)
+    }
+
+    /// Filtered, ranked snippet indices into [`snippets`](Self::snippets). An empty
+    /// filter keeps the parsed order (sorted by name); a non-empty one fuzzy-ranks
+    /// over [`snippet_haystack`], same matcher and stable-sort as the file list.
+    fn palette_snippet_matches(&self) -> Vec<usize> {
+        let filter = self.snippet_filter();
+        let mut scored: Vec<(usize, i32)> = self
+            .snippets
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| fuzzy_score(filter, &Self::snippet_haystack(s)).map(|score| (i, score)))
+            .collect();
+        scored.sort_by_key(|&(_, s)| core::cmp::Reverse(s));
+        scored.into_iter().map(|(i, _)| i).collect()
+    }
+
+    /// Enter in `$` snippet mode: insert the selected snippet at the caret and start
+    /// its tab-stop session. Unlike a `>` toggle (which stays open), this **closes**
+    /// the palette — inserting content returns you to the buffer, in Insert on `$1`.
+    /// Checkpoints so the whole insertion is one undo group. A no-op on an empty
+    /// result set (nothing selected), which stays open so the query can be fixed.
+    fn palette_insert_selected(&mut self) {
+        let Some(&i) = self.palette_snippet_matches().get(self.palette_sel) else {
+            return;
+        };
+        let body = self.snippets[i].body.clone();
+        self.close_palette();
+        self.checkpoint(); // baseline is the buffer before insertion — undo removes it whole
+        self.insert_snippet(&body);
+    }
+
+    /// Row count of the palette's current result list, whichever sigil is active —
+    /// the single source the selection clamps against.
+    fn palette_len(&self) -> usize {
+        if self.palette_snippet_mode() {
+            self.palette_snippet_matches().len()
+        } else if self.palette_command_mode() {
+            self.palette_command_matches().len()
+        } else {
+            self.palette_matches().len()
+        }
     }
 
     // --- Visual mode -------------------------------------------------------
@@ -2115,6 +2394,83 @@ impl Editor {
     fn insert_str(&mut self, s: &str) {
         self.text.insert_str(self.caret, s);
         self.caret += s.len();
+    }
+
+    // --- Snippets ----------------------------------------------------------
+
+    /// Expand a snippet `body` at the caret and enter its tab-stop session. Splits
+    /// the body into literal text (stops removed) and their [`parse_snippet_body`]
+    /// visit order, inserts the literal, lands the caret on `$1` (or the body end
+    /// if there are no stops), and enters Insert. The remaining stops queue in
+    /// [`snippet_stops`](Self::snippet_stops) for Tab. Shared by inline
+    /// Tab-expansion and the `$` palette. **The caller owns the undo boundary** —
+    /// it must [`checkpoint`](Self::checkpoint) *before* any related mutation
+    /// (the inline path deletes the trigger word first), so one undo group covers
+    /// the whole expansion; `insert_snippet` deliberately does not checkpoint.
+    fn insert_snippet(&mut self, body: &str) {
+        let (literal, stops) = parse_snippet_body(body);
+        let base = self.caret;
+        self.text.insert_str(base, &literal);
+        let mut abs = stops.into_iter().map(|o| base + o);
+        match abs.next() {
+            Some(first) => {
+                self.caret = first;
+                self.snippet_stops = abs.collect();
+            }
+            None => {
+                self.caret = base + literal.len();
+                self.snippet_stops.clear();
+            }
+        }
+        self.mode = Mode::Insert;
+    }
+
+    /// Tab inside a live session: jump the caret to the next pending stop. The
+    /// final stop (`$0` / the body end) empties the queue, ending the session with
+    /// the caret resting there. Offsets were kept current by the edit-shift in
+    /// [`insert_key`](Self::insert_key), so this is a plain move.
+    fn snippet_advance(&mut self) {
+        if self.snippet_stops.is_empty() {
+            return;
+        }
+        let next = self.snippet_stops.remove(0);
+        self.caret = next.min(self.text.len());
+    }
+
+    /// The maximal run of non-whitespace ending exactly at the caret — the
+    /// candidate inline snippet trigger — or `None` if the caret is at a line/word
+    /// start (the char before it is whitespace). Whitespace is ASCII, so scanning
+    /// bytes is UTF-8-safe: `start` lands just past an ASCII space/newline (a char
+    /// boundary) or at 0.
+    fn word_before_caret(&self) -> Option<(usize, &str)> {
+        let b = self.text.as_bytes();
+        if self.caret == 0 || b[self.caret - 1].is_ascii_whitespace() {
+            return None;
+        }
+        let mut start = self.caret;
+        while start > 0 && !b[start - 1].is_ascii_whitespace() {
+            start -= 1;
+        }
+        Some((start, &self.text[start..self.caret]))
+    }
+
+    /// Inline Tab-expansion: if the word immediately before the caret is exactly a
+    /// snippet prefix, replace it with the expansion (as one undo group) and start
+    /// the tab-stop session, returning `true`. Otherwise leave the buffer untouched
+    /// and return `false`, so Tab falls back to inserting spaces.
+    fn try_expand_snippet(&mut self) -> bool {
+        let Some((start, word)) = self.word_before_caret() else {
+            return false;
+        };
+        let Some(body) = self.snippets.iter().find(|s| s.prefix == word).map(|s| s.body.clone())
+        else {
+            return false;
+        };
+        self.checkpoint(); // baseline includes the trigger word — undo restores it
+        self.text.replace_range(start..self.caret, "");
+        self.caret = start;
+        self.insert_snippet(&body);
+        true
     }
 
     /// Enter in Insert mode, with Markdown list continuation. At the END of a
@@ -2907,9 +3263,10 @@ impl Editor {
         // (`command_mode`). An empty query is just the caret over a `Go to file`
         // placeholder that clears on the first keystroke — type `>` for commands.
         let command_mode = self.palette_command_mode();
+        let snippet_mode = self.palette_snippet_mode();
         if self.palette_query.is_empty() {
             Text::with_baseline(
-                "Go to file  (type > for commands)",
+                "Go to file  ·  > settings  ·  $ snippets",
                 Point::new(2 + CW, 0),
                 style,
                 Baseline::Top,
@@ -2933,8 +3290,11 @@ impl Editor {
             .draw(f)
             .unwrap();
 
-        // The list is either the fuzzy-ranked files or the `>` command registry.
-        let matches = if command_mode {
+        // The list is the fuzzy-ranked files, the `>` command registry, or the `$`
+        // snippet library, per the active sigil.
+        let matches = if snippet_mode {
+            self.palette_snippet_matches()
+        } else if command_mode {
             self.palette_command_matches()
         } else {
             self.palette_matches()
@@ -2945,7 +3305,13 @@ impl Editor {
         let visible = ((hint_y - list_top) / CH).max(1) as usize;
 
         if matches.is_empty() {
-            let msg = if command_mode {
+            let msg = if snippet_mode {
+                if self.snippets.is_empty() {
+                    "(no snippets)"
+                } else {
+                    "(no match)"
+                }
+            } else if command_mode {
                 "(no command)"
             } else if self.files.is_empty() {
                 "(no files on card)"
@@ -2961,7 +3327,9 @@ impl Editor {
             let start = if sel >= visible { sel - visible + 1 } else { 0 };
             for (row, &idx) in matches.iter().enumerate().skip(start).take(visible) {
                 let y = list_top + (row - start) as i32 * CH;
-                let label: String = if command_mode {
+                let label: String = if snippet_mode {
+                    Self::snippet_label(&self.snippets[idx]).chars().take(max_chars).collect()
+                } else if command_mode {
                     self.command_label(PALETTE_CMDS[idx])
                 } else {
                     palette_label(&self.files[idx]).chars().take(max_chars).collect()
@@ -2983,7 +3351,9 @@ impl Editor {
             }
         }
 
-        let hint = if command_mode {
+        let hint = if snippet_mode {
+            "^N/^P move  Enter insert  Esc close"
+        } else if command_mode {
             "^N/^P move  Enter change  Esc close"
         } else {
             "^N/^P move  Enter open  Esc close"
@@ -4970,5 +5340,262 @@ mod tests {
         let _ = e.draw(true);
         let mut none = palette_type(&["/sd/repo/notes.md"], ">zzzzz"); // "(no command)"
         let _ = none.draw(true);
+    }
+
+    // ---- Snippets (v0.6) ----
+
+    fn with_snippets(json: &str) -> Editor {
+        let mut e = Editor::new();
+        e.set_snippets(Snippets::parse(json).unwrap());
+        e
+    }
+
+    #[test]
+    fn strip_labels_reduces_placeholders_to_bare_stops() {
+        assert_eq!(strip_stop_labels("# ${1:Titre}"), "# $1");
+        assert_eq!(strip_stop_labels("${2}"), "$2");
+        assert_eq!(strip_stop_labels("[$1]($2)$0"), "[$1]($2)$0"); // plain stops untouched
+        assert_eq!(strip_stop_labels("price: $ and ${3:x}"), "price: $ and $3"); // lone $ kept
+    }
+
+    #[test]
+    fn parse_body_extracts_literal_and_visit_order() {
+        let (lit, stops) = parse_snippet_body("[$1]($2)$0");
+        assert_eq!(lit, "[]()");
+        assert_eq!(stops, vec![1, 3, 4]); // $1, $2, then $0 (end) last
+    }
+
+    #[test]
+    fn parse_body_appends_implicit_final_stop_when_no_zero() {
+        let (lit, stops) = parse_snippet_body("# $1\n## $2");
+        assert_eq!(lit, "# \n## ");
+        assert_eq!(stops, vec![2, 6, 6]); // $1, $2, implicit rest at the end
+    }
+
+    #[test]
+    fn parse_body_no_stops_has_empty_visit_list() {
+        let (lit, stops) = parse_snippet_body("- [ ] ");
+        assert_eq!(lit, "- [ ] ");
+        assert!(stops.is_empty());
+    }
+
+    #[test]
+    fn parse_snippets_reads_zed_json_string_and_array_bodies() {
+        // r###"…"### so the `"#`/`"##` in the heading bodies don't close the string.
+        let json = r###"{
+            "Link": { "prefix": "link", "body": "[$1]($2)$0", "description": "Inline link" },
+            "Book notes": { "prefix": "booknotes", "body": ["# ${1:Titre}", "## $2"] }
+        }"###;
+        let s = Snippets::parse(json).unwrap().0;
+        assert_eq!(s.len(), 2);
+        // BTreeMap parse → sorted by display name ("Book notes" < "Link").
+        assert_eq!(s[0].name, "Book notes");
+        assert_eq!(s[0].prefix, "booknotes");
+        assert_eq!(s[0].body, "# $1\n## $2"); // array joined with \n, label stripped
+        assert_eq!(s[0].description, ""); // omitted → empty
+        assert_eq!(s[1].name, "Link");
+        assert_eq!(s[1].body, "[$1]($2)$0");
+        assert_eq!(s[1].description, "Inline link");
+    }
+
+    #[test]
+    fn parse_snippets_empty_and_malformed() {
+        assert!(Snippets::parse("{}").unwrap().0.is_empty());
+        assert!(Snippets::parse("{ not json").is_err()); // host logs, boots with none
+    }
+
+    #[test]
+    fn tab_expands_prefix_and_lands_on_first_stop() {
+        let mut e = with_snippets(r#"{ "Link": { "prefix": "link", "body": "[$1]($2)$0" } }"#);
+        e.handle(Key::Char('i'));
+        for c in "link".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Char('\t')); // expand
+        assert_eq!(e.text, "[]()"); // trigger word replaced by the expansion
+        assert_eq!(e.caret, 1); // caret on $1
+        assert_eq!(e.mode(), Mode::Insert);
+        assert_eq!(e.snippet_stops, vec![3, 4]); // $2 then $0 pending
+    }
+
+    #[test]
+    fn tab_advances_stops_and_typing_shifts_pending_ones() {
+        let mut e = with_snippets(r#"{ "Link": { "prefix": "link", "body": "[$1]($2)$0" } }"#);
+        e.handle(Key::Char('i'));
+        for c in "link".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Char('\t'));
+        for c in "url".chars() {
+            e.handle(Key::Char(c)); // type at $1
+        }
+        assert_eq!(e.text, "[url]()");
+        assert_eq!(e.snippet_stops, vec![6, 7]); // pending shifted by +3
+        e.handle(Key::Char('\t')); // → $2
+        assert_eq!(e.caret, 6);
+        assert_eq!(e.snippet_stops, vec![7]);
+        for c in "http".chars() {
+            e.handle(Key::Char(c));
+        }
+        assert_eq!(e.text, "[url](http)");
+        e.handle(Key::Char('\t')); // → $0 (end); session ends
+        assert_eq!(e.caret, 11);
+        assert!(e.snippet_stops.is_empty());
+    }
+
+    #[test]
+    fn esc_ends_the_snippet_session() {
+        let mut e = with_snippets(r#"{ "Link": { "prefix": "link", "body": "[$1]($2)$0" } }"#);
+        e.handle(Key::Char('i'));
+        for c in "link".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Char('\t'));
+        assert!(!e.snippet_stops.is_empty());
+        e.handle(Key::Escape);
+        assert_eq!(e.mode(), Mode::Normal);
+        assert!(e.snippet_stops.is_empty(), "leaving Insert ends the session");
+    }
+
+    #[test]
+    fn tab_without_matching_prefix_inserts_spaces() {
+        let mut e = with_snippets(r#"{ "Link": { "prefix": "link", "body": "[$1]($2)$0" } }"#);
+        e.handle(Key::Char('i'));
+        for c in "zzz".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Char('\t'));
+        assert!(e.text.starts_with("zzz"));
+        assert!(e.text.len() > 3, "tab inserted whitespace, not an expansion");
+        assert!(e.snippet_stops.is_empty());
+    }
+
+    #[test]
+    fn no_stop_snippet_expands_without_a_session() {
+        let mut e = with_snippets(r#"{ "Todo": { "prefix": "todo", "body": "- [ ] " } }"#);
+        e.handle(Key::Char('i'));
+        for c in "todo".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Char('\t'));
+        assert_eq!(e.text, "- [ ] ");
+        assert_eq!(e.caret, 6); // caret at the end, no session
+        assert!(e.snippet_stops.is_empty());
+    }
+
+    #[test]
+    fn undo_after_expansion_restores_the_trigger_word() {
+        let mut e = with_snippets(r#"{ "Link": { "prefix": "link", "body": "[$1]($2)$0" } }"#);
+        e.handle(Key::Char('i'));
+        for c in "link".chars() {
+            e.handle(Key::Char(c));
+        }
+        e.handle(Key::Char('\t'));
+        assert_eq!(e.text, "[]()");
+        e.handle(Key::Escape);
+        e.handle(Key::Char('u')); // undo the whole expansion
+        assert_eq!(e.text, "link");
+    }
+
+    // ---- `$` snippet palette ----
+
+    // r##"…"## so the `"#` in the `"# $1"` heading body doesn't close the string.
+    const TWO_SNIPPETS: &str = r##"{
+        "Markdown link": { "prefix": "link", "body": "[$1]($2)$0", "description": "Inline link" },
+        "Book notes": { "prefix": "booknotes", "body": "# $1", "description": "Reading fiche" }
+    }"##;
+
+    /// Open the palette on an editor with `json`'s snippets loaded, then type `q`.
+    fn snippet_palette(json: &str, q: &str) -> Editor {
+        let mut e = with_snippets(json);
+        e.handle(Key::Palette);
+        for c in q.chars() {
+            e.handle(Key::Char(c));
+        }
+        e
+    }
+
+    #[test]
+    fn dollar_switches_the_palette_to_snippet_mode() {
+        let e = snippet_palette(TWO_SNIPPETS, "$");
+        assert!(e.palette_snippet_mode());
+        assert!(!e.palette_command_mode());
+        // A bare `$` lists every snippet.
+        assert_eq!(e.palette_snippet_matches().len(), 2);
+    }
+
+    #[test]
+    fn backspacing_the_dollar_returns_to_file_mode() {
+        let mut e = snippet_palette(TWO_SNIPPETS, "$");
+        assert!(e.palette_snippet_mode());
+        e.handle(Key::Backspace);
+        assert!(!e.palette_snippet_mode());
+        assert_eq!(e.mode(), Mode::Palette); // still open, file mode again
+    }
+
+    #[test]
+    fn snippet_filter_fuzzy_matches_name_prefix_and_description() {
+        // Query the prefix.
+        let e = snippet_palette(TWO_SNIPPETS, "$link");
+        let m = e.palette_snippet_matches();
+        assert_eq!(m.len(), 1);
+        assert_eq!(e.snippets[m[0]].name, "Markdown link");
+        // Query a word only in the *description* ("fiche") finds the other one.
+        let e = snippet_palette(TWO_SNIPPETS, "$fiche");
+        let m = e.palette_snippet_matches();
+        assert_eq!(m.len(), 1);
+        assert_eq!(e.snippets[m[0]].name, "Book notes");
+    }
+
+    #[test]
+    fn enter_in_snippet_mode_inserts_and_starts_the_session() {
+        let mut e = snippet_palette(TWO_SNIPPETS, "$link");
+        e.handle(Key::Enter);
+        assert_eq!(e.mode(), Mode::Insert); // dropped into the buffer at $1
+        assert_eq!(e.text, "[]()");
+        assert_eq!(e.caret, 1); // on $1
+        assert_eq!(e.snippet_stops, vec![3, 4]); // $2 then $0 pending
+        // Inserting content closes the palette (unlike a `>` toggle, which stays).
+        // A follow-up Esc must leave Insert, not reopen anything.
+        e.handle(Key::Escape);
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn snippet_palette_insertion_is_one_undo_group() {
+        let mut e = snippet_palette(TWO_SNIPPETS, "$link");
+        e.handle(Key::Enter);
+        e.handle(Key::Escape); // end the session, back to Normal
+        e.handle(Key::Char('u')); // undo the whole insertion
+        assert_eq!(e.text, ""); // buffer restored to its pre-insert state
+    }
+
+    #[test]
+    fn ctrl_n_clamps_to_the_snippet_result_list() {
+        let mut e = snippet_palette(TWO_SNIPPETS, "$");
+        e.handle(Key::Down);
+        e.handle(Key::Down);
+        e.handle(Key::Down); // past the end — clamps
+        assert_eq!(e.palette_sel, 1); // two snippets → last index is 1
+    }
+
+    #[test]
+    fn empty_snippet_library_matches_nothing() {
+        let mut e = Editor::new(); // no snippets set
+        e.handle(Key::Palette);
+        e.handle(Key::Char('$'));
+        assert!(e.palette_snippet_mode());
+        assert!(e.palette_snippet_matches().is_empty());
+        e.handle(Key::Enter); // no-op, stays open
+        assert_eq!(e.mode(), Mode::Palette);
+        let _ = e.draw(true); // "(no snippets)" path must not panic
+    }
+
+    #[test]
+    fn draw_in_snippet_mode_does_not_panic() {
+        let mut e = snippet_palette(TWO_SNIPPETS, "$");
+        let _ = e.draw(true);
+        let mut filtered = snippet_palette(TWO_SNIPPETS, "$link");
+        let _ = filtered.draw(true);
     }
 }
