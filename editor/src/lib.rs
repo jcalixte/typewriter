@@ -743,8 +743,9 @@ pub struct Editor {
     /// key batch. See [`Effect`].
     requests: Vec<Effect>,
     /// Every openable file, as absolute paths, fed by the host at boot via
-    /// [`set_file_list`](Self::set_file_list) (an enumeration of `/sd/repo` and
-    /// `/sd/local`). The palette fuzzy-filters this; empty until the host feeds it.
+    /// [`set_file_list`](Self::set_file_list) (a recursive walk of `/sd/repo`
+    /// and `/sd/local`). The palette fuzzy-filters this once the query reaches
+    /// [`PALETTE_MIN_QUERY`] chars; empty until the host feeds it.
     files: Vec<String>,
     /// Recently-opened files, most-recent-first (an MRU), deduped and bounded to
     /// [`MRU_MAX`]. Every `:e`/palette open pushes to the front
@@ -798,11 +799,19 @@ struct Buffer {
 /// evicted; it is saved first if dirty, so an evicted buffer is never lost.
 const MAX_RESIDENT: usize = 3;
 
-/// Recent-files (MRU) list length — how many opens the palette remembers to
-/// float to the top on an empty query. Far more than [`MAX_RESIDENT`] (recency
+/// Recent-files (MRU) list length — how many opens the palette remembers; they
+/// are the whole result list below [`PALETTE_MIN_QUERY`] chars and float to the
+/// top above it. Far more than [`MAX_RESIDENT`] (recency
 /// outlives residency: a file evicted from memory is still recently *used*), but
 /// bounded so the list can't grow without limit over a long session.
 const MRU_MAX: usize = 16;
+
+/// Query length (chars) at which the file palette searches the full file list.
+/// Shorter queries show only the recents ([`MRU_MAX`]) — the list is a
+/// recursive walk of the card, and one char can't rank hundreds of paths
+/// usefully. `>` commands and `$` snippets are short curated lists, so the
+/// threshold does not apply to them.
+const PALETTE_MIN_QUERY: usize = 2;
 
 /// Maximum undo depth (change-groups). A full-buffer snapshot per group means
 /// worst-case memory is `UNDO_DEPTH × buffer size`; for note-sized files on the
@@ -1924,6 +1933,11 @@ impl Editor {
     /// Base order is MRU-first (recents in use order, then the rest as sorted). A
     /// non-empty query keeps only fuzzy matches and stable-sorts them by score, so
     /// equal scores keep their MRU/base position. See [`fuzzy_score`].
+    ///
+    /// Below [`PALETTE_MIN_QUERY`] chars the candidate set is the recents only:
+    /// the file list is a recursive walk of the whole card, too long to page
+    /// through unranked, but the MRU keeps quick-switch (`Cmd-P`, `Enter`) one
+    /// keystroke away. Two typed chars reveal the full list.
     fn palette_matches(&self) -> Vec<usize> {
         let mut order: Vec<usize> = Vec::with_capacity(self.files.len());
         for r in &self.recent {
@@ -1931,9 +1945,11 @@ impl Editor {
                 order.push(i);
             }
         }
-        for i in 0..self.files.len() {
-            if !order.contains(&i) {
-                order.push(i);
+        if self.palette_query.chars().count() >= PALETTE_MIN_QUERY {
+            for i in 0..self.files.len() {
+                if !order.contains(&i) {
+                    order.push(i);
+                }
             }
         }
         if self.palette_query.is_empty() {
@@ -3562,6 +3578,10 @@ impl Editor {
                 "(no command)"
             } else if self.files.is_empty() {
                 "(no files on card)"
+            } else if self.palette_query.chars().count() < PALETTE_MIN_QUERY {
+                // No recents yet and the query is below the search threshold —
+                // the full list needs 2+ chars.
+                "(type to search)"
             } else {
                 "(no match)"
             };
@@ -5124,6 +5144,9 @@ mod tests {
         e.take_effects();
         assert!(!e.files.contains(&"/sd/repo/notes.md".to_string()));
         e.handle(Key::Palette);
+        for c in "md".chars() {
+            e.handle(Key::Char(c)); // reach the search threshold
+        }
         assert_eq!(palette_labels(&e), vec!["repo/todo.md"]); // only the survivor
     }
 
@@ -5272,6 +5295,9 @@ mod tests {
     fn half_page_keys_move_the_selection_clamped() {
         let mut e = palette_editor(&["/sd/repo/a.md", "/sd/repo/b.md", "/sd/repo/c.md"]);
         e.handle(Key::Palette);
+        for ch in "md".chars() {
+            e.handle(Key::Char(ch)); // reach the search threshold: all three match
+        }
         assert_eq!(e.palette_sel, 0);
         e.handle(Key::HalfPageDown);
         assert_eq!(e.palette_sel, 1);
@@ -5286,6 +5312,9 @@ mod tests {
     fn ctrl_n_p_navigate_the_palette() {
         let mut e = palette_editor(&["/sd/repo/a.md", "/sd/repo/b.md", "/sd/repo/c.md"]);
         e.handle(Key::Palette);
+        for ch in "md".chars() {
+            e.handle(Key::Char(ch)); // reach the search threshold: all three match
+        }
         e.handle(Key::Down); // Ctrl-n
         assert_eq!(e.palette_sel, 1);
         e.handle(Key::Down);
@@ -5337,6 +5366,9 @@ mod tests {
     fn editing_the_query_resets_the_selection_to_the_top() {
         let mut e = palette_editor(&["/sd/repo/a.md", "/sd/repo/b.md"]);
         e.handle(Key::Palette);
+        for ch in "md".chars() {
+            e.handle(Key::Char(ch)); // reach the search threshold: both match
+        }
         e.handle(Key::HalfPageDown);
         assert_eq!(e.palette_sel, 1);
         e.handle(Key::Char('a')); // a query edit resets the selection
@@ -5352,17 +5384,46 @@ mod tests {
     }
 
     #[test]
-    fn empty_query_orders_recents_first_then_sorted() {
+    fn short_query_lists_recents_only() {
         let mut e = palette_editor(&["/sd/repo/b.md", "/sd/repo/a.md", "/sd/repo/c.md"]);
-        // No opens yet: pure sorted order.
-        assert_eq!(palette_labels(&e), vec!["repo/a.md", "repo/b.md", "repo/c.md"]);
-        // Open c.md through the palette; it should float to the front next time.
+        // No opens yet: below the search threshold there is nothing to show.
+        assert!(palette_labels(&e).is_empty());
+        // Open c.md through the palette; it becomes the recents-only result.
         e.handle(Key::Palette);
         for ch in "c.md".chars() {
             e.handle(Key::Char(ch));
         }
         e.handle(Key::Enter);
         e.take_effects(); // drop the queued Load; we only care about the MRU
+        assert_eq!(palette_labels(&e), vec!["repo/c.md"]);
+    }
+
+    #[test]
+    fn two_char_query_reveals_the_full_file_list() {
+        let mut e = palette_editor(&["/sd/repo/b.md", "/sd/repo/a.md", "/sd/repo/c.md"]);
+        e.handle(Key::Palette);
+        e.handle(Key::Char('m')); // one char: still recents-only (none yet)
+        assert!(e.palette_matches().is_empty());
+        e.handle(Key::Char('d')); // "md": the full list, fuzzy-ranked
+        assert_eq!(palette_labels(&e), vec!["repo/a.md", "repo/b.md", "repo/c.md"]);
+    }
+
+    #[test]
+    fn recents_float_above_the_full_list_on_a_matching_query() {
+        let mut e = palette_editor(&["/sd/repo/b.md", "/sd/repo/a.md", "/sd/repo/c.md"]);
+        // Open c.md so it is the MRU head.
+        e.handle(Key::Palette);
+        for ch in "c.md".chars() {
+            e.handle(Key::Char(ch));
+        }
+        e.handle(Key::Enter);
+        e.take_effects();
+        // "md" scores the three labels equally; the stable sort keeps the
+        // recently-opened c.md in front of the sorted rest.
+        e.handle(Key::Palette);
+        for ch in "md".chars() {
+            e.handle(Key::Char(ch));
+        }
         assert_eq!(palette_labels(&e), vec!["repo/c.md", "repo/a.md", "repo/b.md"]);
     }
 
@@ -5370,6 +5431,10 @@ mod tests {
     fn draw_in_palette_mode_does_not_panic() {
         let mut e = palette_editor(&["/sd/repo/a.md", "/sd/local/j.md"]);
         e.handle(Key::Palette);
+        let _ = e.draw(true); // empty query, no recents: "(type to search)"
+        e.handle(Key::Char('j')); // one char, still below the threshold
+        let _ = e.draw(true);
+        e.handle(Key::Char('m')); // at the threshold: the ranked list
         let _ = e.draw(true);
         // Empty file list: the "(no files on card)" path must also be safe.
         let mut empty = Editor::new();
