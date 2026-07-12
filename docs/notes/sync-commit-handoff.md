@@ -43,10 +43,27 @@ mechanism**, not a tuning knob.
 > excluded (`odb.read_header(packed)` = 470 ms; the strict-object-creation
 > theory was refuted — strict-off changed nothing). **esp_map.c v2 built**:
 > cache admission keyed on FILE size ≥ 1 MB so the hot small windows cache, and
-> evict-on-`p_munmap` to a 2 MB low-water mark fixes the 7.4 MB OOM. **Final
-> `git_bench` verdict pending — if splice lands sub-second, proceed with the
-> firmware plumbing below.** Full trail: the splice-bench, root-cause and
-> second-localization sections of the tradeoff curve.
+> evict-on-`p_munmap` to a 2 MB low-water mark fixes the 7.4 MB OOM.
+>
+> **Final `git_bench` verdict (run 4, same evening): the memory fix is
+> VERIFIED (resident 1833 KB flat, 6.4 MB heap free all run — no OOM), the
+> window-cache theory is REFUTED (v2 retains the small maps and still scored
+> 0 hits in 313 misses — the small reads hit unique offsets every time;
+> `mwindow` already absorbs true repetition), and the sub-second bar FAILED:
+> splice 2.83 s cold / ~2 s steady-state, commit(None) 713 ms. Decision:
+> WIRE IT IN ANYWAY** — ~2–2.8 s on the real repo vs 611 s/OOM for every
+> alternative puts a full cold `:sync` at ~9–10 s, which ships. The residual
+> ~360 ms/loose-write ≈ 8 unique small SD round-trips; next suspect is FAT
+> directory-op cost in freshen/refresh (instrumentation pass for later, not a
+> prerequisite). **The cache was then REMOVED entirely (run 5 confirmation):
+> esp_map.c is now the plain malloc-read/free-at-munmap emulation** — run 5's
+> read pattern was byte-identical to run 4 (even 15 reads better; v2's
+> eviction fought mwindow), warm splice identical at 1.95 s, and the ~1.85 MB
+> "resident" turned out to be mwindow's live open-window set, not cache
+> retention — which is one more reason the mwindow opts below are mandatory
+> in shipping `git_sync.rs`. **Proceed with the firmware plumbing below.**
+> Full trail: the splice-bench, root-cause, second-localization and
+> final-bench sections of the tradeoff curve.
 
 ## The fix — O(depth) TreeBuilder walk
 

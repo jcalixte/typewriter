@@ -354,7 +354,7 @@ fast-seek runs — a re-provision resets it), and the mmap cache STILL scored 0
 hits — because its 64 KB map-length floor excluded exactly these hot small
 maps.
 
-**Fix built (esp_map.c v2, pending re-bench):** cache admission re-keyed from
+**Fix built (esp_map.c v2):** cache admission re-keyed from
 map length to **file size ≥ 1 MB** — the pack/idx's small repeated windows now
 cache (RAM hits after first touch) while small mutable working-tree files stay
 excluded — plus **evict-on-`p_munmap` down to a 2 MB low-water mark**, fixing
@@ -362,6 +362,71 @@ the 7.4 MB OOM from the first real-repo run (released windows are actually
 returned to `git__malloc`, so `MWINDOW_MAPPED_LIMIT` stays honest). Expected:
 `read_header` collapses toward CPU-only, `odb.write` toward ~150–250 ms,
 splice at or under the sub-second bar, and no end-of-run zlib OOM.
+
+### Final bench (run 4, esp_map v2) — memory fix works, cache theory dead, bar failed
+
+Run 4 (2026-07-12 evening, same card state as run 3b plus its orphans):
+
+| op | run 3b (fast-seek) | run 4 (+ esp_map v2) |
+| --- | ---: | ---: |
+| `splice stage→tree` (cold, first op) | 2.81 s | **2.83 s — unchanged** |
+| `splice` again (warm, strict-off phase) | 3.21 s | 1.95 s |
+| `commit(None)` | 1.72 s | 713 ms |
+| `odb.write(blob)` | 416 ms | 366 ms |
+| `odb.read_header(packed)` | 470 ms | 412 ms |
+| `odb.exists(missing)` | 968 ms | 852 ms |
+| mmap-cache hits | 0 | **0** (313 misses) |
+| cache resident / heap free | grew to 7.4 MB → zlib OOM | **1833 KB flat / 6.4 MB free all run** |
+
+Three findings:
+
+1. **The memory discipline is verified.** Resident sits at 1833 KB through
+   every phase (under the 2 MB low-water, so nothing is being churned) and
+   heap never drops below 6.2 MB. The one uncaptured datum is the index-free
+   `read_tree` tail (the section that OOM'd runs 1–3) — the monitor was cut
+   before it ran. Not blocking: the shipping splice path never calls
+   `read_tree`; the tail would only re-confirm eviction under burst.
+2. **The repeated-small-window theory is REFUTED — theory #3 down** (after
+   strict-creation and free-cluster-scan). v2 demonstrably admits and retains
+   the small maps now — the 1833 KB resident *is* them, held below low-water so
+   nothing is evicted before reuse — and still scored 0 hits in 313 misses.
+   So the ~8 small reads per loose write hit **unique (offset, len) every
+   time**: `mwindow` was already absorbing any true repetition above `p_mmap`,
+   and what reaches the emulation layer is distinct data (different objects,
+   different delta bases). A window cache cannot help. The residual
+   ~360 ms/loose-write ≈ 8 distinct small SD round-trips × ~45 ms each
+   (post-fast-seek) — I/O count, not I/O size or seek cost.
+3. **Within-run drift cuts both ways, so cross-run tables are mushy.** In this
+   single run `commit(None)` degraded 713 ms → 1.79 s between the early and
+   late (strict-off) phases, while splice *improved* 2.83 → 1.95 s. Two
+   competing effects: first-touch warm-up fading (CLMT build, first pack
+   reads — helps later ops) and orphan loose objects accumulating in
+   `.git/objects/xx/` slowing every freshen existence check (FAT directory
+   lookups are linear scans — hurts later ops). Steady-state on a clean
+   objects dir ≈ **~2 s per splice+commit**.
+
+**Run 5 (confirmation, cache removed entirely):** esp_map.c stripped back to
+plain malloc-read/free-at-munmap (stats counters kept). Read pattern
+**byte-identical** to run 4 at every checkpoint (118 maps / 2314 KB after
+splice, 148/2434, 163/2494, 208/2674) — except the strict-off phase did **15
+fewer reads (~60 KB)** than v2: the low-water eviction had been kicking out
+buffers mwindow still wanted, forcing re-reads. The cache was marginally
+worse than nothing. Warm splice identical (1953 vs 1949 ms); the cold-op
++10–15 % drift (splice 2.83 → 3.26 s) is the known orphan-creep signature,
+not the removal. Run 5 also reframes run 4's "resident": **1854 KB `live` is
+mwindow's open-window working set** (pinned mappings under the bench's 4 MB
+mapped limit), not retained cache buffers — the cache had been retaining
+essentially nothing. Removal CONFIRMED free; simpler emulation ships.
+
+**Verdict: the sub-second bar FAILED — wire the splice in anyway.** The bar
+was aspirational; measured reality is ~2–2.8 s to commit on the real
+263 MB-pack repo versus 611 s (or a hard OOM) for every alternative benched.
+That puts a full real-repo `:sync` at roughly **9–10 s cold**, which ships.
+The remaining ~2 s has survived four localization rounds; the next suspect —
+FAT *directory-op* cost in the freshen/refresh path (open/stat/rename by path
+walk FAT directories linearly; consistent with the orphan-creep signal) — is
+one instrumentation pass for later (log each `p_mmap` miss + bench dir ops in
+`sd_bench`), not a prerequisite for the plumbing.
 
 ### The walk is ~1.4 s even at N ≈ 2
 
@@ -387,15 +452,21 @@ work, ranked:
    flat in repo size, small heap, images carried forward untouched. Replaces
    `stage_and_commit`'s `add_all`/`update_all`/`index.write`/`write_tree`. Needs the
    editor's dirty set (+ deleted set) plumbed to the git service — the editor
-   already knows both. **Benched 2026-07-12: 6.5 s — the shape is right but it
-   fails the sub-second bar**; wiring it in is blocked on localizing the ~1.5 s
-   loose-object write (see the splice-bench section above).
-2. **Fix the `esp_map.c` cache so it can't OOM (do it alongside #1).** It grew to
-   7.4 MB resident past its 4 MB cap and starved zlib. Evict on `p_munmap` (not
-   only lazily on the next `p_mmap`) down to a low-water mark, and lower the cap, so
-   a released window's memory is actually returned to `git__malloc`. The cache's
-   `odb.write` win (862 → 142 ms) is real and worth keeping — this is a
-   memory-discipline fix, not a removal.
+   already knows both. **Benched to completion 2026-07-12: 6.5 s → 2.8 s cold /
+   ~2 s steady-state after the fast-seek fix (run 4). The sub-second bar failed
+   but the block is lifted — wire it in** (see the final-bench section above:
+   the residual is unique small SD round-trips, not something a cache or seek
+   fix can remove).
+2. **Fix the `esp_map.c` cache so it can't OOM — RESOLVED BY REMOVAL (run 5).**
+   The cache never scored a hit in four instrumented real-repo runs
+   (`mwindow` absorbs true repetition above `p_mmap`; only new ranges reach
+   the emulation), and the 7.4 MB OOM it was patched to avoid was caused by
+   the cache itself holding buffers past `p_munmap`. esp_map.c is now the
+   plain malloc-read/free-at-munmap emulation: honest with
+   `MWINDOW_MAPPED_LIMIT` by construction, ~120 lines lighter, and run 5
+   confirmed removal is I/O-neutral (even 15 reads *better* than v2, whose
+   low-water eviction fought mwindow). Stats counters kept to spot any future
+   workload that does repeat ranges.
 3. **Retired: `add_all`/explicit-path *index* staging.** Explicit-path `add_path`
    still goes through the index and `index.write` → `truncate_racily_clean`, so it
    hits Wall 1 just the same. The TreeBuilder walk supersedes it entirely; the
