@@ -181,10 +181,17 @@ pub struct Prefs {
     /// Show the absolute line-number gutter (built always-on in v0.2). Off
     /// reclaims the gutter's columns for text — applied live by [`gutter_cols`].
     pub line_numbers: bool,
-    /// Max-staleness cap for opportunistic auto-publish, as a duration string
-    /// (`"10m"`, `"0"`/empty disables). **Schema + default only in v0.5** — the
-    /// periodic push itself rides v0.7/v0.8, so nothing reads this yet; it is
-    /// parsed and preserved through a round-trip but has no behaviour here.
+    /// Panel colour polarity: `"light"` (native black-ink-on-white-paper) or
+    /// `"dark"` (white-on-black). On the 1-bit panel this is a whole-frame invert
+    /// applied at the end of [`draw`](Editor::draw) via [`Frame::invert`], so any
+    /// value other than `"dark"` reads as light. The palette rotates it through
+    /// [`THEME_OPTIONS`]; a hand-typed value still round-trips.
+    pub theme: String,
+    /// Max-staleness cap for opportunistic auto-publish, as a duration string.
+    /// The palette rotates it through [`AUTO_SYNC_OPTIONS`] (`"2m"`..`"30m"`);
+    /// hand-editing can still set any string. **Persisted-but-inert in v0.5** —
+    /// the periodic push that reads it rides v0.7/v0.8, so cycling it changes the
+    /// stored/displayed value but triggers nothing yet.
     pub auto_sync: String,
 }
 
@@ -194,6 +201,7 @@ impl Default for Prefs {
             save_on_idle: true,
             format_on_save: true,
             line_numbers: true,
+            theme: "light".into(),
             auto_sync: "10m".into(),
         }
     }
@@ -231,6 +239,7 @@ impl Prefs {
                         p.line_numbers = b;
                     }
                 }
+                "theme" => p.theme = val.trim_matches('"').to_string(),
                 "auto_sync" => p.auto_sync = val.trim_matches('"').to_string(),
                 _ => {}
             }
@@ -245,12 +254,17 @@ impl Prefs {
     pub fn to_toml(&self) -> String {
         format!(
             "# Typoena editor preferences — hand-editable, git-tracked.\n\
-             # Edit here, or toggle live from the Cmd-P palette (type `>`).\n\
+             # Edit here, or change live from the Cmd-P palette (type `>`).\n\
              save_on_idle = {}\n\
              format_on_save = {}\n\
              line_numbers = {}\n\
+             theme = \"{}\"\n\
              auto_sync = \"{}\"\n",
-            self.save_on_idle, self.format_on_save, self.line_numbers, self.auto_sync,
+            self.save_on_idle,
+            self.format_on_save,
+            self.line_numbers,
+            self.theme,
+            self.auto_sync,
         )
     }
 }
@@ -262,6 +276,25 @@ fn parse_bool(v: &str) -> Option<bool> {
         "true" => Some(true),
         "false" => Some(false),
         _ => None,
+    }
+}
+
+/// The panel-polarity presets the palette rotates [`Prefs::theme`] through.
+const THEME_OPTIONS: [&str; 2] = ["light", "dark"];
+
+/// The auto-publish intervals the palette rotates [`Prefs::auto_sync`] through.
+/// Hand-editing the TOML can still set any duration string; these are just the
+/// values the `>` palette cycles.
+const AUTO_SYNC_OPTIONS: [&str; 5] = ["2m", "5m", "10m", "15m", "30m"];
+
+/// The option after `current` in `options`, wrapping past the end — the
+/// rotate-on-Enter for a preset string pref. A `current` that isn't in the list
+/// (e.g. hand-typed into the TOML) snaps to the first option, so one Enter
+/// always lands on a known value.
+fn next_option<'a>(current: &str, options: &[&'a str]) -> &'a str {
+    match options.iter().position(|&o| o == current) {
+        Some(i) => options[(i + 1) % options.len()],
+        None => options[0],
     }
 }
 
@@ -386,21 +419,27 @@ fn palette_label(path: &str) -> &str {
 /// A palette command (the `>` mode). v0.5 exposes the three boolean prefs as
 /// live toggles; each command's *label* carries the pref's current state
 /// ([`Editor::command_label`]), so the list doubles as a settings readout. This
-/// registry is the discoverable surface later features (`:fmt`, theme, font)
-/// grow into. `auto_sync` is deliberately absent until v0.7 gives it behaviour —
-/// a value control that changes nothing would be a dead switch.
+/// registry is the discoverable surface later features (`:fmt`, font) grow into.
+/// A boolean flips on Enter; a preset like [`Theme`](PaletteCmd::Theme) or
+/// [`AutoSync`](PaletteCmd::AutoSync) rotates to its next option and wraps.
+/// `auto_sync` has no behaviour yet (v0.7), so cycling it only changes the
+/// stored/displayed value — see [`Prefs::auto_sync`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PaletteCmd {
     SaveOnIdle,
     FormatOnSave,
     LineNumbers,
+    Theme,
+    AutoSync,
 }
 
 /// The palette command list, in display order (empty `>` query shows them all).
-const PALETTE_CMDS: [PaletteCmd; 3] = [
+const PALETTE_CMDS: [PaletteCmd; 5] = [
     PaletteCmd::SaveOnIdle,
     PaletteCmd::FormatOnSave,
     PaletteCmd::LineNumbers,
+    PaletteCmd::Theme,
+    PaletteCmd::AutoSync,
 ];
 
 /// A pending operator awaiting a motion or text object (`d`elete / `c`hange /
@@ -1638,6 +1677,8 @@ impl Editor {
             PaletteCmd::SaveOnIdle => format!("save on idle: {}", on(self.prefs.save_on_idle)),
             PaletteCmd::FormatOnSave => format!("format on save: {}", on(self.prefs.format_on_save)),
             PaletteCmd::LineNumbers => format!("line numbers: {}", on(self.prefs.line_numbers)),
+            PaletteCmd::Theme => format!("theme: {}", self.prefs.theme),
+            PaletteCmd::AutoSync => format!("auto sync: {}", self.prefs.auto_sync),
         }
     }
 
@@ -1663,25 +1704,34 @@ impl Editor {
     /// which closes: opening a file switches away, toggling a pref does not.
     fn palette_run_command(&mut self) {
         if let Some(&ci) = self.palette_command_matches().get(self.palette_sel) {
-            self.toggle_pref(PALETTE_CMDS[ci]);
+            self.cycle_pref(PALETTE_CMDS[ci]);
         }
     }
 
-    /// Flip the boolean pref a command targets, apply it live (the next
-    /// [`draw`](Self::draw) reflects it — line numbers appear/vanish at once),
-    /// queue the prefs-file write ([`Effect::SavePrefs`]), and confirm the new
-    /// state on the snackbar. The queued `SavePrefs` is what makes the change
-    /// durable and lets it ride the next `:sync` to other devices.
-    fn toggle_pref(&mut self, cmd: PaletteCmd) {
+    /// Advance the pref a command targets to its next value, apply it live (the
+    /// next [`draw`](Self::draw) reflects it — line numbers appear/vanish, the
+    /// theme flips at once), queue the prefs-file write ([`Effect::SavePrefs`]),
+    /// and confirm the new state on the snackbar. A boolean flips; a preset
+    /// string ([`Theme`](PaletteCmd::Theme), [`AutoSync`](PaletteCmd::AutoSync))
+    /// rotates to its next option and wraps — so from the palette every setting
+    /// is "press Enter to change". The queued `SavePrefs` is what makes the
+    /// change durable and lets it ride the next `:sync` to other devices.
+    fn cycle_pref(&mut self, cmd: PaletteCmd) {
         match cmd {
             PaletteCmd::SaveOnIdle => self.prefs.save_on_idle = !self.prefs.save_on_idle,
             PaletteCmd::FormatOnSave => self.prefs.format_on_save = !self.prefs.format_on_save,
             PaletteCmd::LineNumbers => self.prefs.line_numbers = !self.prefs.line_numbers,
+            PaletteCmd::Theme => {
+                self.prefs.theme = next_option(&self.prefs.theme, &THEME_OPTIONS).to_string()
+            }
+            PaletteCmd::AutoSync => {
+                self.prefs.auto_sync = next_option(&self.prefs.auto_sync, &AUTO_SYNC_OPTIONS).to_string()
+            }
         }
         self.requests.push(Effect::SavePrefs {
             contents: self.prefs.to_toml(),
         });
-        // The label already reflects the just-flipped state (e.g. "line numbers: off").
+        // The label already reflects the just-changed state (e.g. "theme: dark").
         self.set_notice(format!("{} - saved", self.command_label(cmd)));
     }
 
@@ -2703,6 +2753,12 @@ impl Editor {
         if self.mode == Mode::Palette {
             self.draw_palette(&mut f);
         }
+        // Dark theme: flip the whole frame in one pass, after everything else is
+        // painted, so text, selection, caret, panel and palette all invert
+        // together. Any value but "dark" stays native black-on-white.
+        if self.prefs.theme == "dark" {
+            f.invert();
+        }
         f
     }
 
@@ -2928,7 +2984,7 @@ impl Editor {
         }
 
         let hint = if command_mode {
-            "^N/^P move  Enter toggle  Esc close"
+            "^N/^P move  Enter change  Esc close"
         } else {
             "^N/^P move  Enter open  Esc close"
         };
@@ -4646,6 +4702,7 @@ mod tests {
         assert!(p.save_on_idle);
         assert!(p.format_on_save);
         assert!(p.line_numbers);
+        assert_eq!(p.theme, "light");
         assert_eq!(p.auto_sync, "10m");
     }
 
@@ -4689,9 +4746,17 @@ mod tests {
             save_on_idle: false,
             format_on_save: true,
             line_numbers: false,
+            theme: "dark".into(),
             auto_sync: "5m".into(),
         };
         assert_eq!(Prefs::parse(&p.to_toml()), p);
+    }
+
+    #[test]
+    fn prefs_parse_reads_theme_and_auto_sync_strings() {
+        let p = Prefs::parse("theme = \"dark\"\nauto_sync = \"15m\"\n");
+        assert_eq!(p.theme, "dark");
+        assert_eq!(p.auto_sync, "15m");
     }
 
     #[test]
@@ -4734,7 +4799,7 @@ mod tests {
     fn leading_gt_switches_the_palette_to_command_mode() {
         let e = palette_type(&["/sd/repo/notes.md"], ">");
         assert!(e.palette_command_mode());
-        // All three prefs commands are offered on a bare `>`.
+        // Every prefs command is offered on a bare `>`.
         assert_eq!(e.palette_command_matches().len(), PALETTE_CMDS.len());
     }
 
@@ -4809,6 +4874,66 @@ mod tests {
         e.handle(Key::Enter);
         // save_on_idle default true -> off; the notice names the new state.
         assert_eq!(e.notice.as_deref(), Some("save on idle: off - saved"));
+    }
+
+    // ---- Preset (non-boolean) prefs: rotate through options on Enter ----
+
+    #[test]
+    fn next_option_rotates_and_wraps() {
+        assert_eq!(next_option("light", &THEME_OPTIONS), "dark");
+        assert_eq!(next_option("dark", &THEME_OPTIONS), "light"); // wraps
+        assert_eq!(next_option("10m", &AUTO_SYNC_OPTIONS), "15m");
+        assert_eq!(next_option("30m", &AUTO_SYNC_OPTIONS), "2m"); // wraps
+    }
+
+    #[test]
+    fn next_option_snaps_an_unknown_value_to_the_head() {
+        // A hand-typed value outside the preset list lands on the first option.
+        assert_eq!(next_option("sepia", &THEME_OPTIONS), "light");
+        assert_eq!(next_option("7m", &AUTO_SYNC_OPTIONS), "2m");
+    }
+
+    #[test]
+    fn theme_command_label_reflects_the_current_value() {
+        let e = palette_editor(&["/sd/repo/notes.md"]);
+        assert_eq!(e.command_label(PaletteCmd::Theme), "theme: light");
+        assert_eq!(e.command_label(PaletteCmd::AutoSync), "auto sync: 10m");
+    }
+
+    #[test]
+    fn running_the_theme_command_rotates_the_preset_and_queues_a_save_prefs() {
+        // >theme<Enter> flips light -> dark, in-core, and asks the host to persist.
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">theme");
+        assert_eq!(e.prefs().theme, "light");
+        e.handle(Key::Enter);
+        assert_eq!(e.prefs().theme, "dark"); // applied live
+        assert_eq!(e.mode(), Mode::Palette); // stays open for more changes
+        assert_eq!(kinds(&e.take_effects()), vec![Kind::SavePrefs]);
+        e.handle(Key::Enter);
+        assert_eq!(e.prefs().theme, "light"); // rotates back, wrapping
+    }
+
+    #[test]
+    fn running_the_auto_sync_command_walks_the_interval_presets() {
+        // Default 10m; Enter rotates 10m -> 15m -> 30m -> 2m (wrap).
+        let mut e = palette_type(&["/sd/repo/notes.md"], ">auto");
+        assert_eq!(e.prefs().auto_sync, "10m");
+        for expected in ["15m", "30m", "2m"] {
+            e.handle(Key::Enter);
+            assert_eq!(e.prefs().auto_sync, expected);
+        }
+    }
+
+    #[test]
+    fn dark_theme_inverts_the_whole_frame() {
+        // The dark frame is the exact bitwise inverse of the light one.
+        let mut e = Editor::with_text("hello world".into());
+        e.caret = 0;
+        let light = e.draw(true).bytes().to_vec();
+        e.prefs.theme = "dark".into();
+        let dark = e.draw(true).bytes().to_vec();
+        assert_eq!(light.len(), dark.len());
+        assert!(light.iter().zip(&dark).all(|(l, d)| *l == !*d));
     }
 
     #[test]

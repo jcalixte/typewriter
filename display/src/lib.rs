@@ -76,6 +76,16 @@ impl Frame {
     pub fn bytes(&self) -> &[u8] {
         &self.buf
     }
+
+    /// Flip every pixel black↔white across the whole framebuffer. The editor
+    /// draws its native black-ink-on-white-paper frame, then calls this once at
+    /// the end for the dark theme — so text, selection, caret, panel and palette
+    /// all invert together and each stays legible against the flipped ground.
+    pub fn invert(&mut self) {
+        for b in &mut self.buf {
+            *b = !*b;
+        }
+    }
 }
 
 impl OriginDimensions for Frame {
