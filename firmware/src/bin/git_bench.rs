@@ -293,22 +293,25 @@ fn find_edit_path(repo: &Repository, root: &Tree) -> Result<Vec<String>> {
 }
 
 unsafe extern "C" {
-    /// Counters from the p_mmap cache in `components/libgit2/esp_map.c`.
+    /// Counters from the p_mmap emulation in `components/libgit2/esp_map.c`.
+    /// Post cache-removal: `hits` is always 0, `misses` counts every mapping,
+    /// `cached_kb` reports the LIVE mapped bytes (the mwindow working set).
     fn esp_map_stats(hits: *mut u32, misses: *mut u32, read_kb: *mut u32, cached_kb: *mut u32);
 }
 
-/// Log the p_mmap cache counters — hits vs misses (SD reads avoided), total KB
-/// read from the card, and KB currently resident. If the pack-read hypothesis is
-/// right, hits climb and `KB read` stops growing across the write ops.
+/// Log the p_mmap counters — mappings performed, total KB read from the card,
+/// and KB currently live-mapped (should track mwindow's open windows and stay
+/// well under MWINDOW_MAPPED_LIMIT now that munmap frees immediately).
 fn log_map_stats(label: &str) {
     let (mut hits, mut misses, mut read_kb, mut cached_kb) = (0u32, 0u32, 0u32, 0u32);
     unsafe { esp_map_stats(&mut hits, &mut misses, &mut read_kb, &mut cached_kb) };
+    let _ = hits; // always 0 since the cache removal; slot kept for ABI stability
     // Free heap spans PSRAM here; a drop toward 0 during write_tree/commit on the
     // real repo would point at mwindow/idx allocation pressure (or thrash) as the
     // cause of an apparent hang, not CPU.
     let free_kb = unsafe { esp_idf_svc::sys::esp_get_free_heap_size() } / 1024;
     log::info!(
-        "mmap cache @ {label:<11} {hits} hit / {misses} miss, {read_kb} KB read, {cached_kb} KB resident, {free_kb} KB heap free"
+        "mmap @ {label:<11} {misses} maps, {read_kb} KB read, {cached_kb} KB live, {free_kb} KB heap free"
     );
 }
 
