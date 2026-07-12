@@ -161,13 +161,15 @@ ports:
 # The `_`-prefixed recipes are shared internals (hidden from `just --list`).
 sd_repo_dir := "repo"
 
-# Full prep of a fresh card: copy the notes repo + write config, then eject.
-# Run this once per card. <repo-src> is a clone made on this computer.
+# Full prep of a fresh card: copy the notes repo, seed the git-tracked config
+# files (first-time only), write the runtime config, then eject. Run this once
+# per card. <repo-src> is a clone made on this computer.
 init repo_src sd_volume="":
     #!/usr/bin/env bash
     set -euo pipefail
     vol="$(just _card "{{sd_volume}}" | tail -n1)"
     just _load-repo "{{repo_src}}" "$vol"
+    just _seed-configs "$vol"
     just _write-conf "$vol" "{{repo_src}}"
     just _eject "$vol"
 
@@ -279,6 +281,67 @@ _load-repo repo_src vol:
     # FAT's 2 s timestamp granularity, --delete to mirror (re-runs stay clean),
     # -P for progress on the ~700 MB copy. Scoped to repo/, never the card root.
     rsync -rtP --delete --modify-window=1 --exclude-from="$ignore_list" "$src/" "$dest/"
+
+# First-time setup: seed the two git-tracked config files into the card's repo/
+# so they commit + sync on the device's first `:sync`. Writes ONLY a file that is
+# absent — a card whose clone already carries `.typoena.toml` /
+# `.typoena.snippets.json` keeps its own, so a re-`init` never clobbers a synced
+# library. The starter `.typoena.toml` mirrors the editor defaults; the snippet
+# library is assembled from the curated catalog (snippets-catalog/, opt-in per
+# group) with `jq`. Non-interactive runs take every default (all groups).
+_seed-configs vol:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo="{{vol}}/{{sd_repo_dir}}"
+    catalog="{{justfile_directory()}}/snippets-catalog"
+    interactive=1; [ -t 0 ] || interactive=0
+
+    # ask_yn "label" → 0 (yes) / 1 (no); default yes, non-interactive → yes.
+    ask_yn() {
+        local ans
+        if [ "$interactive" = 0 ]; then return 0; fi
+        read -r -p "  $1 [Y/n]: " ans || ans=""
+        [[ "${ans:-Y}" =~ ^[Yy] ]]
+    }
+
+    # ── starter prefs (.typoena.toml) ────────────────────────────────────────
+    prefs="$repo/.typoena.toml"
+    if [ -e "$prefs" ]; then
+        echo "keeping existing .typoena.toml"
+    elif ask_yn "seed a starter .typoena.toml (editor defaults)?"; then
+        # printf per line (matching _write-conf), so no heredoc indentation trap.
+        {
+            printf '# Typoena editor preferences — hand-editable, git-tracked.\n'
+            printf '# Edit here, or change live from the Cmd-P palette (type `>`).\n'
+            printf 'save_on_idle = true\n'
+            printf 'format_on_save = true\n'
+            printf 'line_numbers = true\n'
+            printf 'theme = "light"\n'
+            printf 'auto_sync = "10m"\n'
+        } > "$prefs"
+        echo "wrote .typoena.toml"
+    fi
+
+    # ── snippet library (.typoena.snippets.json) from the catalog ────────────
+    snips="$repo/.typoena.snippets.json"
+    if [ -e "$snips" ]; then
+        echo "keeping existing .typoena.snippets.json"
+    elif ! command -v jq >/dev/null 2>&1; then
+        echo "warning: jq not found — skipping the snippet catalog (install jq, or" >&2
+        echo "         hand-write $snips later)" >&2
+    else
+        echo "snippet catalog — choose groups to include:" >&2
+        picked=()
+        ask_yn "Symbols   (→ ≠ × · ° € œ)"                        && picked+=("$catalog/symbols.json")
+        ask_yn "Structure (todo, link, img, table, code)"         && picked+=("$catalog/structure.json")
+        ask_yn "Prose     (booknotes, reference, bias, capture, standard)" && picked+=("$catalog/prose.json")
+        if [ "${#picked[@]}" -gt 0 ]; then
+            jq -s 'add' "${picked[@]}" > "$snips"
+            echo "wrote .typoena.snippets.json ($(jq 'length' "$snips") snippets, ${#picked[@]} group(s))"
+        else
+            echo "no groups chosen — skipping .typoena.snippets.json"
+        fi
+    fi
 
 # Resolve + write <vol>/typoena.conf (Wi-Fi + PAT + git identity). Each value
 # runs a ladder: firmware/.env (loaded via `set dotenv-load`) → derived from

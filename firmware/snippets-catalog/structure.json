@@ -1,0 +1,27 @@
+{
+  "Todo item": {
+    "prefix": "todo",
+    "body": "- [ ] ",
+    "description": "Task-list item"
+  },
+  "Link": {
+    "prefix": "link",
+    "body": "[$1]($2)$0",
+    "description": "Inline link"
+  },
+  "Image": {
+    "prefix": "img",
+    "body": "![$1]($2)$0",
+    "description": "Image"
+  },
+  "Table": {
+    "prefix": "table",
+    "body": ["| $1 | $2 |", "|-|-|", "| $3 | $4 |"],
+    "description": "Two-column table"
+  },
+  "Code block": {
+    "prefix": "code",
+    "body": ["```$1", "$2", "```"],
+    "description": "Fenced code block"
+  }
+}

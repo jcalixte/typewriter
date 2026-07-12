@@ -1,0 +1,37 @@
+{
+  "Arrow": {
+    "prefix": "arrow",
+    "body": "→",
+    "description": "Rightwards arrow (→)"
+  },
+  "Not equal": {
+    "prefix": "neq",
+    "body": "≠",
+    "description": "Not-equal sign (≠)"
+  },
+  "Times": {
+    "prefix": "times",
+    "body": "×",
+    "description": "Multiplication sign (×)"
+  },
+  "Middle dot": {
+    "prefix": "middot",
+    "body": "·",
+    "description": "Middle dot (·), inclusive writing"
+  },
+  "Degree": {
+    "prefix": "deg",
+    "body": "°",
+    "description": "Degree sign (°)"
+  },
+  "Euro": {
+    "prefix": "euro",
+    "body": "€",
+    "description": "Euro sign (€)"
+  },
+  "OE ligature": {
+    "prefix": "edanso",
+    "body": "œ",
+    "description": "Ligature œ (e dans l'o)"
+  }
+}

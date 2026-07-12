@@ -1,0 +1,58 @@
+{
+  "Book notes": {
+    "prefix": "booknotes",
+    "body": ["# $1", "", "## $2 - $3", "", "## What the book is about", ""],
+    "description": "Reading notes (title / author - year)"
+  },
+  "Reference block": {
+    "prefix": "reference",
+    "body": ["___", "", "## References", ""],
+    "description": "Reference block"
+  },
+  "Cognitive bias": {
+    "prefix": "bias",
+    "body": [
+      "# $1",
+      "",
+      "## Misconception",
+      "",
+      "$3",
+      "",
+      "## The reality",
+      "",
+      "$4",
+      "",
+      "___",
+      "",
+      "## References",
+      "",
+      "- You are not so smart - p. $2",
+      ""
+    ],
+    "description": "Cognitive-bias note"
+  },
+  "Capture": {
+    "prefix": "capture",
+    "body": ["# $1", "", "## Captured inspiration", "", "$2", ""],
+    "description": "Inspiration capture"
+  },
+  "Standard": {
+    "prefix": "standard",
+    "body": [
+      "# $1",
+      "",
+      "## Key points",
+      "",
+      "## Mistakes to avoid",
+      "",
+      "___",
+      "",
+      "## Examples",
+      "",
+      "___",
+      "",
+      "## References"
+    ],
+    "description": "Standard / playbook"
+  }
+}
