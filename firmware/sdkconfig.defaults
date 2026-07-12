@@ -44,6 +44,15 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_USE_MALLOC=y
 
+# Silence the legacy-I2C boot warning. esp-idf-hal's i2c.rs is always compiled
+# and binds the old `driver/i2c.h` API, so the legacy driver's TU (and its
+# `__attribute__((constructor))` deprecation warning) gets linked into every
+# image — even though Typoena uses no I2C at all (EPD/SD are SPI, keyboard is
+# USB). This flag wraps that constructor out. Safe here: we link neither the
+# new i2c_master driver nor call the old one, so the conflict-abort check it
+# also removes can never fire.
+CONFIG_I2C_SKIP_LEGACY_CONFLICT_CHECK=y
+
 # TLS trust store (Spike 6 — Wi-Fi + TLS, the gate for Spike 7 git push).
 # The certificate bundle backs esp_crt_bundle_attach so an HTTPS GET to
 # api.github.com validates against real roots. FULL rather than the common
