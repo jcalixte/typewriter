@@ -16,10 +16,10 @@
 > window cache was **removed entirely** (0 hits across four instrumented runs —
 > `mwindow` absorbs any true repetition above `p_mmap`). The sub-second bar
 > failed, but ~2–2.8 s against 611 s/OOM for every alternative ships: a full
-> cold real-repo `:sync` lands at ~9–10 s. **Decision: wire the splice in** —
-> the [implementation plan](#the-fix--wiring-the-odepth-splice-into-the-firmware)
-> below (merged from the retired `notes/sync-commit-handoff.md`) is the working
-> checklist. Shrinking the repo is **not** an option
+> cold real-repo `:sync` lands at ~9–10 s. **Decision: wire the splice in —
+> done 2026-07-13** ([how it landed](#the-fix--wiring-the-odepth-splice-into-the-firmware),
+> merged from the retired `notes/sync-commit-handoff.md`; on-device `:sync`
+> against the real repo still pending). Shrinking the repo is **not** an option
 > ([`../notes/git-sync-images-and-repo-size.md`](../notes/git-sync-images-and-repo-size.md):
 > the images are load-bearing for another app), which is exactly why the O(depth)
 > mechanism is the only lever left. This note records the cost model and the full
@@ -491,8 +491,10 @@ threading, FD budget) is the
 
 > Merged from `docs/notes/sync-commit-handoff.md` (written 2026-07-12, retired
 > 2026-07-13 once the bench phase closed). The handoff's bench half is done —
-> the splice op lives in `git_bench` and the numbers above are its output. What
-> follows is the still-open firmware plumbing, updated to the run-5 final state.
+> the splice op lives in `git_bench` and the numbers above are its output.
+> **The firmware plumbing below SHIPPED 2026-07-13** (compile-verified both
+> feature flavors; on-device `:sync` against the real repo still pending) —
+> each item now records how it landed rather than what to do.
 
 ### The splice walk
 
@@ -503,90 +505,81 @@ carries every unchanged entry (all 260 images, the other 1176 files) forward
 untouched — which means **the device doesn't even need the images in its
 working tree.**
 
-Sketch (git2 0.20 API — all present: `Repository::treebuilder(Option<&Tree>)`,
-`TreeBuilder::{insert,remove,write}`, `Tree::{get_name,get_path}`,
-`TreeEntry::{to_object,filemode}`):
+Shipped as `git_sync::splice` (git2 0.20: `Repository::treebuilder(Option<&Tree>)`
++ `TreeBuilder::{insert,remove,write}`). Signature:
 
 ```rust
-/// Return a new tree OID = `base` with `path` set to `new` (Some(blob_oid) to
-/// add/replace, None to delete). Reads ~depth subtree objects, writes ~depth trees.
-fn splice(repo: &Repository, base: &Tree, path: &[&str], new: Option<Oid>) -> Result<Oid> {
-    let (head, rest) = path.split_first().unwrap();
-    if rest.is_empty() {
-        // leaf level: patch this tree directly
-        let mut tb = repo.treebuilder(Some(base))?;
-        match new {
-            Some(oid) => tb.insert(head, oid, 0o100644)?,   // FileMode::Blob
-            None       => { tb.remove(head).ok(); }          // delete
-        };
-        return Ok(tb.write()?);
-    }
-    // descend: find (or synthesize) the subtree, recurse, re-insert its new OID
-    let sub = base.get_name(head)
-        .and_then(|e| e.to_object(repo).ok())
-        .and_then(|o| o.peel_to_tree().ok());
-    let empty; let sub_ref = match &sub { Some(t) => t, None => { empty = repo.treebuilder(None)?; /* ... */ unreachable!() } };
-    let new_sub = splice(repo, sub_ref, rest, new)?;
-    let mut tb = repo.treebuilder(Some(base))?;
-    // if new_sub is the empty tree and this was a delete, remove the dir entry instead
-    tb.insert(head, new_sub, 0o040000)?;                    // FileMode::Tree
-    Ok(tb.write()?)
-}
+fn splice(repo: &Repository, base: Option<&Tree>, path: &[&str], blob: Option<Oid>) -> Result<Oid>
 ```
 
-Then, for the dirty set, fold each change through `splice` (thread the running
-root tree), and `commit(Some("HEAD"), …, &final_tree, &[&parent])`. Edge cases
-to handle: new files where an intermediate dir doesn't exist yet (build subtree
-from `None`), deletes that empty a directory (remove the dir entry rather than
-insert an empty tree), and path splitting on `/` (paths are repo-relative
-POSIX). The benched reference is `git_bench`'s `splice stage→tree` op.
+`Some(blob)` inserts/replaces, `None` removes; `base: None` synthesizes a
+missing intermediate directory on the way down, and a directory emptied by a
+remove is pruned on the way up (the empty tree is never re-inserted).
+`stage_and_commit` folds every dirty path through it (threading the running
+root tree), then `commit(Some("HEAD"), …)` exactly as before — the
+`tree unchanged → nothing to publish` check and the `commit split —` timing
+log survive. The benched reference is `git_bench`'s `splice stage→tree` op.
 
-### `firmware/src/git_sync.rs`
+### `firmware/src/git_sync.rs` — how it landed
 
-- **Set the mwindow options at service start** (before the first
-  `Repository::open`): `git2::opts::set_mwindow_size(256 * 1024)` +
-  `set_mwindow_mapped_limit(4 * 1024 * 1024)`. Today only `git_bench.rs` sets
-  them — the shipping service runs libgit2's 32-bit defaults (**32 MB window /
-  256 MB mapped limit**, mwindow.c:16), so the first pack access on the 570 MB
-  clone would try to `git__malloc` a 32 MB window and die on the 8 MB PSRAM
-  heap before the walk even runs. Run 5 sharpened the stakes: the ~1.85 MB
-  "resident" in the final bench **is** mwindow's live open-window set, so these
-  opts are the only thing bounding it.
-- Rewrite `stage_and_commit` (currently ~L271–332) to the `splice`-walk above.
-  Drop `add_all`/`update_all`/`index.write`/`index.write_tree`. Keep the
-  `commit split —` timing log, the `tree unchanged → nothing to publish` check,
-  and the signature/message code.
-- `PublishRequest` (~L79) is currently an **empty struct** — it must carry the
-  dirty set: `{ changed: Vec<(String /*repo-rel path*/, ...)>, deleted: Vec<String> }`.
-  The commit needs the blob content or a way to read it; simplest is to pass the
-  paths and let the git thread `repo.blob_path(abs)` / read `/sd/repo/<path>`.
-- `reconcile_onto_origin` (~L377/L394) uses `repo.reset(Mixed)` — with an
-  index-free commit there's no index to reset; switch to `ResetType::Soft` (move
-  HEAD only) or drop the reset and just re-`splice` onto the new origin tip.
-- The macOS-cruft filter (`skip_macos_cruft`) is no longer needed — the walk only
-  ever touches paths the editor explicitly hands it, so `._*`/`.DS_Store` can't
-  sneak in. (Keep a note; don't silently lose the Spike-14 lesson.)
-- **Deliberate behavior change to record:** the walk commits *only* the
-  editor's dirty set. Files changed on the card outside the editor (e.g. the
-  card mounted on a Mac) were swept in by `add_all` before; they will now never
-  be committed, and the working tree will show a permanent diff against HEAD if
-  inspected on a desktop. Correct for the appliance (it's also what makes the
-  cruft filter unnecessary), but it must be intentional, not accidental.
+- **mwindow options set at service start** (top of `run_git_service`, before
+  any `Repository::open`): `set_mwindow_size(256 KB)` +
+  `set_mwindow_mapped_limit(4 MB)`. Without them the 32-bit defaults (32 MB
+  window / 256 MB mapped limit, mwindow.c:16) would `git__malloc` a 32 MB
+  window on the first pack access and die on the 8 MB PSRAM heap. Run 5
+  sharpened the stakes: the ~1.85 MB bench "resident" **is** mwindow's live
+  open-window set, so these opts are the only thing bounding it.
+- `stage_and_commit(repo, paths)` is the splice walk; `add_all`/`update_all`/
+  `index.write`/`write_tree` are gone. **The request carries one path set, not
+  `{changed, deleted}`:** the working tree is the source of truth, so at commit
+  time a recorded path that exists on the card is spliced in from disk and a
+  missing one is spliced out. An unchanged path is a no-op — over-reporting is
+  free, which is what makes the retry/journal semantics below simple.
+- **Stranded-commit recovery (new):** when the splice yields the parent's tree
+  (nothing to commit), the service now compares HEAD against
+  `refs/remotes/origin/<branch>` and still pushes if origin lacks HEAD — a
+  previous cycle that committed and then failed mid-push used to strand that
+  commit forever (the old path reported "up to date" and never retried).
+- **Radio-free up-to-date (new):** an empty dirty set + origin already at HEAD
+  short-circuits before Wi-Fi even comes up — `:sync` with nothing to do
+  answers in ~150 ms instead of a Wi-Fi/TLS round.
+- `reconcile_onto_origin` now `ResetType::Soft` (ref move only) — there is no
+  index to reset, and a Mixed reset's index write is exactly the racy-clean
+  wall the splice avoids. Side win: a remote-only added file is now *carried*
+  by the replay (origin's tree is the splice base) where the old `add --all`
+  replay dropped it.
+- The macOS-cruft filter (`skip_macos_cruft`) is gone with the walk — the
+  splice only touches paths the editor recorded, so `._*`/`.DS_Store` can't
+  sneak in the way they once did (07d87772, the Spike-14-era lesson).
+- **Deliberate behavior change (now in effect):** only paths the editor
+  saved/deleted are ever committed. Files changed on the card outside the
+  editor (card mounted on a Mac) were swept in by `add_all` before; they will
+  now never be committed, and the working tree will show a permanent diff
+  against HEAD if inspected on a desktop. Correct for the appliance; recorded
+  here so it reads as intent, not accident.
 
-### Dirty-set source — `firmware/src/persistence.rs` + `main.rs`
+### Dirty-set source — `firmware/src/persistence.rs` + `main.rs` (how it landed)
 
-- Writes funnel through `Storage::save_path` (~L316) and deletes through
-  `Storage::delete_path` (~L352), both `&self`. Accumulate a dirty/deleted set
-  (needs `RefCell` interior mutability, or move the set up to `main.rs`).
-- `Effect::Publish` handler in `main.rs` (~L222) builds the `PublishRequest` from
-  that set and clears it on a successful `Pushed`/`UpToDate` outcome.
-- **FD budget: `main.rs` (~L413) mounts with `Storage::mount()` = 4 open
-  files, and the git thread shares that mount.** libgit2 keeps the pack +
-  `.idx` (+ commit-graph) descriptors open and opens loose objects on top —
-  that's why `git_bench` needed `mount_for_git` (16). On the real repo the
-  shipping `:sync` will fail with "no free file descriptors" long before any
-  latency question. Either mount with the 16-file budget in `main.rs` (the
-  editor's 2-FD peak coexists fine) or split the budgets some other way.
+- `Storage` owns the record: `save_path`/`delete_path` note their repo-relative
+  path in a `RefCell<Dirty>` (paths outside `/sd/repo` are skipped), and the
+  set is **journaled to `/sd/.typoena-dirty`** — atomic write, rewritten only
+  when the set actually grows. Without the journal a power pull would strand
+  every file saved-but-not-published that session: nothing walks the tree
+  anymore, so an unrecorded change would never reach the remote. The journal
+  is loaded at mount and its paths ride the next `:sync`.
+- Lifecycle: `take_dirty()` snapshots pending → in-flight for one publish
+  (journal keeps carrying the union); the outcome settles it —
+  `publish_succeeded()` forgets the snapshot and shrinks the journal,
+  `publish_failed()` returns it to pending for the next `:sync`. A save landing
+  *while* a publish runs re-enters pending and rides the next one. Recording
+  happens *before* the file write, so a crash between the two only
+  over-approximates (a no-op splice), never under-records.
+- `Effect::Publish` in `main.rs` sends `PublishRequest { paths: take_dirty() }`;
+  the outcome handler in the idle branch calls the matching settle method.
+- **FD budget:** a git build now mounts `Storage::mount_for_git()` (16 FDs) in
+  `boot_storage` — libgit2 keeps the pack + `.idx` descriptors open and opens
+  loose objects on top, which overruns the editor's 4-FD budget. The light
+  build keeps the editor's own budget.
 
 ### `esp_map.c` — nothing left to do
 
