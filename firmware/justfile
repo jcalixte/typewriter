@@ -206,8 +206,10 @@ init repo_src sd_volume="":
     just _eject "$vol"
 
 # (Re)copy just the notes repo to /sd/repo: fast-forward the source clone from
-# its remote first, then rsync it across (full clone, gitignored paths excluded)
-# and eject — e.g. to refresh the card after the device pushed new notes.
+# its remote first, repack it to a single pack if it has grown several (the
+# device's push needs the one-pack layout — see _load-repo), then rsync it
+# across (full clone, gitignored paths excluded) and eject — e.g. to refresh
+# the card after the device pushed new notes.
 # Refuses if the card's .typoena-dirty journal lists unpublished device edits
 # (:sync from the device first, or TW_DISCARD_UNPUBLISHED=1 to back up+discard).
 # --force wipes the card's repo/ + dirty journal first for a from-scratch copy
@@ -371,6 +373,21 @@ _load-repo repo_src vol wipe="":
             fi
             ;;
     esac
+
+    # Single-pack card prep (kaizen: real-repo-sync). Each pack's whole .idx —
+    # plus any multi-pack-index — is mmap'd OUTSIDE libgit2's window budget on
+    # the device, and a multi-pack layout scatters the push's boundary-marking
+    # walk across packs: run 8 (2026-07-13) spent 31 s marking and lost the
+    # HTTP keep-alive; the same repo repacked to one pack marked in 3.5 s.
+    # Repack the SOURCE clone (the card copy just mirrors it) only when the
+    # layout needs it; best-effort like the pull — a failure warns, because a
+    # multi-pack card usually still syncs, just slower and riskier.
+    packs=$(find "$src/.git/objects/pack" -name '*.pack' 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$packs" -gt 1 ] || [ -e "$src/.git/objects/pack/multi-pack-index" ]; then
+        echo "source clone has $packs packs — repacking to one for the device (git repack -ad)"
+        git -C "$src" repack -ad \
+            || echo "warning: repack failed — card will carry $packs packs; on-device push may hit the keep-alive race" >&2
+    fi
 
     dest="{{vol}}/{{sd_repo_dir}}"
     # --force: delete the card's repo/ outright so rsync copies from scratch —
