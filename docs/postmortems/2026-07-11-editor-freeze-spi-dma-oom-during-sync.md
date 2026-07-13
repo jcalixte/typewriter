@@ -1,11 +1,16 @@
 # Editor freeze — SPI-DMA out-of-memory during a background `:sync`
 
 > Date: 2026-07-11 · Build at time of failure: `07-11 18:02Z @229c259-dirty`
-> Status: **Safety net shipped** (paints are non-fatal, the appliance no longer
-> bricks) — pending hardware re-test. **Root cause not yet eradicated**: a paint
-> that lands during a sync still fails and drops the frame; the permanent fix (a
-> persistent internal DMA scratch buffer) is specced below and tracked in the
-> follow-ups.
+> Status: **Safety net shipped and hardware-verified** (2026-07-13, during the
+> [real-repo-sync kaizen](../kaizen/real-repo-sync.md): live scrolling through
+> a real-repo push — the run-4 crash was this same paint-during-push family,
+> and after the fixes the UI survived every subsequent push, success and
+> failure alike). The paint path also **no longer allocates per repaint**
+> (persistent two-frame `draw_into`/`swap` in `main.rs`, 2026-07-13), removing
+> the frame-buffer half of the paint-time allocation. **Root cause not fully
+> eradicated**: the EPD driver's per-refresh internal DMA scratch remains; the
+> permanent fix (a persistent scratch buffer in `Epd`) is specced below and
+> now tracked in [v0.9 robustness](../v0.9-robustness.md).
 >
 > Context: editor loop [`../../firmware/src/main.rs`](../../firmware/src/main.rs),
 > EPD driver [`../../firmware/src/epd.rs`](../../firmware/src/epd.rs), git
@@ -156,9 +161,14 @@ triggered by the sync.
 
 - [x] Make all editor-loop paints non-fatal + `force_full` recovery (`main.rs`);
       release build green.
-- [ ] Reflash and hardware-verify the safety net against the repro (edit →
+- [x] Reflash and hardware-verify the safety net against the repro (edit →
       `:sync` → scroll through the push): panel must recover, not freeze.
+      **Verified 2026-07-13** (real-repo-sync kaizen runs 5–9: concurrent
+      typing/scrolling through full pushes, no freeze; bonus fix — repaints no
+      longer allocate at all, closing the run-4 `Frame::new_white` OOM-abort
+      variant of the same failure).
 - [ ] Implement the persistent internal DMA scratch buffer in `Epd` (eradication
-      above) if the stale-during-sync window proves annoying in real use.
+      above) if the stale-during-sync window proves annoying in real use —
+      → tracked in [v0.9 robustness](../v0.9-robustness.md).
 - [ ] After eradication, confirm refreshes succeed *during* a push and drop the
       stale window entirely.

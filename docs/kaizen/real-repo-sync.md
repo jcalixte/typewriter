@@ -324,22 +324,29 @@ three runs earlier), mmap live 1868 KB, odb cache 70 KB.
   ~2.8 s commit on a microcontroller, four theories refuted on the way) stands
   on its own.
 
-**Next steps**
+**Next steps** (each now owned by a version doc or done — this list is the
+historical record, the owner is authoritative)
 
 - Close the gap to the ≤ ~10 s target: publish is 19.8 s; the splice's 5.0 s
   and the ~7 s of repo-open/negotiation overhead are the next curves.
+  → [v0.7](../v0.7-search-and-git.md).
 - The keep-alive race is **avoided, not fixed** (3.5 s ≪ ~30 s) — a future
   multi-pack or cold-cache state could still lose it. Durable fix:
   reconnect-on-stale-connection in the http/stream layer.
-- Internal RAM min-ever hit **2099 bytes** during the TLS send (the diagnostic
-  heartbeat's 8 KB stack is part of it) — shrink or retire the heartbeat now
-  that it has served its purpose.
-- Fold `git repack -ad` into the `_load-repo` recipe so single-pack card prep
-  is enforced, not remembered.
+  → [v0.9](../v0.9-robustness.md).
+- ~~Internal RAM min-ever hit **2099 bytes** during the TLS send (the
+  diagnostic heartbeat's 8 KB stack is part of it) — shrink or retire the
+  heartbeat now that it has served its purpose.~~ **Done 2026-07-13** —
+  heartbeat removed; the time-gated `pack_progress` + transfer callbacks stay.
+- ~~Fold `git repack -ad` into the `_load-repo` recipe so single-pack card
+  prep is enforced, not remembered.~~ **Done 2026-07-13** — `_load-repo`
+  repacks the source clone (best-effort, like the pull) whenever it has more
+  than one pack or a multi-pack-index.
 - File the libgit2 upstream bug report (tlsf double-free in the mbedTLS
-  stream error path).
+  stream error path). *(Unscheduled chore — not version-scoped.)*
 - Instrument the residual ~360 ms/loose-write (suspect: FAT directory-op cost
   in the freshen/refresh path) — one `sd_bench` + `p_mmap`-miss logging pass.
+  → [v0.7](../v0.7-search-and-git.md).
 - The images-off-card lever
   ([`../notes/git-sync-images-and-repo-size.md`](../notes/git-sync-images-and-repo-size.md))
-  composes with the splice.
+  composes with the splice. → [v0.7](../v0.7-search-and-git.md).
