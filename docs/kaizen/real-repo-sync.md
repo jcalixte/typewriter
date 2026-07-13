@@ -1,5 +1,10 @@
 # Kaizen — `:sync` never completes on the real notes repo
 
+**Status (2026-07-13): closed.** First end-to-end `:sync` on the real repo —
+∞ → 24.1 s snackbar-to-snackbar. Getting there took two loops: the commit half
+(steps 1–5 below) and a second localization loop on the push half, surfaced by
+the step-6 verification runs and documented inside step 6.
+
 The writer presses `:sync` on the Typoena appliance and the device freezes for
 ten minutes; a power-cycle re-enters the same freeze forever. The real
 `jcalixte/notes` clone (1179 files, 263 MB pack) has never been synced from the
@@ -35,7 +40,8 @@ xychart-beta
 ```
 
 The before bar understates the reality: a reset re-enters the freeze, so the
-true value is ∞ — 0 successful syncs ever. The line is the ≤ ~10 s target;
+true value is ∞ — 0 successful syncs ever. The line is the ≤ ~10 s target; the
+after-kaizen slot stays empty here — the measured bar lands in step 6.
 
 ## 2) Current method analysis
 
@@ -213,20 +219,50 @@ options at service start. Details:
 ## 6) Evaluation
 
 **Measurement redone** (seconds, `:sync` → snackbar on the real repo):
-∞ (never completed) → **PENDING end-to-end** (target was ≤ ~10 s).
+∞ (never completed) → **24.1 s** measured end-to-end on device, 2026-07-13
+(commit `6713ea6e` pushed and accepted by origin).
 
-What is measured so far, on device against the real clone (2026-07-13):
+```mermaid
+---
+config:
+  xyChart:
+    width: 900
+    height: 500
+---
+xychart-beta
+    title "Measurement redone — :sync → snackbar"
+    x-axis ["Before kaizen (~611 s, never completes)", "After kaizen (24.1 s measured)"]
+    y-axis "seconds" 0 --> 650
+    bar [611, 24.1]
+    line [10, 10]
+```
 
-- The commit half works for the first time ever: splice **4.2 s** + commit-obj
-  **3.2 s** with the UI running concurrently (commits `a73bca0e`, then
-  `8939168f` carrying a 2-path journal across a power cycle).
-- Projected full cold `:sync` ≈ **9–10 s** (commit + the ~6.5 s network half).
-- The push half is not yet verified: the first attempt hit the card's
-  SSH-shaped origin (now rewritten to HTTPS at load), the second a tlsf
-  double-free in libgit2's mbedTLS stream error path (fixed via the
-  `esp_mbedtls_stream.c` override + `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y`).
-  The step-1 number lands when the next on-device `:sync` completes
-  snackbar-to-snackbar — protocol in step 4.
+Split: Wi-Fi bring-up 3.7 s + clock/TLS 0.6 s + publish 19.8 s (splice 5.0 s,
+commit-obj 1.2 s, push ≈ 6.1 s, repo open/journal/refs the rest). The ≤ ~10 s
+target line is **not yet met** — but the failure mode changed category: from
+"bricks the device, forever" to "a finite number to shave".
+
+Getting from the working commit half to an accepted push took a second
+localization loop: five verification runs, each killing one hypothesis with
+on-device telemetry built for that run.
+
+### The push half — the second loop (runs 4–9, all 2026-07-13)
+
+The step-4 mitigation "mwindow 256 KB / 4 MB" turned out to be necessary but
+nowhere near sufficient. The verification runs surfaced, in order:
+
+| Factor | Hypothesis | Test method | Test result | True or false? |
+| ------ | ---------- | ----------- | ----------- | -------------- |
+| P1 — UI death by heap | The editor's per-draw `vec![0xFF; 26928]` framebuffer aborts the firmware when the push exhausts the heap (run 4: 66 s silent push, then abort on a keystroke) | backtrace + allocator fallback math (internal 23 KB < 27 KB ⇒ PSRAM had no 27 KB block either) | **TRUE** — a C `malloc` failure inside libgit2 returns an error; a Rust `Vec` failure aborts the process | fix: two boot-time frames, `draw_into` + `mem::swap` — steady-state repaints never allocate |
+| P2 — odb cache is the ~6 MB eater | libgit2's odb object cache (default max 256 MB — unbounded here) caches every tree/commit read during pack building | cap it at 1 MB + read `GIT_OPT_GET_CACHED_MEMORY` in a per-run heap line | cache used **59 KB** of its 1 MB cap at the moment of death | **FALSE** (cap kept as insurance) |
+| P3 — progress callbacks would show the slope | `pack_progress` throttled by object count will trace the silent stretch | run 6: zero lines in 65 s; then source read | count gate can't fire (`AddingObjects` reports `total = 0`, a 2-commit push inserts dozens of objects) — and deeper: the whole 65 s is `mark_edges_uninteresting` reading origin tip's ~1200-object tree **before the first insert**, a phase with no callbacks at all | **TRUE (as a bug in our telemetry)** — fix: 5 s sibling heartbeat thread through `remote.push()` |
+| P4 — libgit2's mmaps are the eater | every "mmap" is a real PSRAM malloc in `esp_map.c`; its live-bytes counter should track the drop | wire `esp_map_stats()` into the heap line + heartbeat | run 7: mmap-live tracked the PSRAM drop 1:1, **plateau 7151 KB of the 8 MB pool**, min-ever 472 B, 19.9 MB read off the card to push two commits | **TRUE** |
+| P5 — the budget itself is impossible | fixed whole-file index maps live **outside** the mwindow budget | inspect the source clone | 5 packs, 562 MB: 1730 KB multi-pack-index + ~1737 KB of `.idx` = **~3.4 MB fixed**, plus windows at the (working, soft) 4 MB limit | **TRUE** — fix: mwindow **64 KB windows / 1.5 MB budget** |
+| P6 — keep-alive dies during the marking gap | with memory fixed (run 8: min-ever 2.05 MB, marking 32 s), the push died at the **first write** of the upload: `SSL error: Generic error` after ~31 s of wire silence between the negotiation GET and the pack POST | timeline correlation (pack had built fine — 11 objects, deltafication complete) | GitHub/router closes the idle connection ~30 s; libgit2 treats the dead socket as fatal, no reconnect | **TRUE** |
+| P7 — pack layout is a device-performance variable | `git repack -ad` (5 packs → 1, midx gone) shrinks the fixed maps *and* clusters trees for the marking walk | repack the source clone, reload the card, run 9 | marking **3.5 s** (was 32 s) — the whole boundary walk hit ONE 1740 KB idx + **two** 64 KB windows; push accepted | **TRUE** |
+
+Run 9's heap line, for the record: min-ever PSRAM **4.5 MB free** (was 472 B
+three runs earlier), mmap live 1868 KB, odb cache 70 KB.
 
 **Learnings**:
 
@@ -243,6 +279,25 @@ What is measured so far, on device against the real clone (2026-07-13):
 - **Prefer mechanisms flat in N.** The splice cannot regress as the notes tree
   grows — the fix that prevents the problem from ever coming back, which is
   the kind kaizen prefers.
+- **The UI must not share a fate with git.** A C allocation failure inside
+  libgit2 degrades to an error snackbar; a Rust `Vec` allocation failure aborts
+  the firmware. Steady-state repaints now render into pre-allocated frames so
+  a heap-starved `:sync` can fail without taking the editor down (run 4 → 5).
+- **Telemetry needs the right axis.** A count-based progress gate logged
+  nothing because libgit2 reports `total = 0` during insertion — and the
+  longest phase fires no callbacks at all. Time-gated logging plus a sibling
+  heartbeat thread is what finally produced the ~6 MB consumer's name in one
+  run.
+- **Budget the whole emulation, not the knob you can see.** The mwindow
+  mapped-limit worked exactly as configured — and was irrelevant, because
+  whole-file `.idx`/multi-pack-index maps (~3.4 MB) live outside it. On a
+  malloc-backed mmap, the budget is `esp_map` live bytes, not the mwindow
+  limit.
+- **Repo pack layout is a device-performance variable.** The same clone as
+  5 packs vs 1 pack is the difference between a 32 s marking walk (95 windows,
+  9.2 MB read) and a 3.5 s one (2 windows) — and between losing and winning
+  the keep-alive race. `git repack -ad` on the source clone is card-prep, not
+  an optimization.
 
 **Standard to update**:
 
@@ -250,10 +305,15 @@ What is measured so far, on device against the real clone (2026-07-13):
   ~2 orders of magnitude too kind) — recorded in the tradeoff doc's
   [how to bench](../tradeoff-curves/sync-commit-staging.md#how-to-bench--flash).
 - Any new libgit2 entry point **must set the mwindow options before its first
-  `Repository::open`** — the 32-bit defaults OOM the 8 MB heap (done in
-  `git_sync` and `git_bench`; the rule is the standard).
+  `Repository::open`** — the 32-bit defaults OOM the 8 MB heap. Values revised
+  by the push loop: **64 KB windows / 1.5 MB mapped limit** (the step-4 values,
+  256 KB / 4 MB, left no room for the ~3.4 MB of fixed index maps).
+- Cards are loaded from a **single-pack clone**: `git repack -ad` on the source
+  before `just load` (candidate: fold into the `_load-repo` recipe).
 - `CONFIG_FATFS_USE_FASTSEEK=y` + 256-word CLMT buffer stay pinned in
   `sdkconfig.defaults`.
+- Firmware repaint paths **never allocate the framebuffer per draw** — render
+  into the two persistent frames via `Editor::draw_into`.
 
 **Share with**:
 
@@ -266,15 +326,20 @@ What is measured so far, on device against the real clone (2026-07-13):
 
 **Next steps**
 
-- Run the end-to-end on-device `:sync` verify and close the step-1
-  measurement (the stranded `8939168f` should push first).
-- File the libgit2 upstream bug report.
+- Close the gap to the ≤ ~10 s target: publish is 19.8 s; the splice's 5.0 s
+  and the ~7 s of repo-open/negotiation overhead are the next curves.
+- The keep-alive race is **avoided, not fixed** (3.5 s ≪ ~30 s) — a future
+  multi-pack or cold-cache state could still lose it. Durable fix:
+  reconnect-on-stale-connection in the http/stream layer.
+- Internal RAM min-ever hit **2099 bytes** during the TLS send (the diagnostic
+  heartbeat's 8 KB stack is part of it) — shrink or retire the heartbeat now
+  that it has served its purpose.
+- Fold `git repack -ad` into the `_load-repo` recipe so single-pack card prep
+  is enforced, not remembered.
+- File the libgit2 upstream bug report (tlsf double-free in the mbedTLS
+  stream error path).
 - Instrument the residual ~360 ms/loose-write (suspect: FAT directory-op cost
   in the freshen/refresh path) — one `sd_bench` + `p_mmap`-miss logging pass.
-- Measure the ref/reflog leg of the shipping commit (the bench's
-  `commit(None)` writes no ref).
-- Attack the next curve: the ~6.5 s network floor
-  ([`../notes/sync-latency.md`](../notes/sync-latency.md)); the
-  images-off-card lever
+- The images-off-card lever
   ([`../notes/git-sync-images-and-repo-size.md`](../notes/git-sync-images-and-repo-size.md))
   composes with the splice.
