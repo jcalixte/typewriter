@@ -74,3 +74,12 @@ CONFIG_I2C_SKIP_LEGACY_CONFLICT_CHECK=y
 # subset so a less common CA in the chain can't surprise us on the bench.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# mbedTLS allocations go to PSRAM. The default (internal-only) needs ~33 KB of
+# contiguous internal RAM per TLS connection (two ~17 KB I/O buffers + contexts)
+# at the moment `:sync` pushes — with Wi-Fi, USB host, the editor and libgit2
+# all resident, mbedtls_ssl_setup failed exactly there on the first real-repo
+# push (2026-07-13; the failure then tripped the vendored stream double-free —
+# see components/libgit2/esp_mbedtls_stream.c). TLS buffers are CPU-only data,
+# so PSRAM is safe; the handshake is network-bound, not memory-bandwidth-bound.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
