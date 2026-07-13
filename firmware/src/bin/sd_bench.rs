@@ -117,6 +117,42 @@ fn run() -> Result<()> {
         Ok(())
     })?);
 
+    // 6b) Directory-entry scaling — the ~360 ms/loose-write residual suspect
+    //     (2026-07-13, post-FASTSEEK; see sync-commit-staging.md). FAT has no
+    //     directory index: every path resolution scans the parent's entries
+    //     linearly over SPI, so op cost should grow with sibling count. A repo
+    //     `.git/objects/` accumulates up to 256 fan-out dirs, and every loose
+    //     write resolves multi-component paths under it several times (freshen
+    //     stat, temp create, remove, rename). If stat/create cost climbs with N
+    //     here, the residual is directory scans, not data I/O — and the miss
+    //     case (full scan, no early exit) is the worst-case bound.
+    for n in [8usize, 64, 256] {
+        let dir = format!("{BENCH_DIR}/fan{n}");
+        fs::create_dir_all(&dir)?;
+        for j in 0..n {
+            File::create(format!("{dir}/e{j:04}"))?; // sibling entries (untimed setup)
+        }
+        summarize(&format!("stat hit, {n:>3} siblings"), time_each(|i| {
+            fs::metadata(format!("{dir}/e{:04}", i % n)).map(|_| ()).map_err(Into::into)
+        })?);
+        summarize(&format!("stat miss, {n:>3} siblings"), time_each(|i| {
+            let _ = fs::metadata(format!("{dir}/nope{i}"));
+            Ok(())
+        })?);
+        summarize(&format!("loose composite, {n:>3} sib"), time_each(|i| {
+            let tmp = format!("{dir}/tmp_obj{i}");
+            let fin = format!("{dir}/{i:038x}");
+            let _ = fs::metadata(&fin); // freshen probe, misses
+            {
+                let mut f = File::create(&tmp)?;
+                f.write_all(&PAYLOAD)?;
+            }
+            let _ = fs::remove_file(&fin); // p_rename's remove(to) — ENOENT
+            fs::rename(&tmp, &fin)?;
+            Ok(())
+        })?);
+    }
+
     // Clean up so the card is left as we found it.
     fs::remove_dir_all(BENCH_DIR).with_context(|| format!("removing {BENCH_DIR}"))?;
 

@@ -476,6 +476,13 @@ fn stage_and_commit(repo: &Repository, paths: &BTreeSet<String>) -> Result<Optio
         None => None,
     };
 
+    // I/O attribution for the ~360 ms/loose-write residual (v0.7 follow-up):
+    // bracket the splice with the p_mmap counters so the log says how many
+    // mmap windows (≈ unique pack reads) and how many KB the whole splice
+    // issued. Divided by the loose writes (~4/path: blob + tree chain), this
+    // pins whether the residual is pack-read I/O or FAT directory ops — the
+    // two candidates left after FASTSEEK.
+    let (maps_before, read_kb_before) = map_counters();
     let t_splice = Instant::now();
     let mut tree = base;
     for path in paths {
@@ -514,9 +521,12 @@ fn stage_and_commit(repo: &Repository, paths: &BTreeSet<String>) -> Result<Optio
     let oid = repo
         .commit(Some("HEAD"), &sig, &sig, &message, &tree, &parents)
         .context("creating commit")?;
+    let (maps_after, read_kb_after) = map_counters();
     log::info!(
-        "commit split — splice {splice_ms}ms ({} path(s)), commit-obj {}ms; committed {} — free heap {} ({} internal)",
+        "commit split — splice {splice_ms}ms ({} path(s), {} mmaps / {} KB read), commit-obj {}ms; committed {} — free heap {} ({} internal)",
         paths.len(),
+        maps_after - maps_before,
+        read_kb_after - read_kb_before,
         t_commit.elapsed().as_millis(),
         short(oid),
         free_heap(),
@@ -929,6 +939,16 @@ unsafe extern "C" {
     /// (mwindow windows AND whole-file pack .idx maps) is a real PSRAM malloc
     /// there, so this splits map memory from everything else git allocates.
     fn esp_map_stats(hits: *mut u32, misses: *mut u32, read_kb: *mut u32, cached_kb: *mut u32);
+}
+
+/// The p_mmap emulation's cumulative counters: (mappings created, KB read).
+/// Deltas around an operation attribute its pack-read I/O (each mapping is a
+/// real lseek+read over SPI in esp_map.c).
+fn map_counters() -> (u32, u32) {
+    let (mut maps, mut read_kb) = (0u32, 0u32);
+    // SAFETY: esp_map_stats only writes the non-null out-params.
+    unsafe { esp_map_stats(std::ptr::null_mut(), &mut maps, &mut read_kb, std::ptr::null_mut()) };
+    (maps, read_kb)
 }
 
 /// One-line heap + odb-cache + mmap snapshot for the push path. Runs 4–6
