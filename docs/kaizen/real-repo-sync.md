@@ -20,10 +20,16 @@ device — only the toy test repo has. Full measurement trail:
 `jcalixte/notes` clone on the device.
 
 ```mermaid
+---
+config:
+  xyChart:
+    width: 900
+    height: 500
+---
 xychart-beta
-    title "Improvement potential"
-    x-axis ["Before kaizen — first commit ~611 s, never completes", "After kaizen — target ≤ ~10 s"]
-    y-axis "seconds, :sync → snackbar" 0 --> 650
+    title "Improvement potential — :sync → snackbar"
+    x-axis ["Before kaizen (~611 s, never completes)", "After kaizen (target ≤ ~10 s)"]
+    y-axis "seconds" 0 --> 650
     bar [611, 10]
     line [10, 10]
 ```
