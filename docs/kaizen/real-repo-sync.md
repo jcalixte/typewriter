@@ -19,9 +19,17 @@ device — only the toy test repo has. Full measurement trail:
 **Measurement**: seconds from `:sync` to the snackbar, on the real
 `jcalixte/notes` clone on the device.
 
-| Current method | Target (new method) |
-|---|---|
-| never completes — first commit freezes ~611 s, a reset re-enters the freeze (effectively ∞; 0 successful syncs ever) | ≤ ~10 s |
+```mermaid
+xychart-beta
+    title "Improvement potential"
+    x-axis ["Before kaizen — first commit ~611 s, never completes", "After kaizen — target ≤ ~10 s"]
+    y-axis "seconds, :sync → snackbar" 0 --> 650
+    bar [611, 10]
+    line [10, 10]
+```
+
+The before bar understates the reality: a reset re-enters the freeze, so the
+true value is ∞ — 0 successful syncs ever. The line is the ≤ ~10 s target.
 
 ## 2) Current method analysis
 
