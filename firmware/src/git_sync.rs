@@ -248,9 +248,10 @@ fn publish_cycle(
 /// error, surfaced as such.
 fn publish_once(paths: &BTreeSet<String>) -> Result<PublishOutcome> {
     log::info!(
-        "publish started — {} dirty path(s), free heap {}",
+        "publish started — {} dirty path(s), free heap {} ({} internal)",
         paths.len(),
-        free_heap()
+        free_heap(),
+        internal_free_heap()
     );
     let repo = Repository::open(REPO_DIR).with_context(|| {
         format!("opening git repo at {REPO_DIR} — provision the card with a clone (just init) whose origin is your remote")
@@ -313,8 +314,9 @@ fn publish_once(paths: &BTreeSet<String>) -> Result<PublishOutcome> {
     }
 
     log::info!(
-        "push done — free heap {}, min-ever {}",
+        "push done — free heap {} ({} internal), min-ever {}",
         free_heap(),
+        internal_free_heap(),
         min_free_heap()
     );
     Ok(PublishOutcome::Pushed(short(oid)))
@@ -388,11 +390,12 @@ fn stage_and_commit(repo: &Repository, paths: &BTreeSet<String>) -> Result<Optio
         .commit(Some("HEAD"), &sig, &sig, &message, &tree, &parents)
         .context("creating commit")?;
     log::info!(
-        "commit split — splice {splice_ms}ms ({} path(s)), commit-obj {}ms; committed {} — free heap {}",
+        "commit split — splice {splice_ms}ms ({} path(s)), commit-obj {}ms; committed {} — free heap {} ({} internal)",
         paths.len(),
         t_commit.elapsed().as_millis(),
         short(oid),
-        free_heap()
+        free_heap(),
+        internal_free_heap()
     );
     Ok(Some(oid))
 }
@@ -634,6 +637,14 @@ fn now_unix() -> u64 {
 
 fn free_heap() -> u32 {
     unsafe { sys::esp_get_free_heap_size() }
+}
+
+/// Free INTERNAL RAM (DRAM), excluding PSRAM. `free_heap` is dominated by the
+/// 8 MB PSRAM pool and masks internal exhaustion — which is what actually
+/// killed the first real-repo push (mbedTLS's ssl_setup could not get its
+/// ~33 KB while Wi-Fi + USB + editor + libgit2 were resident).
+fn internal_free_heap() -> u32 {
+    unsafe { sys::heap_caps_get_free_size(sys::MALLOC_CAP_INTERNAL) as u32 }
 }
 
 fn min_free_heap() -> u32 {

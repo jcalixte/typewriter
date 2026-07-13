@@ -123,7 +123,18 @@ fn main() -> anyhow::Result<()> {
     ed.set_notice(format!("loaded {name}"));
     // Feed the file palette (Ctrl-P). Enumerated once at boot — the v0.5 slices
     // that create/delete files (`:enew`, delete) will re-feed it then.
+    // Bracketed with internal-DRAM readings: each path is a small String, kept
+    // internal by the SPIRAM malloc threshold (16 KB), so the list competes
+    // with Wi-Fi/TLS for DRAM. Estimate to confirm: ~60-70 KB at 1098 files —
+    // this number decides whether interning the paths into one shared buffer
+    // (a single >16 KB alloc, which lands in PSRAM) is worth the refactor.
+    let dram_before = internal_free_heap();
     ed.set_file_list(enumerate_files());
+    let dram_after = internal_free_heap();
+    log::info!(
+        "file list: internal heap {dram_before} -> {dram_after} ({} KB consumed)",
+        dram_before.saturating_sub(dram_after) / 1024
+    );
     // Editor preferences (.typoena.toml, git-tracked). Read before the first
     // render so `line_numbers` shapes the opening frame. A missing / unreadable /
     // partial file falls back to defaults, so a fresh card just works.
@@ -609,6 +620,13 @@ fn walk_files(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) {
             walk_files(&path, depth + 1, out);
         }
     }
+}
+
+/// Free internal DRAM (excludes the 8 MB PSRAM pool, which dominates the total
+/// free-heap number and masks DRAM exhaustion). Same reading `git_sync` logs.
+fn internal_free_heap() -> u32 {
+    use esp_idf_svc::sys;
+    unsafe { sys::heap_caps_get_free_size(sys::MALLOC_CAP_INTERNAL) as u32 }
 }
 
 /// A file's display name — its basename without extension (`/sd/repo/notes.md`
