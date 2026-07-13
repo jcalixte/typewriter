@@ -33,3 +33,4 @@
 | [`postmortems/`](postmortems/README.md) | Bring-up debugging write-ups: what broke, the root cause, and the decisions that came out of it. |
 | [`notes/`](notes/README.md) | Longer-form essays on the thinking behind specific choices — e.g. where the ~16 s cold [`:sync`](notes/sync-latency.md) goes. |
 | [`tradeoff-curves/`](tradeoff-curves/README.md) | Cost-vs-knob curves behind chosen defaults — energy, latency, memory. |
+| [`kaizen/real-repo-sync.md`](kaizen/real-repo-sync.md) | Six-step kaizen write-ups — the problem→analysis→fix story behind an improvement, e.g. the real-repo `:sync` brick. |

@@ -26,7 +26,9 @@
 > measurement trail that got here.
 >
 > Tradeoff-curves index: [`README.md`](README.md). Docs index:
-> [`../README.md`](../README.md). Where the whole sync goes:
+> [`../README.md`](../README.md). The six-step kaizen retelling of this whole
+> investigation (problem → factor analysis → chosen fix → evaluation):
+> [`../kaizen/real-repo-sync.md`](../kaizen/real-repo-sync.md). Where the whole sync goes:
 > [`../notes/sync-latency.md`](../notes/sync-latency.md). Sibling curve on the
 > radio cost of *how often* we sync: [`wifi-auto-sync.md`](wifi-auto-sync.md).
 
