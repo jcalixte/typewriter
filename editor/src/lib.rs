@@ -89,10 +89,11 @@ pub enum Mode {
     /// Enter runs it, Esc cancels. Handles `:fmt` (in-core) plus `:w`/`:gp`
     /// (which ask the host to persist/publish via an [`Effect`]).
     Command,
-    /// File palette (`Cmd-P`) — a modal transient panel over the writing column.
-    /// Typing fuzzy-filters the file list ([`Editor::set_file_list`]); `Ctrl-n`/
-    /// `Ctrl-p` move the selection, Enter opens it, Esc (or `Cmd-P` again)
-    /// cancels. See [`Editor::palette_key`].
+    /// File palette (`Cmd-P`, reachable from every mode) — a modal transient
+    /// panel over the writing column. Typing fuzzy-filters the file list
+    /// ([`Editor::set_file_list`]); `Ctrl-n`/`Ctrl-p` move the selection, Enter
+    /// opens it, Esc (or `Cmd-P` again) cancels back to Normal. See
+    /// [`Editor::palette_key`].
     Palette,
 }
 
@@ -1110,6 +1111,13 @@ impl Editor {
             self.snippet_stops.clear();
         }
 
+        // Cmd-p mid-change (e.g. during an insert session) aborts the `.`
+        // recording — a palette round-trip (file switch, `>` command) is not a
+        // repeatable edit, and replaying it from `.` would reopen the palette.
+        if key == Key::Palette {
+            self.dot_recording = None;
+        }
+
         if !self.replaying {
             self.record_dot(key, before_mode, before_pending);
         }
@@ -1191,10 +1199,19 @@ impl Editor {
             Key::DeleteLine => self.delete_to_line_start(),
             // Half-page scroll and the Ctrl-n/Ctrl-p line motions are navigation
             // gestures — Normal/View only. In Insert they're a no-op rather than
-            // yanking the caret off the text you're typing. Redo (Ctrl-r) and the
-            // palette (Cmd-p) are likewise ignored here.
-            Key::HalfPageDown | Key::HalfPageUp | Key::Redo | Key::Palette | Key::Down
-            | Key::Up => {}
+            // yanking the caret off the text you're typing. Redo (Ctrl-r) is
+            // likewise ignored here.
+            Key::HalfPageDown | Key::HalfPageUp | Key::Redo | Key::Down | Key::Up => {}
+            // Cmd-p works from every mode: acts like Esc (ending the insert
+            // session, caret onto the last inserted char), then opens the
+            // palette. Closing it lands in Normal, as Esc would have.
+            Key::Palette => {
+                self.mode = Mode::Normal;
+                if self.caret > self.line_start(self.caret) {
+                    self.caret = self.prev_char(self.caret);
+                }
+                self.open_palette();
+            }
             Key::Escape => {
                 self.mode = Mode::Normal;
                 // vim drops the caret onto the last inserted char.
@@ -1511,6 +1528,12 @@ impl Editor {
             Key::Escape => {
                 self.cmdline.clear();
                 self.mode = Mode::Normal;
+            }
+            // Cmd-p works from every mode: abandon the half-typed `:`/`/` line
+            // (as Esc would) and open the palette.
+            Key::Palette => {
+                self.cmdline.clear();
+                self.open_palette();
             }
             Key::DeleteWord => {
                 // Readline Ctrl-W: drop trailing spaces, then the word before the
@@ -2388,6 +2411,13 @@ impl Editor {
                 self.exit_visual();
                 return;
             }
+            // Cmd-p works from every mode: drop the selection (as Esc would)
+            // and open the palette.
+            Key::Palette => {
+                self.exit_visual();
+                self.open_palette();
+                return;
+            }
             // Enter/Backspace/etc. carry no Visual meaning; drop any count.
             _ => {
                 self.count = 0;
@@ -2568,6 +2598,12 @@ impl Editor {
             Key::Escape => {
                 self.mode = Mode::Normal;
                 self.pending_g = false;
+            }
+            // Cmd-p works from every mode; leaving View for the palette (and
+            // then Normal on close), exactly as Esc-then-Cmd-p would.
+            Key::Palette => {
+                self.pending_g = false;
+                self.open_palette();
             }
             _ => {}
         }
@@ -5496,10 +5532,88 @@ mod tests {
     }
 
     #[test]
-    fn cmd_p_is_ignored_in_insert_mode() {
+    fn cmd_p_opens_the_palette_from_insert_ending_the_session_like_esc() {
         let mut e = typed("hi");
         e.handle(Key::Palette);
-        assert_eq!(e.mode(), Mode::Insert); // a Normal gesture only; no-op here
+        assert_eq!(e.mode(), Mode::Palette);
+        assert_eq!(e.caret, 1); // caret dropped onto the last inserted char, as Esc does
+        e.handle(Key::Escape);
+        assert_eq!(e.mode(), Mode::Normal); // closing lands in Normal, not back in Insert
+        assert_eq!(e.text, "hi");
+    }
+
+    #[test]
+    fn cmd_p_opens_the_palette_from_visual_dropping_the_selection() {
+        let mut e = typed("hello");
+        e.handle(Key::Escape);
+        e.handle(Key::Char('v')); // charwise Visual, anchor set
+        assert_eq!(e.mode(), Mode::Visual);
+        e.handle(Key::Palette);
+        assert_eq!(e.mode(), Mode::Palette);
+        assert_eq!(e.visual_anchor, None); // selection gone, as Esc would leave it
+        e.handle(Key::Escape);
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn cmd_p_opens_the_palette_from_visual_line() {
+        let mut e = typed("hello");
+        e.handle(Key::Escape);
+        e.handle(Key::Char('V'));
+        assert_eq!(e.mode(), Mode::VisualLine);
+        e.handle(Key::Palette);
+        assert_eq!(e.mode(), Mode::Palette);
+        assert_eq!(e.visual_anchor, None);
+    }
+
+    #[test]
+    fn cmd_p_opens_the_palette_from_view_mode() {
+        let mut e = typed("hello");
+        e.handle(Key::Escape);
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('r')); // gr — go-read (View)
+        assert_eq!(e.mode(), Mode::View);
+        e.handle(Key::Palette);
+        assert_eq!(e.mode(), Mode::Palette);
+        e.handle(Key::Escape);
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn cmd_p_opens_the_palette_from_command_abandoning_the_line() {
+        let mut e = palette_editor(&["/sd/repo/notes.md"]);
+        e.handle(Key::Char(':'));
+        for c in "del".chars() {
+            e.handle(Key::Char(c)); // half-typed command
+        }
+        e.handle(Key::Palette);
+        assert_eq!(e.mode(), Mode::Palette);
+        assert_eq!(e.cmdline, ""); // the abandoned `:del` is gone
+        assert_eq!(e.palette_query, ""); // and didn't leak into the palette query
+        e.handle(Key::Escape);
+        assert_eq!(e.mode(), Mode::Normal);
+        assert!(e.take_effects().is_empty()); // `:del` never ran
+    }
+
+    #[test]
+    fn cmd_p_mid_insert_aborts_the_dot_recording() {
+        let mut e = typed("ab"); // `i a b` — a dot recording in progress
+        e.handle(Key::Palette); // palette trip aborts it
+        e.handle(Key::Escape); // back to Normal — would normally complete a recording
+        e.handle(Key::Char('.'));
+        assert_eq!(e.text, "ab"); // nothing to repeat: no re-insert, no reopened palette
+        assert_eq!(e.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn a_completed_dot_survives_a_palette_round_trip() {
+        let mut e = typed("abc");
+        e.handle(Key::Escape); // caret on 'c'
+        e.handle(Key::Char('x')); // dot = [x], text "ab"
+        e.handle(Key::Palette);
+        e.handle(Key::Escape); // palette round trip
+        e.handle(Key::Char('.')); // still repeats the x
+        assert_eq!(e.text, "a");
     }
 
     #[test]

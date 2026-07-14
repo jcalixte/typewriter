@@ -38,8 +38,9 @@ pub enum Key {
     /// ignored elsewhere.
     Redo,
     /// Cmd+P — open the file palette (fuzzy open, v0.5), VS Code "Go to File"
-    /// style. A Normal-mode gesture; **inside** the palette the same chord closes
-    /// it (toggle). Esc also closes. Ignored in Insert.
+    /// style. Available from **every** mode (Insert/Visual/View/Command included,
+    /// each first bailing out as Esc would); **inside** the palette the same
+    /// chord closes it (toggle). Esc also closes.
     Palette,
     /// Ctrl+N — move down: one line in Normal/View (vim `CTRL-N` ≡ `j`), or one
     /// row in the file palette. Ignored in Insert.
