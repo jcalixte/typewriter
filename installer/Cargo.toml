@@ -1,9 +1,14 @@
 [package]
 name = "typoena-installer"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
 anyhow = "1.0.103"
 base64 = "0.22.1"
 ratatui = "0.30.2"
+# Force crossterm's poll(2)-based event reader. The default `mio` backend uses
+# kqueue on macOS, which cannot register `/dev/tty` (the controlling-terminal
+# device) — so a `curl … | sh` launch, where fd0 is /dev/tty rather than a pty
+# slave, fails with "Failed to initialize input reader". `use-dev-tty` polls.
+crossterm = { version = "0.29", features = ["use-dev-tty"] }

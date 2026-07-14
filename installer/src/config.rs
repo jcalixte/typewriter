@@ -152,6 +152,8 @@ fn gh_login() -> Option<String> {
 
 fn active_wifi_ssid() -> Option<String> {
     // The Wi-Fi device on a Mac is usually en0; ask networksetup for its SSID.
+    // Didn't work, but this command did for me:
+    // networksetup -listpreferredwirelessnetworks en0 | grep -v '^Preferred networks on' | head -1 | xargs
     let out = Command::new("networksetup")
         .args(["-getairportnetwork", "en0"])
         .output()
