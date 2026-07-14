@@ -68,8 +68,8 @@ prompt macOS) · `remote`, `pat` ← typed (PAT never derived).
 
 ## Open items (not blocking the current slices)
 
-- **Hosting** — where the CLI binary lives for the `curl | sh` download (Gitea
-  release vs typoena.dev static asset). Dev runs via `cargo run` meanwhile.
+- ~~**Hosting**~~ — RESOLVED: public GitHub release on `jcalixte/typewriter`
+  (`installer-v0.1.0`); `install.sh` pulls from `releases/latest/download`.
 - **Non-macOS** — Linux/Windows later; slice work is macOS-first.
 - **Clone target** — cloning ~hundreds of MB directly onto FAT via a reader;
   measure, and fall back to clone-to-temp-then-copy if it's too slow.
@@ -92,4 +92,10 @@ prompt macOS) · `remote`, `pat` ← typed (PAT never derived).
    runs on a worker thread streaming progress. Verified: card detection on real
    hardware and clone + seed + conf via `--list-cards` / `--dry-run-sd`. Full
    interactive run + real write/eject await a blank card + a TTY.
-4. **install.sh + release/hosting** — checksums, polish.
+4. **install.sh + release/hosting** — DONE 2026-07-14. Universal macOS binary
+   (lipo arm64+x86_64, stripped) published as a public GitHub release on
+   `jcalixte/typewriter`, tag `installer-v0.1.0`, with a `.sha256` sidecar.
+   `typoena.dev/install.sh` (in the [[typoena-site]] repo): Darwin guard → curl
+   binary + sidecar from `releases/latest/download` → `shasum -c` verify → `exec
+   … </dev/tty`. Verified end-to-end (mirror, live release, full typoena.dev
+   chain). The interactive TUI run + real card write/eject still await a TTY.
