@@ -93,8 +93,8 @@ fn main() -> anyhow::Result<()> {
     // Bring up the USB keyboard in the background; keys arrive via next_key().
     usb_kbd::start()?;
 
-    // Spawn the dedicated git thread — the `:sync` publish transport. It owns
-    // the Wi-Fi stack (brought up lazily on the first `:sync`, so the radio
+    // Spawn the dedicated git thread — the `:gp` publish transport. It owns
+    // the Wi-Fi stack (brought up lazily on the first `:gp`, so the radio
     // stays off until you publish) and parks on `git_tx` until signalled; the
     // push runs off the UI loop, and its outcome returns on `git_rx` for the
     // snackbar. Behind the `git` feature so a light build carries no libgit2.
@@ -114,7 +114,7 @@ fn main() -> anyhow::Result<()> {
             .stack_size(GIT_STACK)
             .spawn(move || run_git_service(modem, sys_loop, nvs, req_rx, res_tx))?;
         log::info!(
-            "git thread up ({} KB stack); Wi-Fi comes up on the first :sync",
+            "git thread up ({} KB stack); Wi-Fi comes up on the first :gp",
             GIT_STACK / 1024
         );
         (req_tx, res_rx)
@@ -191,7 +191,7 @@ fn main() -> anyhow::Result<()> {
     // The only two framebuffers the loop ever uses, both allocated here at
     // boot: every repaint below renders into `back` (`draw_into` reuses its
     // allocation) and swaps it with `shown` on success. A repaint must never
-    // allocate — a background `:sync` push can take the heap to the floor, and
+    // allocate — a background `:gp` push can take the heap to the floor, and
     // a failed `Vec` alloc aborts the whole app (the 2026-07-13 OOM: 66 s into
     // the push, one HalfPageUp repaint died on a 27 KB framebuffer).
     let mut back = Frame::new_white();
@@ -218,7 +218,7 @@ fn main() -> anyhow::Result<()> {
 
         // Service the host-side effects the batch queued, in order. A file open
         // queues a Save of the outgoing dirty buffer *then* a Load of the target;
-        // `:sync` queues a Save of the current buffer *then* Publish. Save/Load
+        // `:gp` queues a Save of the current buffer *then* Publish. Save/Load
         // are inline (fast SD IO); Publish hands off to the git thread — behind
         // the `git` feature, so a light build carries no libgit2/git2.
         //
@@ -262,12 +262,12 @@ fn main() -> anyhow::Result<()> {
                             }
                         }
                         #[cfg(not(feature = "git"))]
-                        log::info!(":sync — saved; light build (no `git` feature) — push skipped");
+                        log::info!(":gp — saved; light build (no `git` feature) — push skipped");
                     }
                     Effect::Pull => {
                         // `:gl` — fetch + fast-forward, on the git thread like a
                         // publish. Gated on an empty dirty journal: unpublished
-                        // saves would fight the checkout, and `:sync` first is
+                        // saves would fight the checkout, and `:gp` first is
                         // the appliance's natural order anyway. (A RAM-dirty
                         // buffer that was never saved doesn't gate — its edits
                         // simply win over the pulled state, see the outcome
@@ -279,8 +279,8 @@ fn main() -> anyhow::Result<()> {
                                 // Log it too — on the 2026-07-14 run this gate
                                 // firing looked like a silent no-op in the
                                 // serial log.
-                                log::info!(":gl refused — dirty journal non-empty; :sync first");
-                                ed.set_notice("pull: unsynced changes - :sync first");
+                                log::info!(":gl refused — dirty journal non-empty; :gp first");
+                                ed.set_notice("pull: unsynced changes - :gp first");
                             } else {
                                 match git_tx.send(GitRequest::Pull) {
                                     Ok(()) => ed.set_notice("pulling..."),
@@ -314,7 +314,7 @@ fn main() -> anyhow::Result<()> {
                     GitOutcome::Publish(outcome) => {
                         // Settle the dirty snapshot this publish took: confirmed
                         // published (or up to date) → forget it; failed → back to
-                        // pending so the next :sync retries the same paths.
+                        // pending so the next :gp retries the same paths.
                         match &outcome {
                             PublishOutcome::Pushed(_) | PublishOutcome::UpToDate => {
                                 storage.publish_succeeded()
@@ -357,7 +357,7 @@ fn main() -> anyhow::Result<()> {
                             format!("pulled {oid}")
                         }
                         PullOutcome::UpToDate => "up to date".to_string(),
-                        PullOutcome::LocalAhead => "ahead - :sync to publish".to_string(),
+                        PullOutcome::LocalAhead => "ahead - :gp to publish".to_string(),
                         PullOutcome::Diverged => "diverged - resolve on a computer".to_string(),
                         PullOutcome::Failed(reason) => reason,
                     },
@@ -410,7 +410,7 @@ fn main() -> anyhow::Result<()> {
             // buffer so a power pull can't cost more than the last couple seconds.
             // Silent — no snackbar and no forced e-ink flash (a safety net, not an
             // action; `:w` is the loud save). Unformatted: fmt only runs on an
-            // explicit `:w`/`:sync`, never reflowing text mid-session. Fires once
+            // explicit `:w`/`:gp`, never reflowing text mid-session. Fires once
             // per idle window (`idle_saved`), so a failing save can't busy-loop.
             if !idle_saved
                 && ed.prefs().save_on_idle
@@ -506,7 +506,7 @@ fn main() -> anyhow::Result<()> {
             // exactly like a failed `save_buffer`. Drop this frame, leave `shown`
             // untouched so the next paint repaints the same diff, and force a
             // clean full refresh then. Typical cause: internal DMA-capable RAM
-            // briefly starved by Wi-Fi/TLS during a background `:sync`; it frees
+            // briefly starved by Wi-Fi/TLS during a background `:gp`; it frees
             // the moment the push finishes.
             log::warn!("{refresh} refresh #{updates} FAILED ({e}); frame dropped, full refresh next");
             force_full = true;
@@ -595,7 +595,7 @@ fn save_buffer(storage: &Storage, ed: &mut Editor, path: &str, contents: &str) {
 /// Persist the preferences file after a palette `>` command changed a pref
 /// (`Effect::SavePrefs`). The editor already applied the change live and
 /// serialized it; this is a plain atomic write to the fixed `.typoena.toml`
-/// path. Under `/sd/repo`, so it rides the next `:sync` to other devices.
+/// path. Under `/sd/repo`, so it rides the next `:gp` to other devices.
 fn save_prefs(storage: &Storage, ed: &mut Editor, contents: &str) {
     match storage.save_path(PREFS_PATH, contents) {
         Ok(()) => log::info!("prefs saved to {PREFS_PATH}"),
@@ -626,21 +626,21 @@ fn open_buffer(storage: &Storage, ed: &mut Editor, path: String, scope: Scope) {
 
 /// Unlink a file from the card (`:delete`). The editor has already dropped it
 /// from its model and switched away, so this is pure IO plus the snackbar. For a
-/// Tracked file the removal is left in the git working copy — the next `:sync`'s
+/// Tracked file the removal is left in the git working copy — the next `:gp`'s
 /// `add --all` stages the deletion — so nothing git-specific happens here. A
 /// failure keeps the file on disk and says so; the buffer has still switched, so
 /// the file is recoverable by re-opening it.
 fn delete_buffer(storage: &Storage, ed: &mut Editor, path: String, scope: Scope) {
     // Scope-qualified label (`repo/notes.md`), so the snackbar names exactly which
     // file left the card — and, for a Tracked file, that the removal is only local
-    // until the next `:sync` publishes it (deleting from the card alone never
+    // until the next `:gp` publishes it (deleting from the card alone never
     // touches the remote — that mirrors how a Save is local until Publish).
     let label = path.strip_prefix("/sd/").unwrap_or(&path);
     match storage.delete_path(&path) {
         Ok(()) => {
             log::info!("deleted {path} ({scope:?})");
             ed.set_notice(match scope {
-                Scope::Tracked => format!("deleted {label} - :sync to publish"),
+                Scope::Tracked => format!("deleted {label} - :gp to publish"),
                 Scope::Local => format!("deleted {label}"),
             });
         }

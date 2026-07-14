@@ -272,7 +272,7 @@ impl Storage {
         if carried > 0 {
             log::info!(
                 "dirty journal: {carried} unpublished path(s) carried over from a previous \
-                 session — the next :sync will commit them"
+                 session — the next :gp will commit them"
             );
         }
         Ok(storage)
@@ -431,7 +431,7 @@ impl Storage {
 
     /// Whether any saved-but-unpublished paths are recorded (pending or riding
     /// an in-flight publish). `:gl` refuses to pull while this is true: a
-    /// fast-forward checkout would fight those files, and `:sync` first is the
+    /// fast-forward checkout would fight those files, and `:gp` first is the
     /// single-writer appliance's natural order anyway.
     pub fn has_dirty(&self) -> bool {
         let d = self.dirty.borrow();
@@ -441,7 +441,7 @@ impl Storage {
     /// Snapshot the dirty paths for a publish (repo-relative). The snapshot
     /// moves to `in_flight` — the journal keeps carrying it — until the UI
     /// task reports the outcome: [`Storage::publish_succeeded`] forgets it,
-    /// [`Storage::publish_failed`] returns it to pending for the next `:sync`.
+    /// [`Storage::publish_failed`] returns it to pending for the next `:gp`.
     pub fn take_dirty(&self) -> BTreeSet<String> {
         let mut d = self.dirty.borrow_mut();
         let taken = std::mem::take(&mut d.pending);
@@ -457,7 +457,7 @@ impl Storage {
         self.persist_dirty();
     }
 
-    /// The publish failed: return its snapshot to pending so the next `:sync`
+    /// The publish failed: return its snapshot to pending so the next `:gp`
     /// retries it (the splice is idempotent, so a retry of an already-clean
     /// path is free). The journal already carries these paths — no rewrite.
     pub fn publish_failed(&self) {
@@ -487,7 +487,7 @@ impl Storage {
 
     /// Seed the dirty set from the journal at mount — the paths a previous
     /// session saved but never got confirmed as published (power pull, failed
-    /// sync, or simply no `:sync` before shutdown). Returns how many.
+    /// sync, or simply no `:gp` before shutdown). Returns how many.
     fn load_dirty_journal(&self) -> usize {
         let Ok(text) = fs::read_to_string(DIRTY_JOURNAL) else {
             return 0; // no journal yet — nothing carried over

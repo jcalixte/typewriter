@@ -1,4 +1,4 @@
-//! On-device git publish — the transport behind the editor's `:sync`.
+//! On-device git publish — the transport behind the editor's `:gp`.
 //!
 //! Graduated from the `src/bin/git_sync.rs` spike (milestone #2A, hardware-
 //! verified 2026-07-07). The spike proved `open` + fast-forward `push` over
@@ -17,7 +17,7 @@
 //!    notes. A `/sd/repo` that isn't a valid repo is a provisioning error
 //!    (`just init`), surfaced as such, not papered over.
 //! 3. **No synthetic content.** The spike appended a marker line; here the
-//!    editor has already saved the user's buffers before `:sync` signals us,
+//!    editor has already saved the user's buffers before `:gp` signals us,
 //!    so we just commit + push what's on disk.
 //! 4. **The commit is an O(depth) TreeBuilder splice, not an index pass.**
 //!    The request carries the repo-relative paths saved/deleted since the last
@@ -92,7 +92,7 @@ const ODB_CACHE_MAX_BYTES: isize = 1024 * 1024;
 
 /// What the UI task asks the git thread to do.
 pub enum GitRequest {
-    /// `:sync` — commit the dirty paths and push (the upload half).
+    /// `:gp` — commit the dirty paths and push (the upload half).
     Publish(PublishRequest),
     /// `:gl` — fetch + fast-forward only (the download half). The UI only
     /// sends this when the dirty journal is empty, so the checkout can't
@@ -140,7 +140,7 @@ pub enum PullOutcome {
     /// Origin's tip is our HEAD — nothing to pull.
     UpToDate,
     /// We are strictly ahead of origin (e.g. a stranded commit whose push
-    /// failed) — nothing to pull; the next `:sync` publishes it.
+    /// failed) — nothing to pull; the next `:gp` publishes it.
     LocalAhead,
     /// Local and remote histories diverged. Refused — no merge on the device.
     Diverged,
@@ -214,7 +214,7 @@ pub fn run_git_service(
                 ) {
                     Ok(o) => o,
                     Err(e) => {
-                        log::error!("❌ :sync failed: {e:?}");
+                        log::error!("❌ :gp failed: {e:?}");
                         PublishOutcome::Failed(short_reason("sync", &e))
                     }
                 },
@@ -260,16 +260,16 @@ fn publish_cycle(
     }
 
     // Nothing recorded dirty and origin's tracking ref already has HEAD: this
-    // `:sync` has nothing to do — say so without touching the radio (~150 ms
+    // `:gp` has nothing to do — say so without touching the radio (~150 ms
     // instead of a Wi-Fi + TLS round). A stranded local commit (committed but
     // never pushed, e.g. a push that failed mid-air) makes the check false and
     // takes the full path below, where publish_once pushes it.
     if paths.is_empty() && remote_current().unwrap_or(false) {
-        log::info!(":sync — no dirty paths and origin has HEAD; up to date, radio untouched");
+        log::info!(":gp — no dirty paths and origin has HEAD; up to date, radio untouched");
         return Ok(PublishOutcome::UpToDate);
     }
 
-    // Phases are timed so a cold :sync reports where the seconds go. Wi-Fi, clock
+    // Phases are timed so a cold :gp reports where the seconds go. Wi-Fi, clock
     // and TLS run only on the first sync of a session; a warm sync skips them, so
     // they read 0 ms and the total collapses to just publish(fetch+commit+push).
     let t_total = Instant::now();
@@ -278,7 +278,7 @@ fn publish_cycle(
     let t_publish = Instant::now();
     let outcome = publish_once(paths)?;
     log::info!(
-        ":sync timing — publish(commit+push) {}ms, total {}ms",
+        ":gp timing — publish(commit+push) {}ms, total {}ms",
         t_publish.elapsed().as_millis(),
         t_total.elapsed().as_millis(),
     );
@@ -763,7 +763,7 @@ fn update_tracking(repo: &Repository, branch: &str, tip: Oid) -> Result<()> {
 
 /// Open `/sd/repo`, fetch origin, and **fast-forward only** — never a merge.
 /// The four non-failure shapes map to [`PullOutcome`]: already current, we're
-/// strictly ahead (a stranded commit — `:sync`'s job), a clean fast-forward,
+/// strictly ahead (a stranded commit — `:gp`'s job), a clean fast-forward,
 /// or a divergence (refused; a machine with a real git resolves it).
 ///
 /// The fast-forward is checkout-then-ref-move, with a **SAFE** checkout: it
@@ -827,7 +827,7 @@ fn pull_once() -> Result<PullOutcome> {
         let _ = remote.disconnect();
         update_tracking(&repo, &branch, theirs)?;
         log::info!(
-            "pull: HEAD {} is ahead of origin {} — nothing to pull, :sync publishes it (ls-refs {ls_ms}ms, no fetch)",
+            "pull: HEAD {} is ahead of origin {} — nothing to pull, :gp publishes it (ls-refs {ls_ms}ms, no fetch)",
             short(head),
             short(theirs)
         );

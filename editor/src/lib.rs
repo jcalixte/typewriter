@@ -86,7 +86,7 @@ pub enum Mode {
     /// are locked out.
     View,
     /// `:` command line — keys accumulate a command shown in the status strip;
-    /// Enter runs it, Esc cancels. Handles `:fmt` (in-core) plus `:w`/`:sync`
+    /// Enter runs it, Esc cancels. Handles `:fmt` (in-core) plus `:w`/`:gp`
     /// (which ask the host to persist/publish via an [`Effect`]).
     Command,
     /// File palette (`Cmd-P`) — a modal transient panel over the writing column.
@@ -98,8 +98,8 @@ pub enum Mode {
 
 /// Which of the two file scopes ([`CONTEXT.md`]) a buffer belongs to. Fixed at
 /// creation — there is no move-between-scopes operation. **Tracked** files live
-/// under [`REPO_DIR`] and can be Published (`:sync`); **Local** files live under
-/// [`LOCAL_DIR`] and never leave the device, so `:sync` is refused in-core.
+/// under [`REPO_DIR`] and can be Published (`:gp`); **Local** files live under
+/// [`LOCAL_DIR`] and never leave the device, so `:gp` is refused in-core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
     Tracked,
@@ -128,13 +128,13 @@ pub enum Effect {
     /// [`Editor::install_loaded`]. Queued when switching to a file that is not
     /// resident in memory (`:e`, palette pick).
     Load { path: String, scope: Scope },
-    /// `:sync` — publish the Tracked working copy (git push). Preceded by a
+    /// `:gp` — publish the Tracked working copy (git push). Preceded by a
     /// [`Save`](Effect::Save) of the current buffer in the same batch. Never
     /// queued from a Local buffer (blocked in-core).
     Publish,
     /// `:gl` — pull from the remote: fetch, then **fast-forward only**. The host
     /// refuses (and surfaces) a divergence rather than merging, and never
-    /// touches local commits. Complements `:sync` (push) as the download half.
+    /// touches local commits. Complements `:gp` (push) as the download half.
     Pull,
     /// `:delete` — unlink `path` from the card. For a **Tracked** file the removal
     /// lands in the git working copy, so the next [`Publish`](Effect::Publish)'s
@@ -157,7 +157,7 @@ pub const REPO_DIR: &str = "/sd/repo";
 pub const LOCAL_DIR: &str = "/sd/local";
 /// The git-tracked preferences file. Read at boot and rewritten when a palette
 /// `>` command changes a pref, so the setting survives a reboot and rides the
-/// next `:sync` to every device that clones the repo. Deliberately **distinct**
+/// next `:gp` to every device that clones the repo. Deliberately **distinct**
 /// from the gitignored `/sd/typoena.conf` device secrets (Wi-Fi / PAT / remote /
 /// author, never committed — see v0.1): behaviour is shared, secrets are not.
 pub const PREFS_PATH: &str = "/sd/repo/.typoena.toml";
@@ -171,12 +171,12 @@ pub const PREFS_PATH: &str = "/sd/repo/.typoena.toml";
 pub struct Prefs {
     /// Auto-save the active buffer on the idle typing-pause, so `:w` becomes
     /// optional. The idle save is **unformatted** — a safety net against power
-    /// loss, not a formatting pass; `:fmt` only runs on an explicit `:w`/`:sync`
+    /// loss, not a formatting pass; `:fmt` only runs on an explicit `:w`/`:gp`
     /// (see [`format_on_save`](Prefs::format_on_save)) so text is never reflowed
     /// mid-session. Honoured by the host loop, not the core.
     pub save_on_idle: bool,
     /// Run `:fmt` (table alignment, blank-line collapse, trailing-whitespace
-    /// strip) on the buffer before an explicit `:w`/`:sync` persist.
+    /// strip) on the buffer before an explicit `:w`/`:gp` persist.
     pub format_on_save: bool,
     /// Show the absolute line-number gutter (built always-on in v0.2). Off
     /// reclaims the gutter's columns for text — applied live by [`gutter_cols`].
@@ -701,7 +701,7 @@ pub struct Editor {
     /// command mode can toggle them live; the host reads the file at boot and
     /// applies it via [`set_prefs`](Self::set_prefs), and reads it back for the
     /// keys it honours (`save_on_idle`). `format_on_save` and `line_numbers` are
-    /// consulted in-core (`:w`/`:sync` and the gutter).
+    /// consulted in-core (`:w`/`:gp` and the gutter).
     prefs: Prefs,
     /// The unnamed register: the last yanked or deleted text, replayed by
     /// `p`/`P`. `y`, `d`, `c`, and `x` all fill it (vim's unnamed register), so
@@ -735,7 +735,7 @@ pub struct Editor {
     /// `/sd/repo/notes.md`). Empty for an unnamed scratch buffer (the boot-message
     /// layout use); `:w` on an empty path posts "no file name" rather than saving.
     path: String,
-    /// The active buffer's scope. Gates Publish — `:sync` is refused in Local.
+    /// The active buffer's scope. Gates Publish — `:gp` is refused in Local.
     scope: Scope,
     /// Whether the active buffer has unsaved edits. Set at each change-group
     /// ([`checkpoint`](Self::checkpoint)) and cleared when the host confirms a
@@ -903,7 +903,7 @@ impl Editor {
     /// Seed a fresh editor from a named file's saved text — the boot-load and
     /// file-open path. Same boot posture as [`with_text`](Self::with_text)
     /// (Normal mode, caret on the last character) but records the file's `path`
-    /// and `scope` so `:w` knows where to persist and `:sync` knows whether
+    /// and `scope` so `:w` knows where to persist and `:gp` knows whether
     /// Publish is offered.
     pub fn with_file(path: String, scope: Scope, text: String) -> Self {
         let mut ed = Editor { text, path, scope, ..Editor::new() };
@@ -918,7 +918,7 @@ impl Editor {
         self.mode
     }
 
-    /// The full buffer contents, for the host to persist on `:w`/`:sync`.
+    /// The full buffer contents, for the host to persist on `:w`/`:gp`.
     pub fn text(&self) -> &str {
         &self.text
     }
@@ -1554,7 +1554,7 @@ impl Editor {
                 self.request_save_active();
             }
             // fmt → save → push, shared with the `>` publish command.
-            "sync" => self.run_publish(),
+            "gp" => self.run_publish(),
             "gl" => self.requests.push(Effect::Pull),
             _ => {}
         }
@@ -2237,7 +2237,7 @@ impl Editor {
         self.palette_sel = 0;
     }
 
-    /// The publish path shared by `:sync` and the `>` `publish` command: format on
+    /// The publish path shared by `:gp` and the `>` `publish` command: format on
     /// save (if enabled), queue the buffer save, then the git push — the host
     /// services them in order. Tracked-only: a Local buffer never reaches the
     /// remote, so it is a no-op with a notice.
@@ -2260,7 +2260,7 @@ impl Editor {
     /// string ([`Theme`](PaletteCmd::Theme), [`AutoSync`](PaletteCmd::AutoSync))
     /// rotates to its next option and wraps — so from the palette every setting
     /// is "press Enter to change". The queued `SavePrefs` is what makes the
-    /// change durable and lets it ride the next `:sync` to other devices.
+    /// change durable and lets it ride the next `:gp` to other devices.
     fn cycle_pref(&mut self, cmd: PaletteCmd) {
         match cmd {
             PaletteCmd::SaveOnIdle => self.prefs.save_on_idle = !self.prefs.save_on_idle,
@@ -3345,7 +3345,7 @@ impl Editor {
     /// [`draw`](Self::draw) into a caller-owned frame, reusing its allocation.
     /// Firmware keeps two boot-time frames and round-trips them through here so
     /// a repaint never allocates: the editor must stay drawable even when a
-    /// background `:sync` push has taken the heap to the floor — a failed
+    /// background `:gp` push has taken the heap to the floor — a failed
     /// framebuffer alloc aborts the whole app (the 2026-07-13 OOM).
     pub fn draw_into(&mut self, out: &mut Frame, cursor_on: bool) {
         let lay = self.layout();
@@ -4347,9 +4347,9 @@ mod tests {
     }
 
     #[test]
-    fn sync_command_saves_then_publishes() {
-        // `:sync` queues a save of the current buffer, then the git publish.
-        assert_eq!(kinds(&command("sync").1), vec![Kind::Save, Kind::Publish]);
+    fn gp_command_saves_then_publishes() {
+        // `:gp` queues a save of the current buffer, then the git publish.
+        assert_eq!(kinds(&command("gp").1), vec![Kind::Save, Kind::Publish]);
     }
 
     #[test]
@@ -4358,15 +4358,15 @@ mod tests {
     }
 
     #[test]
-    fn sync_formats_the_buffer_before_publishing() {
-        // fmt → save → commit → push: `:sync` runs :fmt in-core first (default on).
+    fn gp_formats_the_buffer_before_publishing() {
+        // fmt → save → commit → push: `:gp` runs :fmt in-core first (default on).
         let mut e = Editor::with_file(
             "/sd/repo/notes.md".into(),
             Scope::Tracked,
             "hello   \nworld".to_string(), // trailing spaces
         );
         e.handle(Key::Char(':'));
-        for c in "sync".chars() {
+        for c in "gp".chars() {
             e.handle(Key::Char(c));
         }
         e.handle(Key::Enter);
@@ -4375,15 +4375,15 @@ mod tests {
     }
 
     #[test]
-    fn sync_is_refused_in_a_local_buffer() {
-        // Publish is Tracked-only; `:sync` in Local queues nothing and warns.
+    fn gp_is_refused_in_a_local_buffer() {
+        // Publish is Tracked-only; `:gp` in Local queues nothing and warns.
         let mut e = Editor::with_file(
             "/sd/local/journal.md".into(),
             Scope::Local,
             "dear diary".to_string(),
         );
         e.handle(Key::Char(':'));
-        for c in "sync".chars() {
+        for c in "gp".chars() {
             e.handle(Key::Char(c));
         }
         e.handle(Key::Enter);

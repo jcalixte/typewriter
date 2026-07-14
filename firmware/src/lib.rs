@@ -15,7 +15,7 @@ pub mod epd;
 pub mod net;
 pub mod persistence;
 
-// On-device git publish (the editor's `:sync` transport). Behind the `git`
+// On-device git publish (the editor's `:gp` transport). Behind the `git`
 // feature so a light build never pulls libgit2/git2 — see main.rs `publish` and
 // the feature note in Cargo.toml.
 #[cfg(feature = "git")]

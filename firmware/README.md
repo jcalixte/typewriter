@@ -190,13 +190,13 @@ builds are incremental.
 
 ### Build modes — git (default) vs light
 
-Publishing (`:sync` → git push) is expensive to build: it drags in libgit2 +
+Publishing (`:gp` → git push) is expensive to build: it drags in libgit2 +
 mbedTLS (compiled as an esp-idf component) and the `git2` crate. It sits behind
 a switch. The nominal build turns it on (it's the product); a **light** build
 leaves it off — ideal for iterating on the editor, EPD, USB, or SD without
 paying for libgit2:
 
-| Build | Command | libgit2 component | `git2` crate | `:sync` |
+| Build | Command | libgit2 component | `git2` crate | `:gp` |
 | ----- | ------- | ----------------- | ------------ | ------- |
 | **Full / git** (default) | `just build` / `just flash` | compiled | linked | save → push |
 | **Light** | `just build-light` / `just flash-light` | not compiled (empty no-op) | not linked | saves locally, skips push |
