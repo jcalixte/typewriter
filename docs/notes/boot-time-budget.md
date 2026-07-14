@@ -16,25 +16,25 @@
 
 From the boot serial log (power-on → first editor frame + input loop live):
 
-| Phase | ~ms | Lever |
-| --- | ---: | --- |
-| ROM + 2nd-stage bootloader + app image load | ~550 | flash speed (DIO now; QIO / 80 MHz ≈ −200 ms, speculative) |
-| PSRAM init + **memtest** + heap | ~920 | `CONFIG_SPIRAM_MEMTEST=n` → **−730 ms** (kept **on**: a real HW sanity check on a hand-wired board) |
-| EPD reset + init | ~130 | fixed panel bring-up |
-| **Splash full refresh** | ~1850 | e-ink floor — see below |
-| SD mount + note load | ~70 | quick on the genuine 32 GB SDHC |
-| USB host install + git thread spawn | ~60 | background |
-| **First editor render** (full-area partial) | ~680 | already fixed from ~1870 ms (was a *second* full refresh) |
-| **Total** | **~4260** | |
+| Phase                                       |       ~ms | Lever                                                                                               |
+| ------------------------------------------- | --------: | --------------------------------------------------------------------------------------------------- |
+| ROM + 2nd-stage bootloader + app image load |      ~550 | flash speed (DIO now; QIO / 80 MHz ≈ −200 ms, speculative)                                          |
+| PSRAM init + **memtest** + heap             |      ~920 | `CONFIG_SPIRAM_MEMTEST=n` → **−730 ms** (kept **on**: a real HW sanity check on a hand-wired board) |
+| EPD reset + init                            |      ~130 | fixed panel bring-up                                                                                |
+| **Splash full refresh**                     |     ~1850 | e-ink floor — see below                                                                             |
+| SD mount + note load                        |       ~70 | quick on the genuine 32 GB SDHC                                                                     |
+| USB host install + git thread spawn         |       ~60 | background                                                                                          |
+| **First editor render** (full-area partial) |      ~680 | already fixed from ~1870 ms (was a _second_ full refresh)                                           |
+| **Total**                                   | **~4260** |                                                                                                     |
 
 Two lines carry the weight: the **splash full refresh (~1.85 s)** and the
 **first editor render (~0.68 s)**. Everything else is ≤ ~0.9 s combined, and the
-biggest of *those* — the ~0.73 s PSRAM memtest — is a deliberate keep.
+biggest of _those_ — the ~0.73 s PSRAM memtest — is a deliberate keep.
 
 ## The insight: one full refresh is unavoidable, so the splash is nearly free
 
 After power-on the panel controller's `0x26` "previous" RAM bank holds garbage. A
-partial refresh *diffs the new image against that bank*
+partial refresh _diffs the new image against that bank_
 ([`../tradeoff-curves/epd-refresh-latency.md`](../tradeoff-curves/epd-refresh-latency.md)),
 so the **first clean paint must be a full refresh** (~1.9 s) to establish a known
 image. There is no way around this on this panel short of a different waveform.
@@ -42,12 +42,12 @@ image. There is no way around this on this panel short of a different waveform.
 That reframes two things:
 
 - **The splash costs almost nothing.** Boot needs one full refresh regardless; the
-  splash simply *is* that refresh, turned into a "boot is happening" affordance.
+  splash simply _is_ that refresh, turned into a "boot is happening" affordance.
   Dropping the splash would **not** save the 1.9 s — the editor's first frame would
   then have to be the full refresh instead. (This is exactly what the old boot did
-  and why it paid *two* full refreshes.)
+  and why it paid _two_ full refreshes.)
 - **The v0.1 win was removing the second full refresh, not the first.** Once the
-  splash has seeded a clean baseline, the editor rides in on a full-area *partial*
+  splash has seeded a clean baseline, the editor rides in on a full-area _partial_
   (~0.63 s) instead of a second full refresh (~1.9 s) — the ~1.25 s saving that
   took cold boot from ~5.5 s to ~4.26 s. Verified clean on-panel (no splash
   ghost behind the editor text).
@@ -60,7 +60,7 @@ To go from ~4.26 s to ≤ 3 s needs ~1.26 s cut. The honest lever list:
   reasonable once the board is no longer hand-wired.
 - **Faster flash boot (QIO / 80 MHz):** ~−0.2 s, speculative, needs a bench check.
 - **Overlap cheap init under the splash busy-wait:** SD mount + note load + USB
-  install (~0.13 s total) currently run *after* the splash refresh returns, but
+  install (~0.13 s total) currently run _after_ the splash refresh returns, but
   the refresh is a `wait_while_busy` spin — those could be kicked off before it.
   Saves ~0.1 s at most.
 

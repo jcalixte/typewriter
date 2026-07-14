@@ -2,7 +2,7 @@
 
 > **Model:** on this GDEY0579T93 (SSD1683 dual-controller) panel, refresh time is
 > set by **how many gate lines (rows, the Y axis) are driven** and **which
-> waveform LUT runs** — *not* by the pixel column width. Three refresh modes fall
+> waveform LUT runs** — _not_ by the pixel column width. Three refresh modes fall
 > out of that: full refresh (~1870 ms), full-area partial (~630 ms), and
 > windowed-Y partial (~100–130 ms for one text line). This is the cost model
 > behind per-keystroke typing, the boot splash→editor swap
@@ -28,15 +28,15 @@ Two things do **not** help, and one thing does:
 
 - **Column width (X) is free to keep full.** The panel is a master (`0x00`) +
   slave (`0x80`) pair with the framebuffer split at the seam; every refresh
-  drives *both* controllers full width so the seam/mirror math stays intact
+  drives _both_ controllers full width so the seam/mirror math stays intact
   (`update_part` / `write_frame_bank` in
-  [`epd.rs`](../../firmware/src/epd.rs)). Narrowing the *column* saves nothing —
+  [`epd.rs`](../../firmware/src/epd.rs)). Narrowing the _column_ saves nothing —
   "the waveform time dominates, not the data clock-out."
 - **Row count (Y) is the knob.** E-paper drive time scales with the number of
   gate lines transitioned, so restricting the refresh to a horizontal band of
   rows is the real win — a one-line band is far cheaper than the whole panel.
-- **The LUT sets the tier.** A *partial* update (`0x22`←`0xFF`) runs a short
-  waveform that only nudges pixels that changed. A *full* update (`0x22`←`0xD7`,
+- **The LUT sets the tier.** A _partial_ update (`0x22`←`0xFF`) runs a short
+  waveform that only nudges pixels that changed. A _full_ update (`0x22`←`0xD7`,
   the fast-full LUT) runs ~3× as many frames per pixel to fully clear-and-set —
   slower, but it erases ghosting and re-establishes a known image.
 
@@ -76,11 +76,11 @@ whole panel.
       0   25   50   75  100  125  150  175  200  225  250  272  rows
 ```
 
-| Mode | Rows driven | Latency | LUT | Used for |
-| --- | ---: | ---: | --- | --- |
-| Full refresh | 272 (all) | **~1870 ms** (measured) | full-clear | first cold-boot image; periodic de-ghost (every `FULL_REFRESH_EVERY` = 64 updates) |
-| Full-area partial | 272 | **~630 ms** (measured; 680 ms at boot) | partial | deletes, caret moves, mode switches, the snackbar, and the boot splash→editor swap |
-| Windowed-Y partial | ~10 (1 line) | **~100–130 ms** (estimated¹) | partial | additive per-keystroke typing |
+| Mode               |  Rows driven |                                Latency | LUT        | Used for                                                                           |
+| ------------------ | -----------: | -------------------------------------: | ---------- | ---------------------------------------------------------------------------------- |
+| Full refresh       |    272 (all) |                **~1870 ms** (measured) | full-clear | first cold-boot image; periodic de-ghost (every `FULL_REFRESH_EVERY` = 64 updates) |
+| Full-area partial  |          272 | **~630 ms** (measured; 680 ms at boot) | partial    | deletes, caret moves, mode switches, the snackbar, and the boot splash→editor swap |
+| Windowed-Y partial | ~10 (1 line) |           **~100–130 ms** (estimated¹) | partial    | additive per-keystroke typing                                                      |
 
 ¹ The single-line windowed figure is projected from the floor+slope model and the
 Spike 5 full-area measurement; the exact bench number is still to be confirmed
@@ -96,10 +96,10 @@ partial" — the ~1870 ms tier is a periodic tax paid for longevity, not a mode 
 can retire.
 
 **The first cold-boot image must be a full refresh.** After power-on the `0x26`
-"previous" bank holds garbage, and a partial refresh *diffs against it* — so the
+"previous" bank holds garbage, and a partial refresh _diffs against it_ — so the
 very first clean paint has to be the full tier. This is why boot pays exactly one
 unavoidable ~1.9 s full refresh, and why the splash (which rides it) is nearly
-free while the *editor's* first frame can be a cheap partial on top. Full
+free while the _editor's_ first frame can be a cheap partial on top. Full
 derivation: [`../notes/boot-time-budget.md`](../notes/boot-time-budget.md).
 
 ## What it decides

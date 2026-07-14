@@ -587,18 +587,18 @@ targets kept; relations + roof + Σ basement left empty for practice), see
 What a user (= me) values about the device, with importance weights on a
 1–10 scale. Source columns point at the doc the requirement comes from.
 
-| ID  | Requirement                                                                        | Weight | Source                                                                                                                         |
-| --- | ---------------------------------------------------------------------------------- | :----: | ------------------------------------------------------------------------------------------------------------------------------ |
-| W1  | Sub-second visible response to typing                                              |   10   | [product → Write](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium)               |
-| W2  | **Publishing** is one deliberate action away                                       |   9    | [product → Publish](v0.1-mvp-product.md#user-stories), [CONTEXT → Publish](../CONTEXT.md#user-facing-actions)                  |
-| W3  | Pulling power never corrupts the file                                              |   10   | [product → Recover](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)                   |
+| ID  | Requirement                                                                        | Weight | Source                                                                                                                             |
+| --- | ---------------------------------------------------------------------------------- | :----: | ---------------------------------------------------------------------------------------------------------------------------------- |
+| W1  | Sub-second visible response to typing                                              |   10   | [product → Write](v0.1-mvp-product.md#user-stories), [README → UX](../README.md#ux-boundaries-set-by-the-medium)                   |
+| W2  | **Publishing** is one deliberate action away                                       |   9    | [product → Publish](v0.1-mvp-product.md#user-stories), [CONTEXT → Publish](../CONTEXT.md#user-facing-actions)                      |
+| W3  | Pulling power never corrupts the file                                              |   10   | [product → Recover](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)                       |
 | W4  | Provisioning never interrupts a writing session                                    |   7    | [product → Provisioning](v0.1-mvp-product.md#provisioning-build-time-dev-only), [macroplan → v0.9](macroplan.md#v09--robustness--) |
-| W5  | Quick boot to a writing cursor                                                     |   6    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s)                                                        |
-| W6  | Long sessions without crash / lag / drift                                          |   9    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak)                                                     |
-| W7  | Nothing on the device competes with prose                                          |   8    | [README → vision](../README.md#vision)                                                                                         |
-| W8  | The UI never moves except when I move it                                           |   7    | [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                                                    |
+| W5  | Quick boot to a writing cursor                                                     |   6    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (≤ 5 s)                                                            |
+| W6  | Long sessions without crash / lag / drift                                          |   9    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak)                                                         |
+| W7  | Nothing on the device competes with prose                                          |   8    | [README → vision](../README.md#vision)                                                                                             |
+| W8  | The UI never moves except when I move it                                           |   7    | [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                                                        |
 | W9  | Codebase absorbs the planned roadmap without rewrite                               |   8    | [macroplan](macroplan.md)                                                                                                          |
-| W10 | I can repair or fork it with hobbyist tools                                        |   5    | [README → vision](../README.md#vision)                                                                                         |
+| W10 | I can repair or fork it with hobbyist tools                                        |   5    | [README → vision](../README.md#vision)                                                                                             |
 | W11 | Multi-day battery life (v0.8 onward)                                               |   4    | [macroplan → v0.8](macroplan.md#v08--power-battery--sleep--)                                                                       |
 | W12 | Local-only file scope coexists with git scope (v0.5+)                              |   5    | [README → scopes](../README.md#vision), [macroplan → v0.5](macroplan.md#v05--file-palette--multi-file--)                           |
 | W13 | Typography sets a writing-tool tone — typewriter or developer editor, never gadget |   7    | [macroplan → v1.0](macroplan.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                      |
@@ -620,14 +620,14 @@ unless noted. Direction column shows what "better" looks like
 The device performs these. The HOW rows below measure quality attributes
 of these functions, or of artifacts they produce.
 
-| Function  | Transformation                                  |
-| --------- | ----------------------------------------------- |
-| Type      | keypress → glyph rendered + buffer mutated      |
-| Save      | dirty buffer → persisted file on SD             |
-| Publish   | persisted file → commit on remote               |
-| Recover   | degraded file state → readable file             |
-| Boot      | power-on → cursor ready                         |
-| Provision | uninitialized device → configured device        |
+| Function  | Transformation                             |
+| --------- | ------------------------------------------ |
+| Type      | keypress → glyph rendered + buffer mutated |
+| Save      | dirty buffer → persisted file on SD        |
+| Publish   | persisted file → commit on remote          |
+| Recover   | degraded file state → readable file        |
+| Boot      | power-on → cursor ready                    |
+| Provision | uninitialized device → configured device   |
 
 **Provision** is build-time-only in v0.1 ([ADR-005], [ADR-007]); it
 joins the runtime five from v0.9 onward. Sub-functions referenced
@@ -636,22 +636,22 @@ inside HOW names: **Render** (buffer → e-ink frame, inside Type),
 
 ### Characteristics
 
-| ID  | Characteristic                                     | Dir | v0.1 target              | v1.0 target         |
-| --- | -------------------------------------------------- | :-: | ------------------------ | ------------------- |
-| H1  | Type latency (keypress → glyph)                    |  ↓  | ≤ 400 ms §               | ≤ 300 ms §          |
-| H2  | Partial-refresh region area per keystroke          |  ↓  | ≤ 1 text line (~22 px h) | same                |
-| H3  | Full-refresh cadence (clears ghosting)             |  →  | 1 per 64 partials        | tuned by panel temp |
-| H4  | Boot latency (cold)                                |  ↓  | ≤ 5 s                    | ≤ 3 s †             |
-| H5  | Continuous-typing endurance (no drop, no leak)     |  ↑  | ≥ 1 h                    | ≥ 8 h               |
-| H6  | Publish reliability (network up)                   |  ↑  | ≥ 95 %                   | ≥ 99 %              |
-| H7  | Publish latency (one file)                         |  ↓  | ≤ 30 s ‡                 | ≤ 10 s ‡            |
-| H8  | Save durability (post-confirm power loss)          |  →  | 100 %                    | 100 %               |
-| H9  | PSRAM heap headroom during Publish                 |  ↑  | ≥ 1 MB free at peak      | same                |
-| H10 | Firmware binary size                               |  ↓  | ≤ 2 MB                   | ≤ 1.5 MB            |
-| H11 | Stack budget across all tasks                      |  ↓  | ≤ 80 KB (sum)            | same                |
-| H12 | Network reconnect time (transient outage)          |  ↓  | ≤ 30 s                   | ≤ 10 s              |
-| H13 | Idle / typing / Publish current draw               |  ↓  | measured only            | sized for >2 days   |
-| H15 | Build time (clean, release)                        |  ↓  | ≤ 7 min                  | ≤ 5 min             |
+| ID  | Characteristic                                 | Dir | v0.1 target              | v1.0 target         |
+| --- | ---------------------------------------------- | :-: | ------------------------ | ------------------- |
+| H1  | Type latency (keypress → glyph)                |  ↓  | ≤ 400 ms §               | ≤ 300 ms §          |
+| H2  | Partial-refresh region area per keystroke      |  ↓  | ≤ 1 text line (~22 px h) | same                |
+| H3  | Full-refresh cadence (clears ghosting)         |  →  | 1 per 64 partials        | tuned by panel temp |
+| H4  | Boot latency (cold)                            |  ↓  | ≤ 5 s                    | ≤ 3 s †             |
+| H5  | Continuous-typing endurance (no drop, no leak) |  ↑  | ≥ 1 h                    | ≥ 8 h               |
+| H6  | Publish reliability (network up)               |  ↑  | ≥ 95 %                   | ≥ 99 %              |
+| H7  | Publish latency (one file)                     |  ↓  | ≤ 30 s ‡                 | ≤ 10 s ‡            |
+| H8  | Save durability (post-confirm power loss)      |  →  | 100 %                    | 100 %               |
+| H9  | PSRAM heap headroom during Publish             |  ↑  | ≥ 1 MB free at peak      | same                |
+| H10 | Firmware binary size                           |  ↓  | ≤ 2 MB                   | ≤ 1.5 MB            |
+| H11 | Stack budget across all tasks                  |  ↓  | ≤ 80 KB (sum)            | same                |
+| H12 | Network reconnect time (transient outage)      |  ↓  | ≤ 30 s                   | ≤ 10 s              |
+| H13 | Idle / typing / Publish current draw           |  ↓  | measured only            | sized for >2 days   |
+| H15 | Build time (clean, release)                    |  ↓  | ≤ 7 min                  | ≤ 5 min             |
 
 † **Boot latency, measured 2026-07-11:** cold boot is **4258 ms**, so the ≤ 5 s
 v0.1 target is met. The ≤ 3 s v1.0 target is assessed **marginal-to-unreachable** —
@@ -663,9 +663,10 @@ Breakdown + levers: [`notes/boot-time-budget.md`](notes/boot-time-budget.md).
 **~10 s**), comfortably inside the ≤ 30 s v0.1 target. The ≤ 10 s v1.0 target is
 **marginal** — the warm path meets it, but a cold sync's one-time Wi-Fi assoc
 (~3.6 s) + SNTP (~2–4 s) push it over, and the transport itself (one TLS handshake
-+ commit + push) is near its floor. Optimistic-retry (push onto the tip first,
-reconcile only on a rejected push) already cut a whole second handshake. Breakdown
-+ levers: [`notes/sync-latency.md`](notes/sync-latency.md).
+
+- commit + push) is near its floor. Optimistic-retry (push onto the tip first,
+  reconcile only on a rejected push) already cut a whole second handshake. Breakdown
+- levers: [`notes/sync-latency.md`](notes/sync-latency.md).
 
 § **Type latency — revised target, measured 2026-07-11.** Cold per-keystroke
 render (keypress → glyph settled) measures **~630 ms**, so the v0.1 target is
@@ -777,22 +778,22 @@ number), W9 both 1→2 (Rust rewrite explicitly unblocked features that
 JS could not carry; still closed so neither reaches reMarkable's
 hackable-Linux 3).
 
-| ID  | WHAT (truncated)                                  | Typoena | reM. | Frw.T | Frw.S | Pom. | Rationale (shortest defensible)                                                                                                                                                                                                                                            |
-| --- | ------------------------------------------------- | :-----: | :--: | :---: | :---: | :--: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ID  | WHAT (truncated)                                  | Typoena | reM. | Frw.T | Frw.S | Pom. | Rationale (shortest defensible)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --- | ------------------------------------------------- | :-----: | :--: | :---: | :---: | :--: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | W1  | Sub-second response to typing                     |    2    |  1   |   4   |   3   |  5   | Typoena type latency measured ~630 ms (2026-07-11) — a visible per-keystroke lag, sub-second but well behind the Freewrites' ~200 ms (v0.1 H1 target relaxed ≤200→≤400 ms, still unmet), so 2 not 4; reMarkable e-ink visibly laggy on a typing-focused device — tested less responsive than Smart Typewriter, and latency is so load-bearing for W1 that it earns a 1 not a 2; both Freewrites post-Sailfish trimmed latency 40–100 % (Frw.T plausibly inside 200 ms; Frw.S still trails by one notch on larger panel); Pomera LCD ~zero. |
-| W2  | Publishing is one deliberate action away          |    5    |  4   |   4   |   4   |  2   | Ctrl-G atomic; reMarkable + Freewrite cloud-sync is one-tap but not git; Pomera = USB/SD copy or QR transfer.                                                                                                                                                              |
-| W3  | Pulling power never corrupts the file             |    4    |  4   |   2   |   2   |  2   | Typoena: atomic-rename + fsync (round-trip verified 2026-07-11; power-pull test deferred to v0.9). reMarkable journals. Freewrite + Pomera: forum reports of corruption on yank.                                                                                                                                                              |
-| W4  | Provisioning never interrupts writing             |    5    |  2   |   2   |   2   |  5   | Typoena v0.1: build-time config (dev-only). reM/Frw need Wi-Fi + account. Pomera: literally none.                                                                                                                                                                          |
-| W5  | Quick boot to a writing cursor                    |    4    |  3   |   4   |   4   |  5   | Typoena measured 4.26 s cold (2026-07-11). reMarkable cold-boots ~20 s (great from sleep). Both Freewrites accelerated post-Sailfish (no published number; were ~10–15 s e-ink wake). Pomera ~3 s.                                                                                               |
-| W6  | Long sessions without crash / lag / drift         |    4    |  3   |   4   |   4   |  5   | Typoena: 1 h soak attested 2026-07-11 (real use, no crash / lag / leak) — one proven hour vs rivals' years, so 4 not 5. Freewrite famously stable (both variants). Pomera firmware is decades-mature.                                                                                                                                                               |
-| W7  | Nothing on the device competes with prose         |    5    |  2   |   5   |   5   |  5   | reMarkable has apps, menus, drawing, PDFs. Freewrite + Pomera are single-purpose; Typoena by design.                                                                                                                                                                       |
-| W8  | The UI never moves except when I move it          |    4    |  3   |   4   |   4   |  5   | reMarkable animates more; Typoena uses dirty-rects; Freewrites minimal motion; Pomera near-static LCD.                                                                                                                                                                     |
-| W9  | Codebase absorbs the planned roadmap              |    4    |  3   |   2   |   2   |  1   | Modular Rust Typoena; reMarkable is hackable Linux; both Freewrites carry Sailfish (Rust rewrite explicitly unblocked features JS could not carry) but closed; Pomera closed firmware.                                                                                     |
-| W10 | I can repair or fork it with hobbyist tools       |    5    |  4   |   2   |   2   |  1   | Typoena: open BOM + ESP32. reMarkable: rooted Linux + community ROMs. Freewrite + Pomera: closed.                                                                                                                                                                          |
-| W11 | Multi-day battery life (v0.8 onward)              |    1    |  5   |   5   |   5   |  4   | Typoena v0.1 = wall-powered (battery deferred). reMarkable + both Freewrites legendary (~4 weeks; Sailfish trimmed −30 % typing / −50 % idle). Pomera ~24 h.                                                                                                               |
-| W12 | Local-only files coexist with git scope           |    3    |  1   |   2   |   2   |  3   | Typoena v0.5+ design. reMarkable cloud-only. Freewrites have local + Postbox but no VCS. Pomera = pure local.                                                                                                                                                              |
-| W13 | Typography sets a writing-tool tone               |    3    |  5   |   2   |   2   |  2   | Typoena v0.1: single mono (serif option in v1.0). reMarkable: rich type rendering. Freewrite + Pomera: utilitarian.                                                                                                                                                        |
-| W14 | I can carry the device and write away from a desk |    2    |  4   |   5   |   1   |  5   | Typoena v0.1 wall-powered (ADR-008), no enclosure spec yet — desk-bound by design. reMarkable + Type Folio bag-friendly with bulk. Freewrite Traveler is the form-factor reference (~1.6 lb, folds). Smart Typewriter ~5 lb, desk-bound. Pomera DM250 pocketable foldable. |
+| W2  | Publishing is one deliberate action away          |    5    |  4   |   4   |   4   |  2   | Ctrl-G atomic; reMarkable + Freewrite cloud-sync is one-tap but not git; Pomera = USB/SD copy or QR transfer.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| W3  | Pulling power never corrupts the file             |    4    |  4   |   2   |   2   |  2   | Typoena: atomic-rename + fsync (round-trip verified 2026-07-11; power-pull test deferred to v0.9). reMarkable journals. Freewrite + Pomera: forum reports of corruption on yank.                                                                                                                                                                                                                                                                                                                                                           |
+| W4  | Provisioning never interrupts writing             |    5    |  2   |   2   |   2   |  5   | Typoena v0.1: build-time config (dev-only). reM/Frw need Wi-Fi + account. Pomera: literally none.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| W5  | Quick boot to a writing cursor                    |    4    |  3   |   4   |   4   |  5   | Typoena measured 4.26 s cold (2026-07-11). reMarkable cold-boots ~20 s (great from sleep). Both Freewrites accelerated post-Sailfish (no published number; were ~10–15 s e-ink wake). Pomera ~3 s.                                                                                                                                                                                                                                                                                                                                         |
+| W6  | Long sessions without crash / lag / drift         |    4    |  3   |   4   |   4   |  5   | Typoena: 1 h soak attested 2026-07-11 (real use, no crash / lag / leak) — one proven hour vs rivals' years, so 4 not 5. Freewrite famously stable (both variants). Pomera firmware is decades-mature.                                                                                                                                                                                                                                                                                                                                      |
+| W7  | Nothing on the device competes with prose         |    5    |  2   |   5   |   5   |  5   | reMarkable has apps, menus, drawing, PDFs. Freewrite + Pomera are single-purpose; Typoena by design.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| W8  | The UI never moves except when I move it          |    4    |  3   |   4   |   4   |  5   | reMarkable animates more; Typoena uses dirty-rects; Freewrites minimal motion; Pomera near-static LCD.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| W9  | Codebase absorbs the planned roadmap              |    4    |  3   |   2   |   2   |  1   | Modular Rust Typoena; reMarkable is hackable Linux; both Freewrites carry Sailfish (Rust rewrite explicitly unblocked features JS could not carry) but closed; Pomera closed firmware.                                                                                                                                                                                                                                                                                                                                                     |
+| W10 | I can repair or fork it with hobbyist tools       |    5    |  4   |   2   |   2   |  1   | Typoena: open BOM + ESP32. reMarkable: rooted Linux + community ROMs. Freewrite + Pomera: closed.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| W11 | Multi-day battery life (v0.8 onward)              |    1    |  5   |   5   |   5   |  4   | Typoena v0.1 = wall-powered (battery deferred). reMarkable + both Freewrites legendary (~4 weeks; Sailfish trimmed −30 % typing / −50 % idle). Pomera ~24 h.                                                                                                                                                                                                                                                                                                                                                                               |
+| W12 | Local-only files coexist with git scope           |    3    |  1   |   2   |   2   |  3   | Typoena v0.5+ design. reMarkable cloud-only. Freewrites have local + Postbox but no VCS. Pomera = pure local.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| W13 | Typography sets a writing-tool tone               |    3    |  5   |   2   |   2   |  2   | Typoena v0.1: single mono (serif option in v1.0). reMarkable: rich type rendering. Freewrite + Pomera: utilitarian.                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| W14 | I can carry the device and write away from a desk |    2    |  4   |   5   |   1   |  5   | Typoena v0.1 wall-powered (ADR-008), no enclosure spec yet — desk-bound by design. reMarkable + Type Folio bag-friendly with bulk. Freewrite Traveler is the form-factor reference (~1.6 lb, folds). Smart Typewriter ~5 lb, desk-bound. Pomera DM250 pocketable foldable.                                                                                                                                                                                                                                                                 |
 
 **Totals** (sum across 14 WHATs, no weighting): Typoena 51, Pomera 50,
 Freewrite Traveler 47, reMarkable 44, Freewrite Smart Typewriter 42
@@ -984,16 +985,16 @@ also lifted H8 durability over its narrow voter base; W14 has widened
 that base, so H8's #3 spot is now arithmetic — see §3.) These are the
 numbers spikes 2–7 must validate before integration starts.
 
-| Rank | Characteristic | Target                                | Watched on        | If we miss it                                                             |
-| ---- | -------------- | ------------------------------------- | ----------------- | ------------------------------------------------------------------------- |
-| 1    | H2 region area | ≤ 1 line per keypress                 | spike 2 + spike 5 | Increase font size to shrink per-glyph dirty rect ([ADR-003] consequence) |
-| 2    | H9 PSRAM heap  | ≥ 1 MB free at push peak              | spike 7           | [ADR-004] kill-switch → `libgit2-sys`; cap rope at 128 KB                 |
-| 3    | H8 durability  | 100 % (post-confirm power loss)       | bench HIL         | Re-evaluate [ADR-007] (move config to internal NVS only)                  |
-| 4    | H1 Type latency | ≤ 400 ms (revised from ≤ 200 ms)      | ~630 ms 2026-07-11 ✗ | Still over target — windowed-Y refresh already in; batch multi-char bursts; open v0.1 gap |
-| 5    | H6 Publish reliability | ≥ 95 % (network up)           | spike 6 + spike 7 | TLS cipher trim; reconnect backoff tuning                                 |
-| 6    | H3 cadence     | full every ~64 partials               | spike 2           | Adjust per panel temperature; defer flash to idle ≥ 1 s                   |
-| 7    | H4 Boot latency | ≤ 5 s (cold, to cursor)              | 4258 ms 2026-07-11 ✓ | Editor rides a full-area partial over the splash (done, −1.25 s); PSRAM memtest off (−0.74 s) — [boot-time-budget](notes/boot-time-budget.md) |
-| 8    | H5 soak        | 1 h no leak / no drop                 | 1 h bench soak    | Glyph-cache eviction; PSRAM heap-fragmentation review                     |
+| Rank | Characteristic         | Target                           | Watched on           | If we miss it                                                                                                                                 |
+| ---- | ---------------------- | -------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | H2 region area         | ≤ 1 line per keypress            | spike 2 + spike 5    | Increase font size to shrink per-glyph dirty rect ([ADR-003] consequence)                                                                     |
+| 2    | H9 PSRAM heap          | ≥ 1 MB free at push peak         | spike 7              | [ADR-004] kill-switch → `libgit2-sys`; cap rope at 128 KB                                                                                     |
+| 3    | H8 durability          | 100 % (post-confirm power loss)  | bench HIL            | Re-evaluate [ADR-007] (move config to internal NVS only)                                                                                      |
+| 4    | H1 Type latency        | ≤ 400 ms (revised from ≤ 200 ms) | ~630 ms 2026-07-11 ✗ | Still over target — windowed-Y refresh already in; batch multi-char bursts; open v0.1 gap                                                     |
+| 5    | H6 Publish reliability | ≥ 95 % (network up)              | spike 6 + spike 7    | TLS cipher trim; reconnect backoff tuning                                                                                                     |
+| 6    | H3 cadence             | full every ~64 partials          | spike 2              | Adjust per panel temperature; defer flash to idle ≥ 1 s                                                                                       |
+| 7    | H4 Boot latency        | ≤ 5 s (cold, to cursor)          | 4258 ms 2026-07-11 ✓ | Editor rides a full-area partial over the splash (done, −1.25 s); PSRAM memtest off (−0.74 s) — [boot-time-budget](notes/boot-time-budget.md) |
+| 8    | H5 soak                | 1 h no leak / no drop            | 1 h bench soak       | Glyph-cache eviction; PSRAM heap-fragmentation review                                                                                         |
 
 The two not-in-MVP rows but already-shaped-by-design:
 
@@ -1133,7 +1134,7 @@ These are the live tensions we are watching, not deciding harder:
   basement.
 - **HOWs renamed "characteristics," not "functions."** A function is a
   transformation (input → output); HOWs like H6 "success rate" and
-  H10 "binary size" are *measures* of functions or properties of
+  H10 "binary size" are _measures_ of functions or properties of
   artifacts, not transformations themselves. §2's header, §4's
   ("HOW-vs-HOW tradeoffs"), §5's ("HOW → Component mapping") and
   caption, and §6's column header all cascaded — wherever "function"

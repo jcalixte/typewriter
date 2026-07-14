@@ -14,9 +14,9 @@
 
 ## Summary
 
-Spike 7 was written as the kill-switch for [ADR-004](../adr.md): *"the
+Spike 7 was written as the kill-switch for [ADR-004](../adr.md): _"the
 smart-HTTP path is validated in spike 7 before we commit to integration; if it
-fails on the device, we fall back to `libgit2-sys`."* It never needed a device
+fails on the device, we fall back to `libgit2-sys`."_ It never needed a device
 to fire. Before writing any gix code, gitoxide's own crate-status doc settles
 the question: `gix` has send-pack/receive-pack **plumbing** (report-status,
 sideband, delete-refs, atomic pushes) but supports push as a **workflow** only
@@ -26,7 +26,7 @@ contrast, are robust over HTTP(S) — which is why Spike 6's TLS GET passed but
 does not carry over to push.)
 
 Because [ADR-005](../adr.md) fixes auth as **HTTPS + PAT**, `gix` cannot satisfy
-the push path today. gix *can* push over `ssh://`, but that would (a) revisit
+the push path today. gix _can_ push over `ssh://`, but that would (a) revisit
 ADR-005 and (b) still die on device — gix's SSH transport spawns the external
 `ssh` program, which does not exist on the ESP32. So the kill-switch condition
 is met at the library level.
@@ -38,12 +38,12 @@ Proved the full `add → commit → push` sequence on desktop
 
 ## Why not the alternatives
 
-| Option | Verdict |
-| ------ | ------- |
-| **gix + HTTPS** (as ADR-004 intended) | Blocked — gix has no HTTP(S) push. |
-| **gix + SSH push** | gix supports it, but revisits ADR-005 *and* gix's SSH transport shells out to an `ssh` binary absent on ESP32 → dead on device. |
+| Option                                              | Verdict                                                                                                                                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **gix + HTTPS** (as ADR-004 intended)               | Blocked — gix has no HTTP(S) push.                                                                                                                                                                                 |
+| **gix + SSH push**                                  | gix supports it, but revisits ADR-005 _and_ gix's SSH transport shells out to an `ssh` binary absent on ESP32 → dead on device.                                                                                    |
 | **gix-protocol send-pack + custom HTTPS transport** | Pure-Rust, no ADR change, but not smoke-test-sized: hand-wiring send-pack over an mbedtls HTTP transport is real work and unproven upstream. Reconsider only if the libgit2 cross-compile (below) turns out worse. |
-| **libgit2 (`git2`)** ← chosen | The ADR's named fallback. Trivial on desktop; the risk becomes the on-device cross-compile. |
+| **libgit2 (`git2`)** ← chosen                       | The ADR's named fallback. Trivial on desktop; the risk becomes the on-device cross-compile.                                                                                                                        |
 
 ## What the desktop spike proves
 
@@ -71,17 +71,17 @@ Implementation notes that carry into the real module:
   new + modified + **deleted** paths, unlike a naive `git add .`. v0.5 file-delete
   needs removals to reach the next Publish's staged set — this is that behavior.
 - **Push rejection is not always a `push()` error.** A non-fast-forward can come
-  back as a transport `Err` (local transport did this) *or* silently via the
+  back as a transport `Err` (local transport did this) _or_ silently via the
   `push_update_reference` callback with a status string while `push()` returns
   `Ok` (the HTTPS/GitHub path). The spike handles both and routes either to the
   pull-and-retry. The callback path is coded for but not yet exercised live.
 - **PAT hygiene.** The token is handed only to libgit2's credential callback
   (`Cred::userpass_plaintext`) and never logged — matches ADR-005.
 
-## What it does *not* prove — the next gate
+## What it does _not_ prove — the next gate
 
 The risk moved **with** the kill-switch and got harder. ADR-004 chose
-gix *specifically to avoid* libgit2's C cross-compile to xtensa; falling back to
+gix _specifically to avoid_ libgit2's C cross-compile to xtensa; falling back to
 libgit2 re-introduces exactly that. The open question is now:
 
 > Can `libgit2` (`git2` / `libgit2-sys`) cross-compile to
@@ -99,7 +99,7 @@ is the on-device Spike 7 and it also depends on:
   `/sd/repo` working copy.
 
 So the full **SD → push** loop is still not testable on hardware; this spike
-retired the *library/API* risk and replaced it with a *cross-compile* risk to
+retired the _library/API_ risk and replaced it with a _cross-compile_ risk to
 tackle once PSRAM + SD are unblocked.
 
 ## On-device probe — 2026-07-05
@@ -107,7 +107,7 @@ tackle once PSRAM + SD are unblocked.
 Two moves toward the on-device gate, decoupled from the (still-blocked) SD card:
 
 **PSRAM enabled.** `sdkconfig.defaults` gained `CONFIG_SPIRAM=y` +
-`CONFIG_SPIRAM_MODE_OCT=y` (the N16R8 is *octal* PSRAM — quad mode would fail
+`CONFIG_SPIRAM_MODE_OCT=y` (the N16R8 is _octal_ PSRAM — quad mode would fail
 init) + `CONFIG_SPIRAM_USE_MALLOC=y` (adds PSRAM to the heap so large Rust allocs
 land there). Speed left at 40 MHz for a safe first enable. Octal PSRAM uses
 GPIO 33–37; the EPD/SD pins (4–13) avoid that range, so no wiring conflict.
@@ -120,7 +120,7 @@ nothing. The ~1.5 MB git working-set budget now has headroom.
 **libgit2 cross-compile probe.** Added `git2` (default-features off → no
 openssl/ssh, isolating the C build from the TLS question) + a throwaway
 `git_probe` bin, and built for `xtensa-esp32s3-espidf`. Result reframes the risk
-in a *more* encouraging direction than expected:
+in a _more_ encouraging direction than expected:
 
 - **The C cross-compiles.** `xtensa-esp-elf-gcc` ran on libgit2's sources and
   several files built with `exit status: 0`. The feared "cmake can't target
@@ -131,7 +131,7 @@ in a *more* encouraging direction than expected:
   vendored libgit2 as a **standalone `cc` library**, so it never inherits
   esp-idf's include paths — esp-idf's BSD-socket headers (lwIP) live under the
   esp-idf component tree, not the bare toolchain sysroot the `cc` invocation
-  used. (`arpa/inet.h` *does* exist in esp-idf, via lwIP's POSIX compat layer;
+  used. (`arpa/inet.h` _does_ exist in esp-idf, via lwIP's POSIX compat layer;
   it just wasn't on the `-I` path.)
 
 So the on-device libgit2 question is **not** "impossible," it's "needs esp-idf
@@ -140,7 +140,7 @@ Candidate paths, roughly in order of effort:
 
 1. **Inject esp-idf include dirs into the `cc` build** via
    `CFLAGS_xtensa-esp32s3-espidf` (point `-I` at esp-idf's lwIP POSIX-compat
-   headers). Cheapest to try; risk is a *cascade* — `arpa/inet.h` is likely the
+   headers). Cheapest to try; risk is a _cascade_ — `arpa/inet.h` is likely the
    first of several missing headers, and then missing lwIP/pthread symbols at
    final link.
 2. **Build libgit2 as a proper esp-idf component** (CMake component pulled into
@@ -157,7 +157,7 @@ backend), so path 1/2/3 is needed before even a transport-less build links.
 Injected esp-idf's lwIP + generated-config include dirs via
 `CFLAGS_xtensa_esp32s3_espidf` and rebuilt the probe. `arpa/inet.h` **resolved**
 — then the build immediately hit the next wall: `lwipopts.h → sys/ioctl.h: No
-such file`, a header from a *different* esp-idf component (vfs/newlib), not lwIP.
+such file`, a header from a _different_ esp-idf component (vfs/newlib), not lwIP.
 That is the whole problem in one line: **path 1 peels the esp-idf component
 include graph one component at a time**, with fragile absolute `-I` paths into
 build-output dirs (the config-dir hash even changed between two builds). It does
@@ -167,7 +167,7 @@ include environment by hand.
 ### Decision: go straight to path 2 (libgit2 as an esp-idf component)
 
 Path 2 isn't just the robust include fix — it **solves the TLS backend at the
-same time**. libgit2 the C library *does* support mbedTLS (`USE_HTTPS=mbedTLS`);
+same time**. libgit2 the C library _does_ support mbedTLS (`USE_HTTPS=mbedTLS`);
 only the `libgit2-sys` Rust wrapper lacks it. Building libgit2 as an esp-idf
 CMake component lets us (a) inherit every component's includes + link (kills the
 cascade) and (b) set `USE_HTTPS=mbedTLS` against esp-idf's own mbedtls — which
@@ -176,7 +176,7 @@ would make a **custom Rust subtransport unnecessary**. Two birds. Sketch:
 - Add libgit2 via esp-idf-sys's extra-components mechanism (a `components/`
   dir + `CMakeLists.txt` declaring `REQUIRES lwip mbedtls pthread newlib vfs`,
   wrapping libgit2's own CMake with `USE_HTTPS=mbedTLS`, `USE_SSH=OFF`).
-- Bind to it from Rust — either `libgit2-sys` in *system* mode pointing at the
+- Bind to it from Rust — either `libgit2-sys` in _system_ mode pointing at the
   component-built lib, or hand-rolled bindings for the handful of calls the
   `git` module needs.
 
@@ -215,22 +215,22 @@ up.
 - [x] Settle the product sync transport — **DECIDED 2026-07-06: HTTPS + PAT**
       (on-device libgit2 is HTTPS-only; no libssh2 port).
 - [~] Retire the last shortcut: no PAT-in-flash — **decision documented, deferred**
-      as [ADR-011](../adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest)
-      (open): on-device paste → eFuse-encrypted NVS + a per-device fine-grained PAT.
-      Gates the first non-dev distribution; nothing to implement until then.
+  as [ADR-011](../adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest)
+  (open): on-device paste → eFuse-encrypted NVS + a per-device fine-grained PAT.
+  Gates the first non-dev distribution; nothing to implement until then.
 - [~] Fold the push into the editor's `git` module (persistent clone +
-      fast-forward) over HTTPS+PAT — **increment A DONE + hardware-verified
-      2026-07-07** (`git_sync.rs`): `clone` + persistent `open` + fast-forward push
-      proven on device (`afa61de`), plus **recursive delete on FATFS solved**
-      (`8dece73`): the EACCES on wiping a repo dir was `std::fs::remove_dir_all`
-      (uses `openat`/`unlinkat`/`fdopendir`, unimplemented in esp-idf's path-based
-      FATFS VFS), NOT read-only — a diagnostic walk showed every entry writable
-      (`ro=false`). Fix = a path-based `remove_tree`; the `p_open`/`p_creat` shim
-      (`39e1155`) stays to keep objects writable. Remaining: **B** = divergence/
-      merge path (merge commit on FATFS; low value for a single writer); **C** =
-      lift the logic into a reusable `git` module wired to the editor's `Ctrl-G`.
-      Storage caveat: the real notes repo is 3.9 GB / 562 MiB pack — needs
-      shallow+sparse or a dedicated small repo (ADR-007), can't clone whole.
+  fast-forward) over HTTPS+PAT — **increment A DONE + hardware-verified
+  2026-07-07** (`git_sync.rs`): `clone` + persistent `open` + fast-forward push
+  proven on device (`afa61de`), plus **recursive delete on FATFS solved**
+  (`8dece73`): the EACCES on wiping a repo dir was `std::fs::remove_dir_all`
+  (uses `openat`/`unlinkat`/`fdopendir`, unimplemented in esp-idf's path-based
+  FATFS VFS), NOT read-only — a diagnostic walk showed every entry writable
+  (`ro=false`). Fix = a path-based `remove_tree`; the `p_open`/`p_creat` shim
+  (`39e1155`) stays to keep objects writable. Remaining: **B** = divergence/
+  merge path (merge commit on FATFS; low value for a single writer); **C** =
+  lift the logic into a reusable `git` module wired to the editor's `Ctrl-G`.
+  Storage caveat: the real notes repo is 3.9 GB / 562 MiB pack — needs
+  shallow+sparse or a dedicated small repo (ADR-007), can't clone whole.
 - [x] Move git to a dedicated large-stack task so the shared main-task stack (and
       the editor build) can drop back — **DONE + hardware-verified 2026-07-06**.
       `git_publish` now runs on its own `std::thread` (`GIT_STACK = 96 KB` via
@@ -260,12 +260,12 @@ and hashing reuse the mbedtls esp-idf already ships (and Spike 6 validated).
 **The port surface was small** — four shims, libgit2 sources untouched (so we
 never fork 1.9.4):
 
-| Gap on esp-idf (picolibc + VFS) | Shim |
-|---|---|
-| no top-level `<poll.h>` (only `<sys/poll.h>`) | forwarding `poll.h` on the include path |
-| `lstat` absent (no symlinks) | `#define lstat stat`, force-included via `esp_port.h` |
-| `<sys/mman.h>` absent | `esp_map.c` — `p_mmap` via `git__malloc` + `read` (pack pages land in PSRAM) |
-| `getuid`/`geteuid`/`getgid`/`getppid`/`getpgid`/`getsid`/`getpwuid_r`/`readlink`/`utimes` declared but not implemented | `esp_stubs.c` — single-root-user, no-user-db, no-symlink answers |
+| Gap on esp-idf (picolibc + VFS)                                                                                        | Shim                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| no top-level `<poll.h>` (only `<sys/poll.h>`)                                                                          | forwarding `poll.h` on the include path                                      |
+| `lstat` absent (no symlinks)                                                                                           | `#define lstat stat`, force-included via `esp_port.h`                        |
+| `<sys/mman.h>` absent                                                                                                  | `esp_map.c` — `p_mmap` via `git__malloc` + `read` (pack pages land in PSRAM) |
+| `getuid`/`geteuid`/`getgid`/`getppid`/`getpgid`/`getsid`/`getpwuid_r`/`readlink`/`utimes` declared but not implemented | `esp_stubs.c` — single-root-user, no-user-db, no-symlink answers             |
 
 Also: gcc 14 promoted `-Wimplicit-function-declaration` /
 `-Wincompatible-pointer-types` to hard errors; this pre-gcc14 C trips them
@@ -290,7 +290,7 @@ mbedTLS HTTPS (needs Wi-Fi/SNTP from Spike 6 + a working-copy location).
 **Build mechanics learned.** The component is wired via
 `[[package.metadata.esp-idf-sys.extra_components]]` `component_dirs`, pointed at
 on-disk source through a `LIBGIT2_SRC` env var (probe stage — not yet vendored).
-esp-idf-sys emits no `rerun-if-*`, so editing the *root* Cargo.toml or the
+esp-idf-sys emits no `rerun-if-*`, so editing the _root_ Cargo.toml or the
 component doesn't retrigger its build script once it has succeeded; forcing a
 reconfigure means `rm -rf target/**/.fingerprint/esp-idf-sys-*` (cheap — the
 159 MB cmake cache in the OUT_DIR persists, so only the changed component
@@ -300,7 +300,7 @@ recompiles).
 externs with the real path: the `git2` crate (default-features off, so no
 openssl-sys/libssh2-sys) bound to our component via `libgit2-sys` in **system
 mode** (`LIBGIT2_NO_VENDOR=1`). The trick: we don't want libgit2-sys to build
-*or* link anything — esp-idf already links `liblibgit2.a` inside its component
+_or_ link anything — esp-idf already links `liblibgit2.a` inside its component
 group (verified in `build.ninja`: `esp-idf/libgit2/liblibgit2.a` sits in the
 `libespidf.elf` `LINK_LIBRARIES`, and the group is repeated ~6× so libgit2's
 refs to mbedtls/lwip resolve). So a **fake pkg-config with empty `Libs`**
@@ -319,7 +319,7 @@ target/**/.fingerprint/esp-idf-sys-*` before building forces a fresh forward
 
 **Build-gating done:** `git2` is an optional dep behind the `git` feature, and
 `git_smoke` has `required-features = ["git"]`, so the editor build never pulls
-libgit2-sys/pkg-config. The component's CMake now registers *empty* when
+libgit2-sys/pkg-config. The component's CMake now registers _empty_ when
 `LIBGIT2_SRC` is unset, so `just build` (no env) still works.
 
 **Open decisions before commit** (deliberately not done yet):
@@ -332,7 +332,7 @@ libgit2-sys/pkg-config. The component's CMake now registers *empty* when
    is already gated). Accept, or gate the C compile too.
 3. ~~Runtime (Gate D on HW)~~ — **DONE 2026-07-05.** `just flash-git` on the S3:
    `git2 crate is talking to libgit2 1.9.4`, then `sha1(blob "hello") =
-   b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0` + "hash matches" — i.e. git2 →
+b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0` + "hash matches" — i.e. git2 →
    libgit2 → mbedTLS SHA1 all ran correctly on device. Full chain proven.
 4. ~~**The real thing** — `repository_init` → `commit` → `push` over mbedTLS
    HTTPS~~ — **DONE + hardware-verified 2026-07-06** (flash-FAT working copy);
@@ -362,9 +362,10 @@ flash-FAT → `repository_init` → `add_all` → `commit` → smart-HTTP push +
 upload + PAT auth all work on-device through libgit2 + esp-idf mbedTLS.
 
 **Heap:** started at 8.44 MB free, min-ever **6.85 MB** — the whole TLS handshake
-+ packfile build cost ~1.6 MB, all served from PSRAM; internal DRAM was never
-stressed. **Timing:** first-boot FATFS format of the working-copy dir ~7.7 s,
-commit sub-second, TLS handshake→accept ~6 s.
+
+- packfile build cost ~1.6 MB, all served from PSRAM; internal DRAM was never
+  stressed. **Timing:** first-boot FATFS format of the working-copy dir ~7.7 s,
+  commit sub-second, TLS handshake→accept ~6 s.
 
 ### Three bugs stood between "links + runs" and "pushes"
 
@@ -375,11 +376,11 @@ microcommits through `a15789a`).
 1. **Main task stack 12 KB → 96 KB.** libgit2 is stack-hungry: nearly every
    function puts a `char path[GIT_PATH_MAX]` (4 KB) buffer on the stack, and the
    `repository_init → config-write → FATFS → wear-leveling` chain nests ~10 of
-   them — a *trivial config write* measured ~67 KB of stack. At 48 KB it
+   them — a _trivial config write_ measured ~67 KB of stack. At 48 KB it
    overflowed and smashed an adjacent newlib lock handle → `LoadProhibited` in
    `xQueueGenericSend`. **This corrected an earlier misdiagnosis:** the "`time()`
    only works on the main task, not a std::thread" conclusion from the first
-   on-device attempt was wrong — that thread had the *default 4 KB* stack, so the
+   on-device attempt was wrong — that thread had the _default 4 KB_ stack, so the
    same deep chain just overflowed sooner. It was always stack depth, not
    thread-vs-main. (This stack has since moved: `sdkconfig.defaults` is shared
    with the editor build, so git was later given its OWN 96 KB `std::thread` and
@@ -399,7 +400,7 @@ microcommits through `a15789a`).
 3. **`utimes` existence-gate — the killer.** This one silently defeated every
    object write. Our first `utimes` stub returned `0` unconditionally ("VFS can't
    set times; ignore"). But libgit2's `git_futils_touch()` → `p_utimes()` is how
-   the loose ODB's `freshen` probe answers *"does this object already exist?"*,
+   the loose ODB's `freshen` probe answers _"does this object already exist?"_,
    and `git_odb_write()` (`odb.c:1629`) **skips the write entirely** when freshen
    succeeds. So a blanket `return 0` made freshen always report "exists" →
    libgit2 believed every object was already on disk → **every** blob/tree/commit
@@ -411,7 +412,7 @@ microcommits through `a15789a`).
 
    Diagnosed with an in-binary A/B/C/D ODB probe — write an in-memory blob, a
    file blob, run `add_all`, then walk `.git/objects` — which showed `exists =
-   false` for every OID and an empty objects dir, isolating it to the *write*
+false` for every OID and an empty objects dir, isolating it to the _write_
    path (not read, not mmap, not the index). The vendored `odb.c` /
    `odb_loose.c` / `futils.c` source then pinned it to the freshen→touch→utimes
    chain. **Lesson:** a "harmless" no-op POSIX stub is actively dangerous when a

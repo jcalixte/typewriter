@@ -87,14 +87,14 @@ _Avoid_: edit area, text area, main pane (superseded — they named the old
 full-width text region before the side panel carved out its right edge).
 
 **Side panel**:
-The right region (~160 px / ~17 cols at its FONT_9X15 metadata font, full
+The right region (~160 px / ~17 cols at its FONT*9X15 metadata font, full
 height) holding all metadata:
 filename + dirty dot, word count, elapsed time, clock, Wi-Fi,
 keyboard-disconnect flag, publish state, and the mode indicator at its
 bottom-left. Sits entirely in the master half
 (right of the `x = 396` seam). Every field is static, event-driven, or
 throttled — never per-keystroke.
-_Avoid_: header, status line, status bar (retired — the old top header band and
+\_Avoid*: header, status line, status bar (retired — the old top header band and
 bottom status band are both collapsed into this one right-hand region); sidebar.
 Do not write bare **panel**: it collides with the **transient panel** (the
 modal full-screen help/config view that swaps in over the editor — a later

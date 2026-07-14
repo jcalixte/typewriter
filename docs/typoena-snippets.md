@@ -8,8 +8,8 @@
 > [`v0.6-markdown.md`](v0.6-markdown.md).
 >
 > **Three files, three concerns, don't confuse them.** `.typoena.snippets.json`
-> is *content* (your templates). [`.typoena.toml`](typoena-toml.md) is *behaviour*
-> (auto-save, gutter). `/sd/typoena.conf` is *secrets* (Wi-Fi, PAT), gitignored
+> is _content_ (your templates). [`.typoena.toml`](typoena-toml.md) is _behaviour_
+> (auto-save, gutter). `/sd/typoena.conf` is _secrets_ (Wi-Fi, PAT), gitignored
 > and never committed. The first two live in the repo and sync; the third is
 > per-device.
 

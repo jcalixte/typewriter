@@ -14,8 +14,8 @@ toolchain), deliberately kept out of the xtensa-pinned `firmware/` crate.
 
 ## Headline finding: the ADR-004 kill-switch fired
 
-Spike 7 is the documented kill-switch for [ADR-004](../../docs/adr.md): *"if
-[gix smart-HTTP push] fails on the device, we fall back to `libgit2-sys`."*
+Spike 7 is the documented kill-switch for [ADR-004](../../docs/adr.md): _"if
+[gix smart-HTTP push] fails on the device, we fall back to `libgit2-sys`."_
 It fires at the **library level**, before any device work: gitoxide's own
 crate-status doc states `gix` supports push only over `file://` and `ssh://` —
 **push over HTTP(S) is not implemented** (only clone/fetch are). Since
@@ -31,7 +31,7 @@ Mirrors the v0.1 `git` module contract:
 2. stage with `git add --all` semantics (**deletions propagate** — needed for
    v0.5 file-delete)
 3. short-circuit when nothing is staged → "nothing to publish"
-4. commit; author from config, message = an ISO-8601 timestamp (the time *is*
+4. commit; author from config, message = an ISO-8601 timestamp (the time _is_
    the message)
 5. push `HEAD` to `origin/<branch>` over HTTPS, PAT in the credential callback
    (**never logged**)
@@ -46,7 +46,7 @@ Run live against a local `file://` bare remote (no credentials):
 - **first commit + push** from an unborn `HEAD` → lands in origin ✅
 - **nothing to publish** short-circuits when the index matches `HEAD` ✅
 - **divergence**: a second clone advances origin → push rejected → `pull
-  --no-edit` merges cleanly → retry push succeeds, origin gets a two-parent
+--no-edit` merges cleanly → retry push succeeds, origin gets a two-parent
   merge commit ✅
 
 - **real HTTPS + PAT push to github.com** — confirmed 2026-07-05 against
@@ -60,7 +60,7 @@ fast-forward. The callback path is coded for but unproven live.
 
 ## Not proven here (the next gate)
 
-The risk moved *with* the kill-switch: **can `libgit2` cross-compile to
+The risk moved _with_ the kill-switch: **can `libgit2` cross-compile to
 `xtensa-esp32s3-espidf` against esp-idf's mbedtls?** — the exact C cross-compile
 pain gix was chosen to avoid. That is the next on-device spike, and it also
 needs PSRAM (`CONFIG_SPIRAM`) enabled and a working SD card (Spike 3) for the

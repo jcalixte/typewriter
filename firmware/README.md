@@ -86,7 +86,7 @@ atomic round-trip byte-identical. Two findings baked into the code:
 - **FatFS rename ≠ POSIX rename.** `f_rename` won't overwrite an existing
   target (returns `FR_EXIST`), so the atomic save unlinks the destination first.
   `firmware::persistence` pairs this with `*.tmp` boot-recovery
-  (`Storage::recover`): if a `*.tmp` is found *alongside* the target the crash
+  (`Storage::recover`): if a `*.tmp` is found _alongside_ the target the crash
   may have been mid-write, so it keeps the committed file and discards the tmp;
   it only promotes the tmp when the target was already unlinked. Long filenames
   (`CONFIG_FATFS_LFN_HEAP`) are required for the two-dot `*.md.tmp` name.
@@ -196,10 +196,10 @@ a switch. The nominal build turns it on (it's the product); a **light** build
 leaves it off — ideal for iterating on the editor, EPD, USB, or SD without
 paying for libgit2:
 
-| Build | Command | libgit2 component | `git2` crate | `:gp` |
-| ----- | ------- | ----------------- | ------------ | ------- |
-| **Full / git** (default) | `just build` / `just flash` | compiled | linked | save → push |
-| **Light** | `just build-light` / `just flash-light` | not compiled (empty no-op) | not linked | saves locally, skips push |
+| Build                    | Command                                 | libgit2 component          | `git2` crate | `:gp`                     |
+| ------------------------ | --------------------------------------- | -------------------------- | ------------ | ------------------------- |
+| **Full / git** (default) | `just build` / `just flash`             | compiled                   | linked       | save → push               |
+| **Light**                | `just build-light` / `just flash-light` | not compiled (empty no-op) | not linked   | saves locally, skips push |
 
 Two independent switches make this work, and the justfile flips them together:
 
@@ -209,7 +209,7 @@ Two independent switches make this work, and the justfile flips them together:
    pass it.
 2. **`LIBGIT2_SRC` env** — the [libgit2 component](components/libgit2/CMakeLists.txt)
    only compiles its sources when this points at the vendored tree; unset, it
-   registers an *empty* component. Only the full recipes set it.
+   registers an _empty_ component. Only the full recipes set it.
 
 Because git code in the firmware binary is only ever compiled under
 `--features git`, `just build-light` can never drag libgit2 in. (Git isn't wired
@@ -258,14 +258,14 @@ since a wrong guess would let `rsync --delete` wipe the wrong disk's `repo/`.
 a ladder — `.env` if present, else derived from tools already on the machine,
 else an interactive prompt with the derived value as the default:
 
-| Value | Derived from |
-| --- | --- |
-| `TW_REMOTE_URL` | the source repo's `origin` (or the card's existing clone) |
-| `TW_AUTHOR_NAME` / `TW_AUTHOR_EMAIL` | `git config user.name` / `user.email` |
-| `TW_GH_USER` | `gh api user` |
-| `TW_WIFI_SSID` | the Mac's active Wi-Fi network |
-| `TW_WIFI_PASS` | the System keychain for that SSID (else prompt) |
-| `TW_PAT` | **never derived** — always typed by hand |
+| Value                                | Derived from                                              |
+| ------------------------------------ | --------------------------------------------------------- |
+| `TW_REMOTE_URL`                      | the source repo's `origin` (or the card's existing clone) |
+| `TW_AUTHOR_NAME` / `TW_AUTHOR_EMAIL` | `git config user.name` / `user.email`                     |
+| `TW_GH_USER`                         | `gh api user`                                             |
+| `TW_WIFI_SSID`                       | the Mac's active Wi-Fi network                            |
+| `TW_WIFI_PASS`                       | the System keychain for that SSID (else prompt)           |
+| `TW_PAT`                             | **never derived** — always typed by hand                  |
 
 So a first run is usually: `just init ~/code/notes`, press Enter through the
 auto-filled defaults, approve the macOS Keychain dialog for the Wi-Fi password

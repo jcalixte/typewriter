@@ -41,9 +41,9 @@ operation.
   UB at all. Right architecture; most of the score.
 - Every `unsafe` site carries real SAFETY reasoning, and the one place
   untrusted device data sizes a raw slice (`report_cb`) is correctly clamped.
-- Not a 9–10 because finding #1 is closed by an *assumed* event ordering rather
+- Not a 9–10 because finding #1 is closed by an _assumed_ event ordering rather
   than by construction, and findings #2–#3 are latent, dependency-sensitive
-  risks. Real memory safety means the invariant is *enforced*, not hoped for.
+  risks. Real memory safety means the invariant is _enforced_, not hoped for.
 - Closing #1 so the in-flight invariant is explicit → 9. A 10 on FFI this heavy
   needs the structural guards in the "Regression testing" section.
 
@@ -51,7 +51,7 @@ operation.
 is host-tested (see per-finding status). Once the hot-plug bench run confirms #1
 on hardware this becomes a 9; #2 and #4 are the remaining gap to 10.
 
-This is a *memory-safety* score. Robustness (leaks on hot-plug) and correctness
+This is a _memory-safety_ score. Robustness (leaks on hot-plug) and correctness
 would score separately and slightly lower.
 
 ## Findings
@@ -69,7 +69,7 @@ if !report_xfer.is_null() {
 
 The interrupt-IN transfer is resubmitted on every completion (`report_cb`,
 line 224), so it is **in-flight** most of the time. `report_cb` only fires from
-inside `usb_host_client_handle_events` (line 159); the free happens *after* that
+inside `usb_host_client_handle_events` (line 159); the free happens _after_ that
 call returns. The code implicitly relies on the transfer's final
 canceled-completion callback having already run in the same `handle_events`
 batch that delivered `DEV_GONE`.
@@ -99,7 +99,7 @@ pointer / proceed to `device_close` while it reports the transfer busy.
 **Status: fixed in code.** A `REPORT_INFLIGHT` flag is set on submit and cleared
 first thing in every `report_cb`. The teardown moved into a `close_device`
 helper that pumps client events (bounded) until the transfer quiesces before
-freeing it — and *leaks it rather than frees* if it never does, since a leak is
+freeing it — and _leaks it rather than frees_ if it never does, since a leak is
 recoverable and a UAF is not. `usb_host_transfer_free`'s return value is now
 checked. Needs the hot-plug bench run below to confirm on hardware.
 
@@ -121,7 +121,7 @@ at least add a static/compile-time assertion (or a test) that pins the
 zero-is-valid assumption so a dependency bump fails loudly.
 
 **Status: left as-is deliberately** (sound today, low severity). There is no
-clean *stable* compile-time "all-zero is a valid bit pattern" assertion, and a
+clean _stable_ compile-time "all-zero is a valid bit pattern" assertion, and a
 runtime canary can't fire before the UB it would guard (`assume_init` is the UB
 site). The `addr_of_mut!` rewrite is the real fix but churns five call sites for
 a latent-only risk; deferred until an `esp-idf-sys` bump makes it worth it.
@@ -225,7 +225,7 @@ split by what's reachable where, ranked by leverage.
    new `unsafe` to carry a SAFETY comment — keeps the existing discipline from
    eroding. **Deferred:** turning it on crate-wide today floods warnings on the
    many existing bare-FFI `unsafe` one-liners, which trains people to ignore it.
-   Worth doing *after* a pass that adds `// SAFETY:` to the existing blocks.
+   Worth doing _after_ a pass that adds `// SAFETY:` to the existing blocks.
 4. **On-device tests for what only exists on device (#1, #3, #4).**
    - **Hot-plug stress loop**: attach/detach ~100× on a bench script, log
      `esp_get_free_heap_size` each cycle. A downward trend proves the leaks

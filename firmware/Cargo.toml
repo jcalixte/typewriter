@@ -92,7 +92,7 @@ required-features = ["git"]
 opt-level = "s"
 
 [profile.dev]
-debug = true    # Symbols are nice, and they don't increase the size on Flash
+debug = true # Symbols are nice, and they don't increase the size on Flash
 opt-level = "z"
 [patch.crates-io]
 esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys.git" }
@@ -129,7 +129,11 @@ git2 = { version = "0.20", default-features = false, optional = true }
 # (GIT_OPT_SET_CACHE_MAX_SIZE) and cache telemetry (GIT_OPT_GET_CACHED_MEMORY)
 # that git_sync sets against the run-4 push OOM (2026-07-13).
 libgit2-sys = { version = "0.18", default-features = false, optional = true }
-esp-idf-svc = { version = "0.52.1", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
+esp-idf-svc = { version = "0.52.1", features = [
+  "critical-section",
+  "embassy-time-driver",
+  "embassy-sync",
+] }
 # Remove `generic-queue-8` if you plan to use `embassy-time` WITH `embassy-executor`
 embassy-time = { version = "0.5", features = ["generic-queue-8"] }
 embedded-graphics = "0.8"

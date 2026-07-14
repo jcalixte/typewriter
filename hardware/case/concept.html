@@ -1,255 +1,671 @@
 <title>Typoena — Enclosure Concept</title>
 <style>
-  :root{
-    --paper:#E7E1D0; --sheet:#F2EDE0; --ink:#26231D; --ink-soft:#5b564c;
-    --acc:#3C6152; --acc-l:#6E9483; --dim:#B0553B; --hair:#B9B09A;
-    --screen:#F7F4EA;
-    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
-    --mono:"SFMono-Regular",ui-monospace,Menlo,Consolas,"Courier New",monospace;
+  :root {
+    --paper: #e7e1d0;
+    --sheet: #f2ede0;
+    --ink: #26231d;
+    --ink-soft: #5b564c;
+    --acc: #3c6152;
+    --acc-l: #6e9483;
+    --dim: #b0553b;
+    --hair: #b9b09a;
+    --screen: #f7f4ea;
+    --serif:
+      'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia,
+      'Times New Roman', serif;
+    --mono:
+      'SFMono-Regular', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
   }
-  *{box-sizing:border-box;}
-  body{margin:0;}
-  .wrap{
-    background:
-      radial-gradient(120% 120% at 50% 0%, #ECE7D8 0%, var(--paper) 60%);
-    min-height:100%;
-    padding:clamp(16px,3vw,44px);
-    color:var(--ink);
-    font-family:var(--serif);
+  * {
+    box-sizing: border-box;
   }
-  .sheet{
-    max-width:1180px;margin:0 auto;background:var(--sheet);
-    border:1.5px solid var(--ink);
-    box-shadow:0 1px 0 var(--ink),0 22px 50px -28px rgba(38,35,29,.55);
+  body {
+    margin: 0;
+  }
+  .wrap {
+    background: radial-gradient(
+      120% 120% at 50% 0%,
+      #ece7d8 0%,
+      var(--paper) 60%
+    );
+    min-height: 100%;
+    padding: clamp(16px, 3vw, 44px);
+    color: var(--ink);
+    font-family: var(--serif);
+  }
+  .sheet {
+    max-width: 1180px;
+    margin: 0 auto;
+    background: var(--sheet);
+    border: 1.5px solid var(--ink);
+    box-shadow:
+      0 1px 0 var(--ink),
+      0 22px 50px -28px rgba(38, 35, 29, 0.55);
   }
   /* titleblock */
-  .titleblock{
-    display:grid;grid-template-columns:1.7fr .8fr .8fr .9fr;
-    border-bottom:1.5px solid var(--ink);
+  .titleblock {
+    display: grid;
+    grid-template-columns: 1.7fr 0.8fr 0.8fr 0.9fr;
+    border-bottom: 1.5px solid var(--ink);
   }
-  .tb{padding:12px 16px;border-right:1px solid var(--ink);}
-  .tb:last-child{border-right:0;}
-  .tb .k{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);}
-  .tb .v{font-family:var(--mono);font-size:14px;margin-top:3px;font-variant-numeric:tabular-nums;}
-  .tb-title .name{font-family:var(--serif);font-size:clamp(22px,3.4vw,34px);line-height:1.02;letter-spacing:-.01em;font-weight:600;text-wrap:balance;}
-  .tb-title .sub{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);margin-top:6px;}
+  .tb {
+    padding: 12px 16px;
+    border-right: 1px solid var(--ink);
+  }
+  .tb:last-child {
+    border-right: 0;
+  }
+  .tb .k {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .tb .v {
+    font-family: var(--mono);
+    font-size: 14px;
+    margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tb-title .name {
+    font-family: var(--serif);
+    font-size: clamp(22px, 3.4vw, 34px);
+    line-height: 1.02;
+    letter-spacing: -0.01em;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  .tb-title .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--acc);
+    margin-top: 6px;
+  }
   /* intro */
-  .intro{padding:18px 22px 6px;border-bottom:1px solid var(--hair);}
-  .intro p{margin:0 auto;max-width:70ch;font-size:16px;line-height:1.5;color:#3a362e;}
-  .intro .lead{font-style:italic;color:var(--acc);}
-  /* view panels */
-  .views{display:grid;grid-template-columns:1fr;gap:0;}
-  .panel{padding:14px 18px 18px;border-bottom:1px solid var(--hair);}
-  .panel h2{
-    font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
-    color:var(--ink);margin:0 0 2px;display:flex;justify-content:space-between;align-items:baseline;
+  .intro {
+    padding: 18px 22px 6px;
+    border-bottom: 1px solid var(--hair);
   }
-  .panel h2 .tag{color:var(--dim);}
-  .panel .cap{font-family:var(--serif);font-style:italic;color:var(--ink-soft);font-size:13px;margin:0 0 8px;}
-  .lower{display:grid;grid-template-columns:1fr 1fr;}
-  .lower .panel:first-child{border-right:1px solid var(--hair);}
-  svg{width:100%;height:auto;display:block;}
-  svg text{font-family:var(--mono);}
+  .intro p {
+    margin: 0 auto;
+    max-width: 70ch;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #3a362e;
+  }
+  .intro .lead {
+    font-style: italic;
+    color: var(--acc);
+  }
+  /* view panels */
+  .views {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .panel {
+    padding: 14px 18px 18px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .panel h2 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin: 0 0 2px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .panel h2 .tag {
+    color: var(--dim);
+  }
+  .panel .cap {
+    font-family: var(--serif);
+    font-style: italic;
+    color: var(--ink-soft);
+    font-size: 13px;
+    margin: 0 0 8px;
+  }
+  .lower {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .lower .panel:first-child {
+    border-right: 1px solid var(--hair);
+  }
+  svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  svg text {
+    font-family: var(--mono);
+  }
   /* notes */
-  .notes{padding:18px 22px 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:18px 26px;}
-  .note h3{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;margin:0 0 6px;color:var(--acc);display:flex;gap:8px;align-items:baseline;}
-  .note h3 .n{color:var(--dim);font-variant-numeric:tabular-nums;}
-  .note p{margin:0;font-size:14px;line-height:1.45;color:#3a362e;}
-  .note p b{color:var(--ink);font-weight:600;}
-  .foot{border-top:1.5px solid var(--ink);padding:10px 18px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
-    font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);}
-  .legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--ink-soft);margin-top:6px;}
-  .legend span{display:inline-flex;gap:6px;align-items:center;}
-  .sw{width:14px;height:10px;border:1px solid var(--ink);display:inline-block;}
-  @media (max-width:720px){
-    .titleblock{grid-template-columns:1fr 1fr;}
-    .tb-title{grid-column:1/-1;border-right:0;border-bottom:1px solid var(--ink);}
-    .lower{grid-template-columns:1fr;}
-    .lower .panel:first-child{border-right:0;}
+  .notes {
+    padding: 18px 22px 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 18px 26px;
+  }
+  .note h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin: 0 0 6px;
+    color: var(--acc);
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .note h3 .n {
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .note p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #3a362e;
+  }
+  .note p b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .foot {
+    border-top: 1.5px solid var(--ink);
+    padding: 10px 18px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    margin-top: 6px;
+  }
+  .legend span {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .sw {
+    width: 14px;
+    height: 10px;
+    border: 1px solid var(--ink);
+    display: inline-block;
+  }
+  @media (max-width: 720px) {
+    .titleblock {
+      grid-template-columns: 1fr 1fr;
+    }
+    .tb-title {
+      grid-column: 1/-1;
+      border-right: 0;
+      border-bottom: 1px solid var(--ink);
+    }
+    .lower {
+      grid-template-columns: 1fr;
+    }
+    .lower .panel:first-child {
+      border-right: 0;
+    }
   }
 </style>
 
 <div class="wrap">
   <div class="sheet">
-
     <div class="titleblock">
       <div class="tb tb-title">
         <div class="name">Typoena</div>
         <div class="sub">Enclosure concept · typewriter body</div>
       </div>
-      <div class="tb"><div class="k">Panel</div><div class="v">GDEY0579T93</div><div class="k" style="margin-top:8px">Board</div><div class="v">ESP32-S3</div></div>
-      <div class="tb"><div class="k">Units</div><div class="v">mm</div><div class="k" style="margin-top:8px">Scale</div><div class="v">to-fit</div></div>
-      <div class="tb"><div class="k">Rev</div><div class="v">v0 · concept</div><div class="k" style="margin-top:8px">Date</div><div class="v">2026-07-11</div></div>
+      <div class="tb">
+        <div class="k">Panel</div>
+        <div class="v">GDEY0579T93</div>
+        <div class="k" style="margin-top: 8px">Board</div>
+        <div class="v">ESP32-S3</div>
+      </div>
+      <div class="tb">
+        <div class="k">Units</div>
+        <div class="v">mm</div>
+        <div class="k" style="margin-top: 8px">Scale</div>
+        <div class="v">to-fit</div>
+      </div>
+      <div class="tb">
+        <div class="k">Rev</div>
+        <div class="v">v0 · concept</div>
+        <div class="k" style="margin-top: 8px">Date</div>
+        <div class="v">2026-07-11</div>
+      </div>
     </div>
 
     <div class="intro">
-      <p><span class="lead">The screen is the sheet of paper.</span> A shallow sage wedge with a reclined deck; the e-paper strip sits where a typewriter's page would be, a decorative platen roller and two knobs ride the back edge, and the keyboard you bring rests in front. Every dimension below is from the real datasheets — this is the shape to react to before I cut the parametric model.</p>
+      <p>
+        <span class="lead">The screen is the sheet of paper.</span> A shallow
+        sage wedge with a reclined deck; the e-paper strip sits where a
+        typewriter's page would be, a decorative platen roller and two knobs
+        ride the back edge, and the keyboard you bring rests in front. Every
+        dimension below is from the real datasheets — this is the shape to react
+        to before I cut the parametric model.
+      </p>
       <div class="legend">
-        <span><i class="sw" style="background:var(--acc)"></i>body</span>
-        <span><i class="sw" style="background:var(--acc-l)"></i>platen / deck / feet</span>
-        <span><i class="sw" style="background:var(--screen)"></i>e-paper</span>
-        <span><i class="sw" style="background:var(--dim);border-color:var(--dim)"></i>dimensions</span>
+        <span><i class="sw" style="background: var(--acc)"></i>body</span>
+        <span
+          ><i class="sw" style="background: var(--acc-l)"></i>platen / deck /
+          feet</span
+        >
+        <span><i class="sw" style="background: var(--screen)"></i>e-paper</span>
+        <span
+          ><i
+            class="sw"
+            style="background: var(--dim); border-color: var(--dim)"
+          ></i
+          >dimensions</span
+        >
       </div>
     </div>
 
     <div class="views">
       <div class="panel">
         <h2>Side profile <span class="tag">— the silhouette</span></h2>
-        <p class="cap">The money view: shallow deck reclined ~18°, platen &amp; knob at the back, ports on the tail, your keyboard ghosted in front.</p>
-        <svg id="v-side" viewBox="-82 -96 200 118" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Side profile of the enclosure"></svg>
+        <p class="cap">
+          The money view: shallow deck reclined ~18°, platen &amp; knob at the
+          back, ports on the tail, your keyboard ghosted in front.
+        </p>
+        <svg
+          id="v-side"
+          viewBox="-82 -96 200 118"
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label="Side profile of the enclosure"
+        ></svg>
       </div>
       <div class="lower">
         <div class="panel">
           <h2>Front elevation <span class="tag">— width</span></h2>
-          <p class="cap">Letterbox screen across the deck; knobs poke past the sides.</p>
-          <svg id="v-front" viewBox="-34 -96 244 118" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Front elevation"></svg>
+          <p class="cap">
+            Letterbox screen across the deck; knobs poke past the sides.
+          </p>
+          <svg
+            id="v-front"
+            viewBox="-34 -96 244 118"
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="Front elevation"
+          ></svg>
         </div>
         <div class="panel">
           <h2>Top plan <span class="tag">— deck layout</span></h2>
-          <p class="cap">Screen forward, platen band aft, ports along the back edge.</p>
-          <svg id="v-top" viewBox="-34 -120 244 136" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Top plan view"></svg>
+          <p class="cap">
+            Screen forward, platen band aft, ports along the back edge.
+          </p>
+          <svg
+            id="v-top"
+            viewBox="-34 -120 244 136"
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="Top plan view"
+          ></svg>
         </div>
       </div>
     </div>
 
     <div class="notes">
-      <div class="note"><h3><span class="n">01</span> Cheap-ish body</h3><p>You picked the higher-material form, but it stays a <b>shell</b>: ~2.4&nbsp;mm walls, open bottom, a screwed baseplate. Hollow inside, no infill spent on a solid block.</p></div>
-      <div class="note"><h3><span class="n">02</span> Color does the work</h3><p>Print the body in <b>matte sage</b>, platen &amp; knobs in cream or black. Two-tone via a filament change reads unmistakably "typewriter" for free.</p></div>
-      <div class="note"><h3><span class="n">03</span> Decorative cues</h3><p>Platen roller + two knobs are <b>cosmetic</b> (your call) — printed separately, no wiring, no GPIO. Round feet finish the machined look.</p></div>
-      <div class="note"><h3><span class="n">04</span> Fragile glass</h3><p>The 1&nbsp;mm panel drops into a rebate behind a bezel lip that overlaps ~6&nbsp;mm; the FPC folds back to the DESPI-C579 breakout in the cavity.</p></div>
-      <div class="note"><h3><span class="n">05</span> The one tunable</h3><p><b>Deck angle</b> is the ergonomics dial. 18° is typewriter-shallow; 28–35° reads better seated. Say the word and I'll steepen it.</p></div>
-      <div class="note"><h3><span class="n">06</span> Optional lid</h3><p>Your docs say "hinged lid" — a cover latching over the deck echoes a portable typewriter's case and guards the glass in a bag. Toggled off by default.</p></div>
+      <div class="note">
+        <h3><span class="n">01</span> Cheap-ish body</h3>
+        <p>
+          You picked the higher-material form, but it stays a <b>shell</b>:
+          ~2.4&nbsp;mm walls, open bottom, a screwed baseplate. Hollow inside,
+          no infill spent on a solid block.
+        </p>
+      </div>
+      <div class="note">
+        <h3><span class="n">02</span> Color does the work</h3>
+        <p>
+          Print the body in <b>matte sage</b>, platen &amp; knobs in cream or
+          black. Two-tone via a filament change reads unmistakably "typewriter"
+          for free.
+        </p>
+      </div>
+      <div class="note">
+        <h3><span class="n">03</span> Decorative cues</h3>
+        <p>
+          Platen roller + two knobs are <b>cosmetic</b> (your call) — printed
+          separately, no wiring, no GPIO. Round feet finish the machined look.
+        </p>
+      </div>
+      <div class="note">
+        <h3><span class="n">04</span> Fragile glass</h3>
+        <p>
+          The 1&nbsp;mm panel drops into a rebate behind a bezel lip that
+          overlaps ~6&nbsp;mm; the FPC folds back to the DESPI-C579 breakout in
+          the cavity.
+        </p>
+      </div>
+      <div class="note">
+        <h3><span class="n">05</span> The one tunable</h3>
+        <p>
+          <b>Deck angle</b> is the ergonomics dial. 18° is typewriter-shallow;
+          28–35° reads better seated. Say the word and I'll steepen it.
+        </p>
+      </div>
+      <div class="note">
+        <h3><span class="n">06</span> Optional lid</h3>
+        <p>
+          Your docs say "hinged lid" — a cover latching over the deck echoes a
+          portable typewriter's case and guards the glass in a bag. Toggled off
+          by default.
+        </p>
+      </div>
     </div>
 
     <div class="foot">
       <span>Typoena · writing appliance</span>
-      <span>Screen 150.9 × 56.9 × 1.0 · active 139.0 × 47.7 · pitch 0.1755</span>
+      <span
+        >Screen 150.9 × 56.9 × 1.0 · active 139.0 × 47.7 · pitch 0.1755</span
+      >
       <span>Orthographic · third-angle · not for manufacture</span>
     </div>
-
   </div>
 </div>
 
 <script>
-(function(){
-  // ---- parameters (mm) ----
-  var W=176, D=104, Hf=24, Hb=58;           // body: width, depth, front/back height
-  var SW=151, SH=57, AW=139.0, AH=47.74;    // screen glass + active area
-  var sx0=(W-SW)/2, sx1=(W+SW)/2;           // screen x extents
-  var sy0=8, sy1=8+54;                      // screen y extents on deck (57 along slope ~ 54 in plan)
-  var Py=92, Pr=11, Kr=14;                  // platen y-centre, roller radius, knob radius
-  function zTop(y){ return Hf + (Hb-Hf)*y/D; }
-  var Pz=zTop(Py)+Pr;                        // platen centre height (sits on deck)
-  var footR=6;
+  ;(function () {
+    // ---- parameters (mm) ----
+    var W = 176,
+      D = 104,
+      Hf = 24,
+      Hb = 58 // body: width, depth, front/back height
+    var SW = 151,
+      SH = 57,
+      AW = 139.0,
+      AH = 47.74 // screen glass + active area
+    var sx0 = (W - SW) / 2,
+      sx1 = (W + SW) / 2 // screen x extents
+    var sy0 = 8,
+      sy1 = 8 + 54 // screen y extents on deck (57 along slope ~ 54 in plan)
+    var Py = 92,
+      Pr = 11,
+      Kr = 14 // platen y-centre, roller radius, knob radius
+    function zTop(y) {
+      return Hf + ((Hb - Hf) * y) / D
+    }
+    var Pz = zTop(Py) + Pr // platen centre height (sits on deck)
+    var footR = 6
 
-  // ---- palette ----
-  var INK="#26231D", PAPER="#F7F4EA", ACC="#3C6152", ACCL="#6E9483",
-      DIM="#B0553B", HAIR="#B9B09A", GHOST="#8f8a7c";
-  var MONO="'SFMono-Regular',ui-monospace,Menlo,Consolas,'Courier New',monospace";
+    // ---- palette ----
+    var INK = '#26231D',
+      PAPER = '#F7F4EA',
+      ACC = '#3C6152',
+      ACCL = '#6E9483',
+      DIM = '#B0553B',
+      HAIR = '#B9B09A',
+      GHOST = '#8f8a7c'
+    var MONO =
+      "'SFMono-Regular',ui-monospace,Menlo,Consolas,'Courier New',monospace"
 
-  // ---- primitives (model coords; +b is up, drawn as svg y=-b) ----
-  function poly(pts,fill,stroke,sw){var p=pts.map(function(q){return q[0]+","+(-q[1]);}).join(" ");
-    return '<polygon points="'+p+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'" stroke-linejoin="round"/>';}
-  function rect(a,b,w,h,fill,stroke,sw,rx,dash){
-    return '<rect x="'+a+'" y="'+(-(b+h))+'" width="'+w+'" height="'+h+'" rx="'+(rx||0)+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'"'+(dash?' stroke-dasharray="'+dash+'"':'')+'/>';}
-  function circ(a,b,r,fill,stroke,sw){return '<circle cx="'+a+'" cy="'+(-b)+'" r="'+r+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'"/>';}
-  function line(a1,b1,a2,b2,stroke,sw,dash){
-    return '<line x1="'+a1+'" y1="'+(-b1)+'" x2="'+a2+'" y2="'+(-b2)+'" stroke="'+stroke+'" stroke-width="'+sw+'" stroke-linecap="round"'+(dash?' stroke-dasharray="'+dash+'"':'')+'/>';}
-  function txt(a,b,s,o){o=o||{};var fs=o.fs||3.4,fill=o.fill||INK,anc=o.anchor||"middle",
-    rot=o.rot?' transform="rotate('+o.rot+' '+a+' '+(-b)+')"':'',ls=o.ls!=null?o.ls:0.2;
-    return '<text x="'+a+'" y="'+(-b)+'" font-size="'+fs+'" fill="'+fill+'" text-anchor="'+anc+'" letter-spacing="'+ls+'"'+rot+' font-family="'+MONO+'">'+s+'</text>';}
+    // ---- primitives (model coords; +b is up, drawn as svg y=-b) ----
+    function poly(pts, fill, stroke, sw) {
+      var p = pts
+        .map(function (q) {
+          return q[0] + ',' + -q[1]
+        })
+        .join(' ')
+      return (
+        '<polygon points="' +
+        p +
+        '" fill="' +
+        fill +
+        '" stroke="' +
+        stroke +
+        '" stroke-width="' +
+        sw +
+        '" stroke-linejoin="round"/>'
+      )
+    }
+    function rect(a, b, w, h, fill, stroke, sw, rx, dash) {
+      return (
+        '<rect x="' +
+        a +
+        '" y="' +
+        -(b + h) +
+        '" width="' +
+        w +
+        '" height="' +
+        h +
+        '" rx="' +
+        (rx || 0) +
+        '" fill="' +
+        fill +
+        '" stroke="' +
+        stroke +
+        '" stroke-width="' +
+        sw +
+        '"' +
+        (dash ? ' stroke-dasharray="' + dash + '"' : '') +
+        '/>'
+      )
+    }
+    function circ(a, b, r, fill, stroke, sw) {
+      return (
+        '<circle cx="' +
+        a +
+        '" cy="' +
+        -b +
+        '" r="' +
+        r +
+        '" fill="' +
+        fill +
+        '" stroke="' +
+        stroke +
+        '" stroke-width="' +
+        sw +
+        '"/>'
+      )
+    }
+    function line(a1, b1, a2, b2, stroke, sw, dash) {
+      return (
+        '<line x1="' +
+        a1 +
+        '" y1="' +
+        -b1 +
+        '" x2="' +
+        a2 +
+        '" y2="' +
+        -b2 +
+        '" stroke="' +
+        stroke +
+        '" stroke-width="' +
+        sw +
+        '" stroke-linecap="round"' +
+        (dash ? ' stroke-dasharray="' + dash + '"' : '') +
+        '/>'
+      )
+    }
+    function txt(a, b, s, o) {
+      o = o || {}
+      var fs = o.fs || 3.4,
+        fill = o.fill || INK,
+        anc = o.anchor || 'middle',
+        rot = o.rot
+          ? ' transform="rotate(' + o.rot + ' ' + a + ' ' + -b + ')"'
+          : '',
+        ls = o.ls != null ? o.ls : 0.2
+      return (
+        '<text x="' +
+        a +
+        '" y="' +
+        -b +
+        '" font-size="' +
+        fs +
+        '" fill="' +
+        fill +
+        '" text-anchor="' +
+        anc +
+        '" letter-spacing="' +
+        ls +
+        '"' +
+        rot +
+        ' font-family="' +
+        MONO +
+        '">' +
+        s +
+        '</text>'
+      )
+    }
 
-  // dimension helpers (oxide red)
-  function hdim(a1,a2,b,label,below){var t=1.6,s="";
-    s+=line(a1,b,a2,b,DIM,0.3);
-    s+=line(a1-t,b-t,a1+t,b+t,DIM,0.3);
-    s+=line(a2-t,b-t,a2+t,b+t,DIM,0.3);
-    s+=txt((a1+a2)/2, b+(below?-4.2:2.4), label, {fs:3.2,fill:DIM});
-    return s;}
-  function vdim(b1,b2,a,label,right){var t=1.6,s="";
-    s+=line(a,b1,a,b2,DIM,0.3);
-    s+=line(a-t,b1-t,a+t,b1+t,DIM,0.3);
-    s+=line(a-t,b2-t,a+t,b2+t,DIM,0.3);
-    s+=txt(a+(right?3.2:-3.2),(b1+b2)/2,label,{fs:3.2,fill:DIM,rot:-90});
-    return s;}
-  function screenlines(x0,y0,x1,y1,n){var s="",i,y;for(i=1;i<=n;i++){y=y0+(y1-y0)*i/(n+1);
-    s+=line(x0+2,y,x1-2,y,HAIR,0.3);}return s;}
+    // dimension helpers (oxide red)
+    function hdim(a1, a2, b, label, below) {
+      var t = 1.6,
+        s = ''
+      s += line(a1, b, a2, b, DIM, 0.3)
+      s += line(a1 - t, b - t, a1 + t, b + t, DIM, 0.3)
+      s += line(a2 - t, b - t, a2 + t, b + t, DIM, 0.3)
+      s += txt((a1 + a2) / 2, b + (below ? -4.2 : 2.4), label, {
+        fs: 3.2,
+        fill: DIM,
+      })
+      return s
+    }
+    function vdim(b1, b2, a, label, right) {
+      var t = 1.6,
+        s = ''
+      s += line(a, b1, a, b2, DIM, 0.3)
+      s += line(a - t, b1 - t, a + t, b1 + t, DIM, 0.3)
+      s += line(a - t, b2 - t, a + t, b2 + t, DIM, 0.3)
+      s += txt(a + (right ? 3.2 : -3.2), (b1 + b2) / 2, label, {
+        fs: 3.2,
+        fill: DIM,
+        rot: -90,
+      })
+      return s
+    }
+    function screenlines(x0, y0, x1, y1, n) {
+      var s = '',
+        i,
+        y
+      for (i = 1; i <= n; i++) {
+        y = y0 + ((y1 - y0) * i) / (n + 1)
+        s += line(x0 + 2, y, x1 - 2, y, HAIR, 0.3)
+      }
+      return s
+    }
 
-  // ---- SIDE (a=depth Y, b=height Z) ----
-  (function(){var s="";
-    s+=line(-66,0,110,0,HAIR,0.4);                                  // ground
-    s+=rect(-58,0,50,12,"rgba(60,97,82,.06)",GHOST,0.4,2,"2 1.6");  // keyboard ghost
-    s+=txt(-33,-4,"BYO KEYBOARD",{fs:2.9,fill:GHOST});
-    s+=poly([[0,0],[D,0],[D,Hb],[0,Hf]],ACC,INK,0.7);               // wedge
-    s+=txt(30,37,"DECK  ≈18°",{fs:3.1,fill:PAPER});
-    // screen strip on slope
-    s+=line(sy0,zTop(sy0),sy1,zTop(sy1),INK,3.9);
-    s+=line(sy0,zTop(sy0),sy1,zTop(sy1),PAPER,3.1);
-    // platen roller + knob
-    s+=circ(Py,Pz,Pr,ACCL,INK,0.5);
-    s+=circ(Py,Pz,Kr,ACCL,INK,0.6);
-    s+=circ(Py,Pz,2.4,ACC,INK,0.4);
-    s+=txt(Py,Pz+Kr+3,"PLATEN Ø22",{fs:3,fill:DIM});
-    // ports on back face
-    s+=rect(D-6,9,6,4,PAPER,INK,0.4,.6);
-    s+=rect(D-6,15,6,4,PAPER,INK,0.4,.6);
-    s+=rect(D-6,21,7,3,PAPER,INK,0.4,.6);
-    s+=line(D,16,D+8,16,DIM,0.3);
-    s+=txt(D+9,16,"USB-C ×2 + µSD",{fs:2.9,fill:INK,anchor:"start"});
-    // feet
-    s+=rect(6,-5,12,5,ACCL,INK,0.4,1);
-    s+=rect(D-18,-5,12,5,ACCL,INK,0.4,1);
-    // dims
-    s+=hdim(0,D,-9,"104  depth",true);
-    s+=vdim(0,Hf,-4,"24");
-    s+=vdim(0,Hb,D+4,"58",true);
-    document.getElementById("v-side").innerHTML=s;
-  })();
+    // ---- SIDE (a=depth Y, b=height Z) ----
+    ;(function () {
+      var s = ''
+      s += line(-66, 0, 110, 0, HAIR, 0.4) // ground
+      s += rect(-58, 0, 50, 12, 'rgba(60,97,82,.06)', GHOST, 0.4, 2, '2 1.6') // keyboard ghost
+      s += txt(-33, -4, 'BYO KEYBOARD', { fs: 2.9, fill: GHOST })
+      s += poly(
+        [
+          [0, 0],
+          [D, 0],
+          [D, Hb],
+          [0, Hf],
+        ],
+        ACC,
+        INK,
+        0.7,
+      ) // wedge
+      s += txt(30, 37, 'DECK  ≈18°', { fs: 3.1, fill: PAPER })
+      // screen strip on slope
+      s += line(sy0, zTop(sy0), sy1, zTop(sy1), INK, 3.9)
+      s += line(sy0, zTop(sy0), sy1, zTop(sy1), PAPER, 3.1)
+      // platen roller + knob
+      s += circ(Py, Pz, Pr, ACCL, INK, 0.5)
+      s += circ(Py, Pz, Kr, ACCL, INK, 0.6)
+      s += circ(Py, Pz, 2.4, ACC, INK, 0.4)
+      s += txt(Py, Pz + Kr + 3, 'PLATEN Ø22', { fs: 3, fill: DIM })
+      // ports on back face
+      s += rect(D - 6, 9, 6, 4, PAPER, INK, 0.4, 0.6)
+      s += rect(D - 6, 15, 6, 4, PAPER, INK, 0.4, 0.6)
+      s += rect(D - 6, 21, 7, 3, PAPER, INK, 0.4, 0.6)
+      s += line(D, 16, D + 8, 16, DIM, 0.3)
+      s += txt(D + 9, 16, 'USB-C ×2 + µSD', {
+        fs: 2.9,
+        fill: INK,
+        anchor: 'start',
+      })
+      // feet
+      s += rect(6, -5, 12, 5, ACCL, INK, 0.4, 1)
+      s += rect(D - 18, -5, 12, 5, ACCL, INK, 0.4, 1)
+      // dims
+      s += hdim(0, D, -9, '104  depth', true)
+      s += vdim(0, Hf, -4, '24')
+      s += vdim(0, Hb, D + 4, '58', true)
+      document.getElementById('v-side').innerHTML = s
+    })()
 
-  // ---- FRONT (a=width X, b=height Z) ----
-  (function(){var s="";
-    s+=line(-14,0,W+14,0,HAIR,0.4);
-    s+=rect(0,0,W,Hf,ACC,INK,0.7,2);            // front face
-    s+=rect(0,Hf,W,Hb-Hf,ACCL,INK,0.5);         // deck sliver behind
-    // screen (foreshortened band)
-    s+=rect(sx0,27,SW,18,PAPER,INK,0.5,1);
-    s+=screenlines(sx0,27,sx1,45,4);
-    // platen bar + knobs
-    s+=rect(2,Pz-4,W-4,8,ACCL,INK,0.5,4);
-    s+=circ(-2,Pz,Kr,ACCL,INK,0.6); s+=circ(-2,Pz,2.4,ACC,INK,0.4);
-    s+=circ(W+2,Pz,Kr,ACCL,INK,0.6); s+=circ(W+2,Pz,2.4,ACC,INK,0.4);
-    // feet
-    s+=rect(8,-5,14,5,ACCL,INK,0.4,1);
-    s+=rect(W-22,-5,14,5,ACCL,INK,0.4,1);
-    // dims
-    s+=hdim(0,W,-9,"176  width",true);
-    s+=hdim(-16,W+16,Pz+Kr+2,"≈208 across knobs");
-    s+=hdim(sx0,sx1,20,"151 glass · 139 active");
-    document.getElementById("v-front").innerHTML=s;
-  })();
+    // ---- FRONT (a=width X, b=height Z) ----
+    ;(function () {
+      var s = ''
+      s += line(-14, 0, W + 14, 0, HAIR, 0.4)
+      s += rect(0, 0, W, Hf, ACC, INK, 0.7, 2) // front face
+      s += rect(0, Hf, W, Hb - Hf, ACCL, INK, 0.5) // deck sliver behind
+      // screen (foreshortened band)
+      s += rect(sx0, 27, SW, 18, PAPER, INK, 0.5, 1)
+      s += screenlines(sx0, 27, sx1, 45, 4)
+      // platen bar + knobs
+      s += rect(2, Pz - 4, W - 4, 8, ACCL, INK, 0.5, 4)
+      s += circ(-2, Pz, Kr, ACCL, INK, 0.6)
+      s += circ(-2, Pz, 2.4, ACC, INK, 0.4)
+      s += circ(W + 2, Pz, Kr, ACCL, INK, 0.6)
+      s += circ(W + 2, Pz, 2.4, ACC, INK, 0.4)
+      // feet
+      s += rect(8, -5, 14, 5, ACCL, INK, 0.4, 1)
+      s += rect(W - 22, -5, 14, 5, ACCL, INK, 0.4, 1)
+      // dims
+      s += hdim(0, W, -9, '176  width', true)
+      s += hdim(-16, W + 16, Pz + Kr + 2, '≈208 across knobs')
+      s += hdim(sx0, sx1, 20, '151 glass · 139 active')
+      document.getElementById('v-front').innerHTML = s
+    })()
 
-  // ---- TOP (a=width X, b=depth Y; front y=0 at bottom) ----
-  (function(){var s="";
-    s+=rect(0,0,W,D,"rgba(60,97,82,.10)",INK,0.7,4);     // body outline
-    // screen
-    s+=rect(sx0,sy0,SW,sy1-sy0,PAPER,INK,0.5,1);
-    s+=screenlines(sx0,sy0,sx1,sy1,5);
-    s+=txt(W/2,(sy0+sy1)/2,"e-paper",{fs:3.4,fill:ACC});
-    s+=txt(W/2,sy0-4,"active 139.0 × 47.74",{fs:2.8,fill:INK});
-    // platen band + knobs
-    s+=rect(2,Py-6,W-4,12,ACCL,INK,0.5,4);
-    s+=circ(-6,Py,Kr,ACCL,INK,0.6); s+=circ(-6,Py,2.4,ACC,INK,0.4);
-    s+=circ(W+6,Py,Kr,ACCL,INK,0.6); s+=circ(W+6,Py,2.4,ACC,INK,0.4);
-    s+=txt(W/2,Py,"platen (decorative)",{fs:2.9,fill:INK});
-    // ports along back edge (y=D)
-    s+=rect(60,D-2,7,4,PAPER,INK,0.4,.6);
-    s+=rect(72,D-2,7,4,PAPER,INK,0.4,.6);
-    s+=rect(86,D-2,8,3,PAPER,INK,0.4,.6);
-    s+=txt(W/2,D+4,"USB-C ×2  ·  microSD",{fs:2.8,fill:DIM});
-    // dims
-    s+=hdim(0,W,-6,"176",true);
-    s+=vdim(0,D,W+8,"104 deep",true);
-    document.getElementById("v-top").innerHTML=s;
-  })();
-})();
+    // ---- TOP (a=width X, b=depth Y; front y=0 at bottom) ----
+    ;(function () {
+      var s = ''
+      s += rect(0, 0, W, D, 'rgba(60,97,82,.10)', INK, 0.7, 4) // body outline
+      // screen
+      s += rect(sx0, sy0, SW, sy1 - sy0, PAPER, INK, 0.5, 1)
+      s += screenlines(sx0, sy0, sx1, sy1, 5)
+      s += txt(W / 2, (sy0 + sy1) / 2, 'e-paper', { fs: 3.4, fill: ACC })
+      s += txt(W / 2, sy0 - 4, 'active 139.0 × 47.74', { fs: 2.8, fill: INK })
+      // platen band + knobs
+      s += rect(2, Py - 6, W - 4, 12, ACCL, INK, 0.5, 4)
+      s += circ(-6, Py, Kr, ACCL, INK, 0.6)
+      s += circ(-6, Py, 2.4, ACC, INK, 0.4)
+      s += circ(W + 6, Py, Kr, ACCL, INK, 0.6)
+      s += circ(W + 6, Py, 2.4, ACC, INK, 0.4)
+      s += txt(W / 2, Py, 'platen (decorative)', { fs: 2.9, fill: INK })
+      // ports along back edge (y=D)
+      s += rect(60, D - 2, 7, 4, PAPER, INK, 0.4, 0.6)
+      s += rect(72, D - 2, 7, 4, PAPER, INK, 0.4, 0.6)
+      s += rect(86, D - 2, 8, 3, PAPER, INK, 0.4, 0.6)
+      s += txt(W / 2, D + 4, 'USB-C ×2  ·  microSD', { fs: 2.8, fill: DIM })
+      // dims
+      s += hdim(0, W, -6, '176', true)
+      s += vdim(0, D, W + 8, '104 deep', true)
+      document.getElementById('v-top').innerHTML = s
+    })()
+  })()
 </script>

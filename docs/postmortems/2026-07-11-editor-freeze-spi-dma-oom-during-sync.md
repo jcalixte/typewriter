@@ -85,9 +85,9 @@ Two things made this easy to misread:
 5. Push completes normally; Wi-Fi torn down; internal RAM freed — but the editor
    task is already gone, so nothing repaints. Keys log into the void.
 
-## What it was *not*
+## What it was _not_
 
-- **Not out of heap** — plenty of PSRAM free; it was internal *DMA-capable* RAM
+- **Not out of heap** — plenty of PSRAM free; it was internal _DMA-capable_ RAM
   specifically.
 - **Not a git or TLS bug** — the sync succeeded end to end.
 - **Not an editor-core bug** — `editor`/`keymap` never ran; the failure is in the
@@ -141,18 +141,18 @@ against the ~630 ms panel waveform).
 
 **Alternatives considered and rejected:**
 
-- *Trim Wi-Fi's internal buffer counts* to leave headroom — fragile tuning that
+- _Trim Wi-Fi's internal buffer counts_ to leave headroom — fragile tuning that
   risks Wi-Fi stability/throughput and only widens the margin instead of removing
   the failure mode.
-- *Force the whole ~13.6 KB frame buffer internal* (custom allocator / full
+- _Force the whole ~13.6 KB frame buffer internal_ (custom allocator / full
   `heap_caps` buffer) — larger reservation and more churn than the 4 KB
   chunk-scratch, for no extra benefit since `data()` already chunks.
-- *Serialize paints against sync* (skip painting while a push is in flight) —
+- _Serialize paints against sync_ (skip painting while a push is in flight) —
   defeats the async-git design and freezes the panel for the whole push; the
   safety net already makes this unnecessary.
 
 **Verification when built:** reproduce the exact failing scenario — edit,
-`:sync`, and keep scrolling/paging through the *entire* push. Expect: every
+`:sync`, and keep scrolling/paging through the _entire_ push. Expect: every
 refresh succeeds (no `refresh … FAILED` warnings, no dropped frames), min-ever
 internal heap stays comfortably above zero throughout, and `force_full` is not
 triggered by the sync.
@@ -170,5 +170,5 @@ triggered by the sync.
 - [ ] Implement the persistent internal DMA scratch buffer in `Epd` (eradication
       above) if the stale-during-sync window proves annoying in real use —
       → tracked in [v0.9 robustness](../v0.9-robustness.md).
-- [ ] After eradication, confirm refreshes succeed *during* a push and drop the
+- [ ] After eradication, confirm refreshes succeed _during_ a push and drop the
       stale window entirely.

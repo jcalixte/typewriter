@@ -13,15 +13,15 @@ reasons worth writing down before anyone force-pushes a rewritten history.
 
 ## The measured reality
 
-| Metric (target repo, measured 2026-07-07) | Value |
-| --- | --- |
-| Working tree | 3.9 GB (dominated by `node_modules`) |
-| `.git` (what a clone actually transfers) | **566 MB** |
-| Commits / objects | 13,852 / 63,252 |
-| Depth-1 snapshot (HEAD tree + blobs) | **154.7 MB** |
-| — of which markdown (the notes) | **1.4 MB** |
-| — of which media (png/jpg/pdf/gif/bmp) | **153 MB** |
-| Media across *all* history (dedup) | 566 MB (715 PNG objects = 463 MB) |
+| Metric (target repo, measured 2026-07-07) | Value                                |
+| ----------------------------------------- | ------------------------------------ |
+| Working tree                              | 3.9 GB (dominated by `node_modules`) |
+| `.git` (what a clone actually transfers)  | **566 MB**                           |
+| Commits / objects                         | 13,852 / 63,252                      |
+| Depth-1 snapshot (HEAD tree + blobs)      | **154.7 MB**                         |
+| — of which markdown (the notes)           | **1.4 MB**                           |
+| — of which media (png/jpg/pdf/gif/bmp)    | **153 MB**                           |
+| Media across _all_ history (dedup)        | 566 MB (715 PNG objects = 463 MB)    |
 
 Two early assumptions corrected:
 
@@ -38,7 +38,7 @@ Two early assumptions corrected:
 The clean fix for "device only needs 1.4 MB of text" would be a blobless
 partial clone (`--filter=blob:none`) — **libgit2 does not support it**. The
 fallbacks are LFS migration, a filter-repo history purge, or `git rm` of media
-at HEAD. All three remove the image *blobs* from what a git client sees.
+at HEAD. All three remove the image _blobs_ from what a git client sees.
 
 That breaks **remanso**, the web app that reads the same repo. remanso is a
 frontend with no server-side git; it displays a note image by reading the
@@ -50,7 +50,7 @@ image straight out of git as a blob and inlining it as a data URI
 3. `GET /repos/{owner}/{repo}/git/blobs/{sha}` → **base64 of the git blob**
 4. `img.src = "data:image/jpeg;base64," + thatContent`
 
-The image *is* the git blob. GitHub's Git Blobs / Trees / Contents APIs do
+The image _is_ the git blob. GitHub's Git Blobs / Trees / Contents APIs do
 **not** resolve LFS (only `media.githubusercontent.com` does, which remanso
 doesn't use). So after an LFS migration those endpoints return the ~130-byte
 **pointer text**, remanso wraps it in `data:image/jpeg;base64,…`, and every
@@ -62,20 +62,20 @@ the blobs from the tree, so remanso can't find them either. **Any approach
 that takes the images out of the git repo breaks remanso**, because those
 150 MB are load-bearing infrastructure for the web app, not offloadable bloat.
 
-| Consumer | How it reads images | If we shrink the repo |
-| --- | --- | --- |
-| Typoena (libgit2) | doesn't render images; needs valid git objects | fine — would get tiny pointers |
-| remanso (Blobs API → data URI) | reads image bytes straight out of git | **broken** — pointer/missing bytes render as a dead image; uploads bypass LFS |
+| Consumer                       | How it reads images                            | If we shrink the repo                                                         |
+| ------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| Typoena (libgit2)              | doesn't render images; needs valid git objects | fine — would get tiny pointers                                                |
+| remanso (Blobs API → data URI) | reads image bytes straight out of git          | **broken** — pointer/missing bytes render as a dead image; uploads bypass LFS |
 
 ## Decision
 
 **Leave the notes repo untouched. Pre-seed the device SD card with a full
 `git clone` from a computer.**
 
-Repo size is only a *device* constraint when the *device* does the cold clone.
+Repo size is only a _device_ constraint when the _device_ does the cold clone.
 A laptop clones 566 MB in ~2 minutes onto the SD via a card reader; the SD has
 GB to spare. The device then only ever takes the `open` + incremental
-fetch/commit/push path (`open_or_clone` already splits on this). A *full*
+fetch/commit/push path (`open_or_clone` already splits on this). A _full_
 pre-seed (not depth-1) also sidesteps the shallow-push sharp edge. remanso
 keeps working, the device gets everything, and repo size stops being anyone's
 problem.
@@ -87,7 +87,7 @@ done so it goes straight into Typoena:
   the card's `repo/`, excluding everything the repo's `.gitignore` ignores (so
   `node_modules` and local secrets like `firmware/.env` never land on the card),
   then writes `/sd/typoena.conf` — Wi-Fi creds + PAT + git identity — from the
-  TW_* vars already in `firmware/.env` (no re-typing, no prompts).
+  TW\_\* vars already in `firmware/.env` (no re-typing, no prompts).
 - `just load <repo-path>` — the repo copy on its own (refresh after big upstream
   changes).
 - `just provision` — the config on its own (rotate the PAT / switch networks
@@ -112,7 +112,7 @@ Once integration lands, the costs of carrying media the device never renders:
 1. **Bandwidth for unusable bytes.** No partial fetch in libgit2, so a fetch
    pulls the full new image blobs. 20 MB of pasted screenshots = a 20 MB fetch
    before a one-line note can publish.
-2. **~2× SD storage.** Each image lives in `.git` *and* in the working-tree
+2. **~2× SD storage.** Each image lives in `.git` _and_ in the working-tree
    checkout that `checkout_head(force)` writes.
 3. **Memory — the real edge.** libgit2 tends to materialize a whole blob in
    RAM for checkout. History already has a 38 MB mp3 and 16 MB PNGs. Against

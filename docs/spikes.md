@@ -17,15 +17,15 @@ line-number gutter, status readouts) draw within and around. Each feeds a
 different release, but the bench experiment is worth running now to retire the
 risk early.
 
-| Spike                                     | Feeds                                                |
-| ----------------------------------------- | ---------------------------------------------------- |
-| 8 — Layout: side panel + writing column   | v0.1                                                 |
-| 9 — Boot splash bitmap                    | v0.1                                                 |
-| 10 — Dark / light theme                   | v1.0                                                 |
-| 11 — Transient panel (help / config)      | v0.4 `:` · v0.5 palette · v0.9 settings (mechanism)  |
-| 12 — Scroll position indicator            | reading / `View`-mode UX                             |
-| 13 — Line-number gutter                   | v0.2                                                 |
-| 14 — Multi-file navigation                | v0.5                                                 |
+| Spike                                   | Feeds                                               |
+| --------------------------------------- | --------------------------------------------------- |
+| 8 — Layout: side panel + writing column | v0.1                                                |
+| 9 — Boot splash bitmap                  | v0.1                                                |
+| 10 — Dark / light theme                 | v1.0                                                |
+| 11 — Transient panel (help / config)    | v0.4 `:` · v0.5 palette · v0.9 settings (mechanism) |
+| 12 — Scroll position indicator          | reading / `View`-mode UX                            |
+| 13 — Line-number gutter                 | v0.2                                                |
+| 14 — Multi-file navigation              | v0.5                                                |
 
 8. **Spike 8 — Layout: side panel + writing column.** Split the 792×272 landscape
    into a full-height **writing column** (~60 cols, left) and an always-visible
@@ -35,18 +35,18 @@ risk early.
    ([`firmware/src/editor.rs`](../firmware/src/editor.rs), `COLS`/`ROWS` +
    `draw_status`); this spike narrows the text to a legible measure and moves all
    metadata into the panel, retiring the header/status bands entirely. Two driver
-   facts shape it. First, narrowing does *not* speed up typing: `update_part`
+   facts shape it. First, narrowing does _not_ speed up typing: `update_part`
    already drives both controllers full width, windowed only in Y, because "the
    waveform time dominates, not the data clock-out"
    ([`firmware/src/epd.rs`](../firmware/src/epd.rs)) — the win is line length and
    persistent info, not latency. Second, since every partial refresh spans the full
    width, a keystroke's windowed-Y band repaints the panel's pixels on that row
-   *for free* (redrawn identically), but a panel field that changes on a *different*
+   _for free_ (redrawn identically), but a panel field that changes on a _different_
    row than the cursor costs a **second** windowed-Y band — burning the "20 partials
    → forced full refresh" ghosting counter twice as fast (render module). That sorts
    what the panel may hold: static (filename, dirty), event-driven (mode, Wi-Fi,
    keyboard-disconnect, publish state), and throttled (clock, word count, session)
-   fields only — nothing that repaints per keystroke, so no live cursor *column*.
+   fields only — nothing that repaints per keystroke, so no live cursor _column_.
    The panel sits entirely in the master half (right of the `x = 396` seam), so its
    glyphs never split the seam; the writing column still straddles it, as today.
    Prove: render column + panel; type and confirm the windowed-Y refresh stays a
@@ -64,7 +64,7 @@ risk early.
    clean full refresh. Mostly a feature — kept as a spike only to prove the
    asset path. (Feeds v0.1's "e-ink shows Typoena splash + boot log".)
 
-   **Built 2026-07-11 as a *vector* splash**, not a bitmap. The frame is
+   **Built 2026-07-11 as a _vector_ splash**, not a bitmap. The frame is
    [`display::Frame::splash`](../display/src/lib.rs) — the `typoena` wordmark
    centred inside a stroked `Circle`, drawn with `embedded-graphics`, one clean
    full refresh. It is shared by two callers: the
@@ -98,12 +98,12 @@ risk early.
     help screen (trivial content): a full refresh on enter and on exit restores
     the prior text exactly; measure in/out latency. Decides overlay-box vs.
     full-screen swap — recommend the swap, since a dimmed partial overlay is both
-    slow and ghost-prone at ~630 ms. Panel *content* (which config keys, help
+    slow and ghost-prone at ~630 ms. Panel _content_ (which config keys, help
     text) is feature work deferred to the owning release; this spike proves only
     the mechanism.
 
 12. **Spike 12 — Scroll position indicator.** The buffer already scrolls (`View`
-    mode `j`/`k`/`space`); this spike proves how to *show* position without
+    mode `j`/`k`/`space`); this spike proves how to _show_ position without
     wrecking latency. Measure two affordances on the bench: (a) a right-edge
     scrollbar repainted each scroll step, and (b) a compact side-panel readout
     (`34/128` or `27%`). Risk: the scrollbar is a tall pixel column repainted on
@@ -115,7 +115,7 @@ risk early.
 
 13. **Spike 13 — Line-number gutter.** Draw a fixed-width digit column left of
     the text area. **Absolute numbering only** — relative numbering was dropped
-    (2026-07-11). It renumbered the *entire visible gutter on every `j`/`k`*, so
+    (2026-07-11). It renumbered the _entire visible gutter on every `j`/`k`_, so
     a single cursor move became a partial refresh of a tall digit column,
     straight into the Spike 5 windowed-Y path and the "20 partials → forced full
     refresh" ghosting counter ([`firmware/src/epd.rs`](../firmware/src/epd.rs),
@@ -132,10 +132,10 @@ risk early.
     rows at/below the change, no extra full refresh; closes the last v0.2 gate.
 
 14. **Spike 14 — Multi-file navigation (open / switch / new / delete).** The
-    panel *mechanism* is already Spike 11 (which names this v0.5 file palette),
+    panel _mechanism_ is already Spike 11 (which names this v0.5 file palette),
     and filename entry reuses the v0.4 `:` command line — so this spike proves
     neither, and depends on both. What is genuinely new is **persistence and
-    buffer lifecycle**, not rendering: enumerate a FAT directory across *both*
+    buffer lifecycle**, not rendering: enumerate a FAT directory across _both_
     `/sd/repo` and `/sd/local`, keep ≤ 3 ropes resident, and on switch swap the
     active rope + cursor + soft-wrap after an atomic save-of-current
     (persistence module). Two sharp edges. **New file** (`:enew`) must prompt
@@ -143,7 +143,7 @@ risk early.
     disabled). **Delete** extends v0.5 scope (the roadmap lists `:enew` but not
     delete): removing the currently-open buffer must close it and fall back to
     another resident buffer or an empty one, and — the load-bearing check — the
-    FAT unlink must reach the next Publish's *staged* set, which the git
+    FAT unlink must reach the next Publish's _staged_ set, which the git
     module's `git add .`-equivalent staging may not catch for removals (needs
     `git rm` / `add -A` semantics —
     [`git` module](v0.1-mvp-technical.md#git--commit--push)). Prove:

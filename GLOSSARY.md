@@ -77,6 +77,6 @@ catch them early next time.
 
 - **Function-vs-characteristic conflation.** Calling HOWs
   "engineering functions". A function is a transformation; a
-  characteristic is one of its measurable attributes. HOWs *measure*
+  characteristic is one of its measurable attributes. HOWs _measure_
   functions; they are not functions. (See
   [`docs/qfd.md`](docs/qfd.md) §8 for the rename cascade.)

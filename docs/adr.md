@@ -359,7 +359,7 @@ derived key.
   `FR_EXIST` on an existing destination — it does **not** replace like POSIX
   `rename(2)`. So the atomic save must `f_unlink` the target before renaming the
   `*.tmp` over it, and pair that with **boot recovery** of a lingering `*.tmp`.
-  Recovery is *not* simply "promote the tmp": a crash *during* the tmp write
+  Recovery is _not_ simply "promote the tmp": a crash _during_ the tmp write
   leaves a partial tmp, so the choice depends on whether the target survived —
   - **tmp + target both present** → the crash could have been mid-write, so the
     tmp is untrustworthy. Keep the committed target, discard the tmp (this is the
@@ -369,6 +369,7 @@ derived key.
 
   Implemented in `firmware::persistence::Storage::{save,recover}`. See the
   [Spike 3 postmortem](postmortems/2026-07-05-spike3-sd-cmd59.md#resolution-2026-07-11).
+
 - **SD-card compatibility:** use a genuine card, ideally **≤32 GB (SDHC/FAT32)**.
   Large or counterfeit SDXC cards may reject `CMD59` (SPI-mode CRC) and fail to
   mount; we keep CRC required rather than run the user's writing over an
@@ -503,7 +504,7 @@ retry). Failure surfaces as a single retry-able outcome in the status line.
 
 [ADR-005](#adr-005-auth--https--github-personal-access-token) decided the auth
 model (HTTPS + PAT) and sketched an endgame ("from v0.9 the PAT moves to
-encrypted storage with an eFuse-derived key"), but left the *mechanics* open:
+encrypted storage with an eFuse-derived key"), but left the _mechanics_ open:
 **how does a token get onto a device, and how is it protected once there?**
 
 Spike 7 made this concrete. The PAT is currently **baked into the firmware image
@@ -518,21 +519,21 @@ deliberate v0.1 shortcut. On a real device that means:
 
 This is fine for the dev's own bench unit (it's their token, their device) and is
 why the [Spike 7 postmortem](postmortems/2026-07-05-spike7-gix-https-push.md)
-lists it as the *last standing shortcut*. It is not fine for a unit in anyone
+lists it as the _last standing shortcut_. It is not fine for a unit in anyone
 else's hands. Resolving it needs a **provisioning path**, which the current design
 (["build-time only, no provisioning module"](v0.1-mvp-technical.md#provisioning--build-time-only-no-module-on-device))
 deliberately omits.
 
 ### Options considered
 
-| Option | Pros | Cons |
-| --- | --- | --- |
-| **Build-time bake** (current, ADR-005 v0.1) | Zero UX; nothing to build. | Plaintext in flash; same token per unit; reflash to rotate. **Dev-bench only.** |
-| **On-device paste → NVS (plaintext)** | No reflash; per-device token. | Still plaintext at rest; needs a first-run entry UI (captive portal / keyboard). |
-| **On-device paste → NVS encrypted (eFuse key)** | ADR-005's stated target; a flash dump alone doesn't yield the token; per-device + rotatable. | Needs NVS encryption + eFuse key derivation + first-run UI — the whole provisioning module. |
-| **USB provisioning tool** (host writes NVS over serial) | No on-device text entry; scriptable at assembly. | Needs a host-side tool; token still needs at-rest protection (combine with encryption). |
-| **Per-device fine-grained PAT** (orthogonal) | Least blast radius; per-device revoke; repo-scoped. | User mints one PAT per device; pairs with any storage option above. |
-| **GitHub App installation token** | Strongest, rotating creds. | Heavy for a single-user appliance — rejected in ADR-005 for overhead. |
+| Option                                                  | Pros                                                                                         | Cons                                                                                        |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Build-time bake** (current, ADR-005 v0.1)             | Zero UX; nothing to build.                                                                   | Plaintext in flash; same token per unit; reflash to rotate. **Dev-bench only.**             |
+| **On-device paste → NVS (plaintext)**                   | No reflash; per-device token.                                                                | Still plaintext at rest; needs a first-run entry UI (captive portal / keyboard).            |
+| **On-device paste → NVS encrypted (eFuse key)**         | ADR-005's stated target; a flash dump alone doesn't yield the token; per-device + rotatable. | Needs NVS encryption + eFuse key derivation + first-run UI — the whole provisioning module. |
+| **USB provisioning tool** (host writes NVS over serial) | No on-device text entry; scriptable at assembly.                                             | Needs a host-side tool; token still needs at-rest protection (combine with encryption).     |
+| **Per-device fine-grained PAT** (orthogonal)            | Least blast radius; per-device revoke; repo-scoped.                                          | User mints one PAT per device; pairs with any storage option above.                         |
+| **GitHub App installation token**                       | Strongest, rotating creds.                                                                   | Heavy for a single-user appliance — rejected in ADR-005 for overhead.                       |
 
 ### Decision
 
@@ -580,10 +581,10 @@ and EPD access are genuinely concurrent.
 
 ### Options considered
 
-| Option | Pros | Cons |
-| --- | --- | --- |
-| **Shared SPI2, arbitrate** | One bus; ~2 fewer GPIOs. | Rewrite the proven EPD SPI layer to per-transaction device drivers; add a cross-thread mutex around all SPI2 access; residual "corruption on save during render" risk on the highest-value path. |
-| **SD on its own SPI3** | EPD code untouched; no arbitration/mutex; each bus at its own clock; matches the risk-table fallback exactly. | ~2 extra GPIOs + traces. |
+| Option                     | Pros                                                                                                          | Cons                                                                                                                                                                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Shared SPI2, arbitrate** | One bus; ~2 fewer GPIOs.                                                                                      | Rewrite the proven EPD SPI layer to per-transaction device drivers; add a cross-thread mutex around all SPI2 access; residual "corruption on save during render" risk on the highest-value path. |
+| **SD on its own SPI3**     | EPD code untouched; no arbitration/mutex; each bus at its own clock; matches the risk-table fallback exactly. | ~2 extra GPIOs + traces.                                                                                                                                                                         |
 
 ### Decision
 

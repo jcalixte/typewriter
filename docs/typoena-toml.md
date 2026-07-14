@@ -7,9 +7,9 @@
 > [`macroplan.md`](macroplan.md)).
 >
 > **Not to be confused with `/sd/typoena.conf`** — that holds the device
-> *secrets* (Wi-Fi, PAT, remote URL, commit author), is gitignored, and is never
-> committed. `.typoena.toml` is *behaviour*, shared across devices; `typoena.conf`
-> is *secrets*, per-device. See [v0.1 product](v0.1-mvp-product.md).
+> _secrets_ (Wi-Fi, PAT, remote URL, commit author), is gitignored, and is never
+> committed. `.typoena.toml` is _behaviour_, shared across devices; `typoena.conf`
+> is _secrets_, per-device. See [v0.1 product](v0.1-mvp-product.md).
 
 ## Location
 
@@ -32,14 +32,14 @@ works with no config present.
 
 ## Keys
 
-| Key | Type | Default | Options | Effect |
-| --- | --- | --- | --- | --- |
-| `save_on_idle` | bool | `true` | `true` / `false` | Auto-save the current buffer on the idle typing-pause, so `:w` is optional. |
-| `format_on_save` | bool | `true` | `true` / `false` | Run `:fmt` on the buffer before an explicit `:w`/`:sync`. |
-| `line_numbers` | bool | `true` | `true` / `false` | Show the absolute line-number gutter. Off reclaims its columns for text. |
-| `open_last_on_boot` | bool | `true` | `true` / `false` | Boot into the file that was active at power-off, instead of `notes.md`. |
-| `theme` | string | `"light"` | `light` / `dark` | Panel colour polarity. `dark` inverts the whole frame to white-on-black. |
-| `auto_sync` | string | `"10m"` | `2m` / `5m` / `10m` / `15m` / `30m` | Max-staleness cap for opportunistic auto-publish. **Value only — no behaviour yet** (rides v0.8, with the sleep work). |
+| Key                 | Type   | Default   | Options                             | Effect                                                                                                                 |
+| ------------------- | ------ | --------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `save_on_idle`      | bool   | `true`    | `true` / `false`                    | Auto-save the current buffer on the idle typing-pause, so `:w` is optional.                                            |
+| `format_on_save`    | bool   | `true`    | `true` / `false`                    | Run `:fmt` on the buffer before an explicit `:w`/`:sync`.                                                              |
+| `line_numbers`      | bool   | `true`    | `true` / `false`                    | Show the absolute line-number gutter. Off reclaims its columns for text.                                               |
+| `open_last_on_boot` | bool   | `true`    | `true` / `false`                    | Boot into the file that was active at power-off, instead of `notes.md`.                                                |
+| `theme`             | string | `"light"` | `light` / `dark`                    | Panel colour polarity. `dark` inverts the whole frame to white-on-black.                                               |
+| `auto_sync`         | string | `"10m"`   | `2m` / `5m` / `10m` / `15m` / `30m` | Max-staleness cap for opportunistic auto-publish. **Value only — no behaviour yet** (rides v0.8, with the sleep work). |
 
 The **Options** column is what the palette rotates through on **Enter**; a
 boolean is just the two-option case. Hand-editing a string key can still set any
@@ -66,7 +66,7 @@ of writing. It is a **safety net, not an action**:
 
 - **Silent.** No snackbar, no forced screen refresh. A visible confirmation on
   every pause would cost a ~630 ms e-ink flash purely to say "saved" — exactly
-  the gratuitous flashing the panel avoids elsewhere. `:w` remains the *loud*
+  the gratuitous flashing the panel avoids elsewhere. `:w` remains the _loud_
   save (it posts `saved`).
 - **Unformatted.** The idle save never runs `:fmt` — see the
   [format_on_save](#format_on_save) note for why.
@@ -76,12 +76,12 @@ of writing. It is a **safety net, not an action**:
 ### `format_on_save`
 
 Runs `:fmt` — table alignment, blank-line collapse, trailing-whitespace strip —
-on the buffer *before* it is persisted, so `:sync` is **fmt → save → commit →
+on the buffer _before_ it is persisted, so `:sync` is **fmt → save → commit →
 push** and `:w` saves formatted.
 
 **Formatting only happens on an explicit `:w`/`:sync`.** The `save_on_idle`
 auto-save is deliberately left unformatted: if it reformatted on every idle
-pause, tables would reflow and blank lines collapse *mid-session*, with the caret
+pause, tables would reflow and blank lines collapse _mid-session_, with the caret
 jumping under you every time you paused to think. Formatting is a deliberate act;
 the safety-net save is not.
 
@@ -98,7 +98,7 @@ Boot into the file that was active when the device powered off, instead of the
 default `notes.md` — power the typewriter back on and you are where you left
 off, caret on the last character as always.
 
-Only the **choice** lives in this file. The last-active *path* is device state,
+Only the **choice** lives in this file. The last-active _path_ is device state,
 not shared behaviour: the firmware keeps it in a device-local marker
 (`/sd/.typoena-last`, beside the dirty journal at the card root), rewritten on
 every buffer switch. It is deliberately **not** stored here — a tracked key
@@ -128,13 +128,13 @@ the palette repaints inverted at once.
 ### `auto_sync`
 
 A duration string that will one day cap how stale the published copy is allowed
-to get — an *opportunistic, rate-limited* push, not a wall-clock timer. The
+to get — an _opportunistic, rate-limited_ push, not a wall-clock timer. The
 palette rotates it through the presets `2m` / `5m` / `10m` / `15m` / `30m`
 (hand-editing can still set any string, e.g. `"0"`/empty to disable). **The value
 is only stored and displayed in v0.5 — nothing reads it yet:** the periodic push
 lands with the sleep work in v0.8 (originally pencilled on v0.7's git work;
 v0.7 closed 2026-07-14 with manual `:gl`/`:gp` only), so
-cycling the interval today changes what will be honoured *then*, not now.
+cycling the interval today changes what will be honoured _then_, not now.
 Rationale for the `"10m"` default:
 [`tradeoff-curves/wifi-auto-sync.md`](tradeoff-curves/wifi-auto-sync.md).
 
@@ -184,7 +184,7 @@ Rules:
 - A `#` starts a comment to end of line (whole-line or trailing).
 - Blank lines and lines without `=` are ignored.
 - An **unrecognized key** is ignored; an **unparseable value** (e.g.
-  `save_on_idle = yes`) leaves *that key* at its default rather than reading as
+  `save_on_idle = yes`) leaves _that key_ at its default rather than reading as
   `false`.
 - Any key not present falls back to its default, so partial files are valid.
 

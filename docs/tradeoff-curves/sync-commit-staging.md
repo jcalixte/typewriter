@@ -30,7 +30,7 @@
 > investigation (problem → factor analysis → chosen fix → evaluation):
 > [`../kaizen/real-repo-sync.md`](../kaizen/real-repo-sync.md). Where the whole sync goes:
 > [`../notes/sync-latency.md`](../notes/sync-latency.md). Sibling curve on the
-> radio cost of *how often* we sync: [`wifi-auto-sync.md`](wifi-auto-sync.md).
+> radio cost of _how often_ we sync: [`wifi-auto-sync.md`](wifi-auto-sync.md).
 
 ## The model
 
@@ -86,13 +86,13 @@ The gap between the lines at a given N is exactly what switching buys, and it
 The device syncs into a clone of the actual notes repo, not a `notes.md` toy. Its
 working tree is **not small**:
 
-| | count | working-tree bytes |
-| --- | ---: | ---: |
-| Markdown (`.md`) | 875 | ~1.5 MB |
-| Images (png/jpg/webp/bmp/gif) | ~260 | **~150 MB** |
-| Other (json/ts/pdf/…) | ~44 | ~20 MB |
-| **Total (N)** | **1179 files, 158 dirs** | **~170 MB** |
-| `.git` history | | ~570 MB |
+|                               |                    count | working-tree bytes |
+| ----------------------------- | -----------------------: | -----------------: |
+| Markdown (`.md`)              |                      875 |            ~1.5 MB |
+| Images (png/jpg/webp/bmp/gif) |                     ~260 |        **~150 MB** |
+| Other (json/ts/pdf/…)         |                      ~44 |             ~20 MB |
+| **Total (N)**                 | **1179 files, 158 dirs** |        **~170 MB** |
+| `.git` history                |                          |            ~570 MB |
 
 So `add_all(["*"])` walks **1179 files across 158 directories every sync** — and
 ~260 of them are images that a text edit never changes. That does two things the
@@ -113,14 +113,14 @@ toy-repo baseline hides:
 Split from two back-to-back `:sync`es on the small test repo (commits `95ac56ef`
 cold, `ab260bde` warm), via the `commit split —` log lines:
 
-| Sub-phase | Kind | Cold (ms) | Warm (ms) |
-| --- | --- | ---: | ---: |
-| `walk(add_all+update_all)` | scan (O(N)) + likely 1 blob write | 1402 | 1456 |
-| `index.write` | FAT write | 204 | 204 |
-| `write_tree` | **1 tree object → FAT** | 710 | 715 |
-| `parent-load` | FAT read | 102 | 105 |
-| `commit-obj` | **1 commit object + ref → FAT** | 914 | 924 |
-| **commit total** | | **3332** | **3404** |
+| Sub-phase                  | Kind                              | Cold (ms) | Warm (ms) |
+| -------------------------- | --------------------------------- | --------: | --------: |
+| `walk(add_all+update_all)` | scan (O(N)) + likely 1 blob write |      1402 |      1456 |
+| `index.write`              | FAT write                         |       204 |       204 |
+| `write_tree`               | **1 tree object → FAT**           |       710 |       715 |
+| `parent-load`              | FAT read                          |       102 |       105 |
+| `commit-obj`               | **1 commit object + ref → FAT**   |       914 |       924 |
+| **commit total**           |                                   |  **3332** |  **3404** |
 
 ### It is not the card — it's libgit2 (`sd_bench`, 2026-07-12)
 
@@ -128,20 +128,20 @@ My first read of the table was "a loose-object write to this SD card costs
 ~700–900 ms." **That was wrong.** `sd_bench` (`firmware/src/bin/sd_bench.rs`) times
 the raw FAT primitives on the same card at the same 10 MHz:
 
-| Raw FAT op (200-byte payload) | p50 |
-| --- | ---: |
-| create + write + close | 21.7 ms |
-| rename | 12.8 ms |
-| stat (hit / miss) | ~5 ms |
-| remove | 14.9 ms |
+| Raw FAT op (200-byte payload)                               |       p50 |
+| ----------------------------------------------------------- | --------: |
+| create + write + close                                      |   21.7 ms |
+| rename                                                      |   12.8 ms |
+| stat (hit / miss)                                           |     ~5 ms |
+| remove                                                      |   14.9 ms |
 | **loose-object composite** (stat + create + write + rename) | **86 ms** |
 
-The card does a *complete* loose-object write in **~86 ms**. Yet `write_tree`
+The card does a _complete_ loose-object write in **~86 ms**. Yet `write_tree`
 (one tree object) took **710 ms** and `commit-obj` **914 ms** — an **~8× gap that
 is pure libgit2 overhead, not FAT I/O.** So the earlier "object-write floor / SD
 write amplification / better card / SPI-clock" framing is refuted: **the SD card is
 not the bottleneck.** fsync is still confirmed off; the extra ~600 ms/op is CPU or
-repeated `.git` I/O *inside* libgit2 (candidates: ODB refresh scanning
+repeated `.git` I/O _inside_ libgit2 (candidates: ODB refresh scanning
 `objects/`, the treebuilder's per-entry `git_odb_exists`, ref-lock + reflog writes,
 config/attributes re-reads). `git_bench` (`firmware/src/bin/git_bench.rs`) localizes
 it — see below.
@@ -152,15 +152,15 @@ it — see below.
 same 96 KB thread the real service uses — the main-task stack overflows on
 `index.write`, which is itself the reason the service has a dedicated thread):
 
-| git2 op | p50 | note |
-| --- | ---: | --- |
-| `Repository::open` | 100 ms | one-time |
-| `odb.write(blob)` (unique) | **45 ms** | writes a fresh object; touches no existing object |
-| `repo.index()` open | ~0 ms | cached |
-| `index.write()` | 376 ms | index + `index.lock` rename + tree-cache |
-| `write_tree` [unchanged] | ~0 ms | tree exists → freshen-skips the write |
-| **`write_tree` [changed]** | **1136 ms** | writes ONE 45 ms object |
-| **`commit(None)` orphan obj** | **563 ms** | writes ONE 45 ms object, no ref/reflog |
+| git2 op                       |         p50 | note                                              |
+| ----------------------------- | ----------: | ------------------------------------------------- |
+| `Repository::open`            |      100 ms | one-time                                          |
+| `odb.write(blob)` (unique)    |   **45 ms** | writes a fresh object; touches no existing object |
+| `repo.index()` open           |       ~0 ms | cached                                            |
+| `index.write()`               |      376 ms | index + `index.lock` rename + tree-cache          |
+| `write_tree` [unchanged]      |       ~0 ms | tree exists → freshen-skips the write             |
+| **`write_tree` [changed]**    | **1136 ms** | writes ONE 45 ms object                           |
+| **`commit(None)` orphan obj** |  **563 ms** | writes ONE 45 ms object, no ref/reflog            |
 
 Writing a fresh object is 45 ms; the ops that wrap one are 8–25×. The cause, from
 the vendored source: `git_odb_write` calls `git_odb__freshen` (odb.c:1011), which
@@ -184,16 +184,16 @@ open risk in sync.
 dirs, 570 MB pack). It settles the design: **any index-based commit is O(N_tree)
 and does not fit this device.** Two independent walls:
 
-| op | result | reading |
-| --- | ---: | --- |
-| `Repository::open` | 88 ms | fine |
-| odb open (implicit) | ~6 s cold | maps the 1.7 MB pack `.idx` once (16 miss / 1790 KB) |
-| `odb.write(blob)` | **142 ms** p50 | the mmap cache win **holds** (was 862 ms uncached) ✅ |
-| `repo.index()` load (1179 entries) | 514 ms max | the on-disk index we were trying to avoid |
-| `index.write()` | **min 360 ms / p50 12.8 s / max 611 s** | ⚠️ hangs — see root cause |
-| **seed `read_tree(HEAD)` (cold, 1×)** | **~77 s** | ⚠️ reads all ~158 tree objects, 22.7 MB of pack windows |
-| `Index::new + read_tree` (warm) | 447 ms p50 | windows still mapped → pure CPU |
-| **index-free `stage→tree`** | **💥 crash** | `zlib (5)`: `deflateInit` failed, **508 KB heap left** |
+| op                                    |                                  result | reading                                                 |
+| ------------------------------------- | --------------------------------------: | ------------------------------------------------------- |
+| `Repository::open`                    |                                   88 ms | fine                                                    |
+| odb open (implicit)                   |                               ~6 s cold | maps the 1.7 MB pack `.idx` once (16 miss / 1790 KB)    |
+| `odb.write(blob)`                     |                          **142 ms** p50 | the mmap cache win **holds** (was 862 ms uncached) ✅   |
+| `repo.index()` load (1179 entries)    |                              514 ms max | the on-disk index we were trying to avoid               |
+| `index.write()`                       | **min 360 ms / p50 12.8 s / max 611 s** | ⚠️ hangs — see root cause                               |
+| **seed `read_tree(HEAD)` (cold, 1×)** |                               **~77 s** | ⚠️ reads all ~158 tree objects, 22.7 MB of pack windows |
+| `Index::new + read_tree` (warm)       |                              447 ms p50 | windows still mapped → pure CPU                         |
+| **index-free `stage→tree`**           |                            **💥 crash** | `zlib (5)`: `deflateInit` failed, **508 KB heap left**  |
 
 **Wall 1 — `index.write()` hashes the whole working tree (up to 611 s).**
 `git_index_write` unconditionally calls `truncate_racily_clean` (index.c:822),
@@ -218,7 +218,7 @@ the index-free path only trades a 611 s hash for a 77 s tree-read. Worse, that
 `read_tree` drove the `esp_map.c` cache to **7.4 MB resident** — past its own 4 MB
 soft cap — which left 508 KB of heap and made `repo.blob()`'s zlib `deflateInit`
 fail. **The one write we cannot skip crashed.** Root cause of the OOM: our cache
-holds pack windows *after* libgit2 `p_munmap`s them (refcount 0, freed only lazily
+holds pack windows _after_ libgit2 `p_munmap`s them (refcount 0, freed only lazily
 on the next `p_mmap`), which **defeats `GIT_OPT_SET_MWINDOW_MAPPED_LIMIT`** —
 libgit2 thinks it released the memory; we didn't.
 
@@ -242,14 +242,14 @@ depth-3 path `.claude/commands/bsky.md`, run FIRST so its first iteration is
 cold; the index ops moved last so their OOM can't cost the new data — it did
 crash again, after everything was logged):
 
-| op | result | reading |
-| --- | ---: | --- |
-| `splice stage→tree` (1 blob + 3 trees) | **6.5 s p50, warm ≈ cold** | O(depth) confirmed — cost is 4 loose writes × ~1.6 s |
-| `commit(None)` orphan obj | 1.7 s p50 | one more loose write |
-| `odb.write(blob)` | **1.5 s p50** | ⚠️ was 142 ms in the previous run |
-| `repo.index()` load | 524 ms max | matches previous run |
-| seed `read_tree(HEAD)` cold (now timed) | 81.6 s | reproduces the 77 s |
-| `index-free stage→tree` | 💥 crash, 508 KB heap | reproduces the zlib OOM exactly |
+| op                                      |                     result | reading                                              |
+| --------------------------------------- | -------------------------: | ---------------------------------------------------- |
+| `splice stage→tree` (1 blob + 3 trees)  | **6.5 s p50, warm ≈ cold** | O(depth) confirmed — cost is 4 loose writes × ~1.6 s |
+| `commit(None)` orphan obj               |                  1.7 s p50 | one more loose write                                 |
+| `odb.write(blob)`                       |              **1.5 s p50** | ⚠️ was 142 ms in the previous run                    |
+| `repo.index()` load                     |                 524 ms max | matches previous run                                 |
+| seed `read_tree(HEAD)` cold (now timed) |                     81.6 s | reproduces the 77 s                                  |
+| `index-free stage→tree`                 |      💥 crash, 508 KB heap | reproduces the zlib OOM exactly                      |
 
 Three readings:
 
@@ -265,7 +265,7 @@ Three readings:
    862→142 ms `odb.write` win did **not reproduce** (same `esp_map.c`, same
    card). Either the earlier run's conditions differed (orphan-object
    population? FAT allocation state?) or the win was misattributed. Whatever the
-   1.5 s is, it is *not* SD data volume: each write moves ~40 KB read + ~1 KB
+   1.5 s is, it is _not_ SD data volume: each write moves ~40 KB read + ~1 KB
    written.
 
 ### ROOT CAUSE FOUND (2026-07-12, `sd_bench` seek op): FatFS lseek walks the cluster chain
@@ -316,11 +316,11 @@ back to slow seeks, so the headroom matters).
 
 **A/B measured (same evening): a 2.3× partial win, not a full one.**
 
-| op | fast-seek off | fast-seek on |
-| --- | ---: | ---: |
-| `splice stage→tree` | 6.5 s | **2.81 s** |
-| `odb.write(blob)` | 1.5 s | **416 ms** |
-| `commit(None)` | 1.7 s | **1.72 s — unchanged** |
+| op                  | fast-seek off |           fast-seek on |
+| ------------------- | ------------: | ---------------------: |
+| `splice stage→tree` |         6.5 s |             **2.81 s** |
+| `odb.write(blob)`   |         1.5 s |             **416 ms** |
+| `commit(None)`      |         1.7 s | **1.72 s — unchanged** |
 
 `odb.write` dropped by almost exactly the ~6 chain walks the model predicted —
 the seek theory holds — but two residuals remain: **~400 ms per loose write**
@@ -340,17 +340,17 @@ pack is not too fragmented). A far seek is now ~15 ms, i.e. effectively fixed.
 
 **The strict-creation theory is refuted; the probes found the real unit cost:**
 
-| op | p50 | reading |
-| --- | ---: | --- |
-| `odb.read_header(packed)` | **470 ms** | ONE pack header resolve costs ~½ s |
-| `odb.exists(missing)` | **968 ms** (±0.1 ms) | miss path (scan → refresh → rescan) ≈ 2× |
-| `commit(None)` strict OFF | 1.80 s | vs 1.93 s strict on — validation is NOT the premium |
-| `splice` strict OFF | 5.7 s | noise-worse; also not validation |
+| op                        |                  p50 | reading                                             |
+| ------------------------- | -------------------: | --------------------------------------------------- |
+| `odb.read_header(packed)` |           **470 ms** | ONE pack header resolve costs ~½ s                  |
+| `odb.exists(missing)`     | **968 ms** (±0.1 ms) | miss path (scan → refresh → rescan) ≈ 2×            |
+| `commit(None)` strict OFF |               1.80 s | vs 1.93 s strict on — validation is NOT the premium |
+| `splice` strict OFF       |                5.7 s | noise-worse; also not validation                    |
 
 The ±0.1 ms constancy of `exists(missing)` = a fixed, deterministic SD-op
 sequence. The map counters identify it: **~7–8 small (~4 KB) `p_mmap` reads per
 op** — pack trailer probes, idx fanout reads and delta-base windows, repeated
-at the *same offsets* on every freshen/refresh. Post-fast-seek those cost
+at the _same offsets_ on every freshen/refresh. Post-fast-seek those cost
 ~20 ms each (~150 ms/op); the rest of `read_header`'s 470 ms is CPU-side
 delta-chain inflation on the 160 MHz core plus repeated re-reads. Two other
 observations from run 3b: the loose-object orphan population from bench runs
@@ -372,16 +372,16 @@ splice at or under the sub-second bar, and no end-of-run zlib OOM.
 
 Run 4 (2026-07-12 evening, same card state as run 3b plus its orphans):
 
-| op | run 3b (fast-seek) | run 4 (+ esp_map v2) |
-| --- | ---: | ---: |
-| `splice stage→tree` (cold, first op) | 2.81 s | **2.83 s — unchanged** |
-| `splice` again (warm, strict-off phase) | 3.21 s | 1.95 s |
-| `commit(None)` | 1.72 s | 713 ms |
-| `odb.write(blob)` | 416 ms | 366 ms |
-| `odb.read_header(packed)` | 470 ms | 412 ms |
-| `odb.exists(missing)` | 968 ms | 852 ms |
-| mmap-cache hits | 0 | **0** (313 misses) |
-| cache resident / heap free | grew to 7.4 MB → zlib OOM | **1833 KB flat / 6.4 MB free all run** |
+| op                                      |        run 3b (fast-seek) |                   run 4 (+ esp_map v2) |
+| --------------------------------------- | ------------------------: | -------------------------------------: |
+| `splice stage→tree` (cold, first op)    |                    2.81 s |                 **2.83 s — unchanged** |
+| `splice` again (warm, strict-off phase) |                    3.21 s |                                 1.95 s |
+| `commit(None)`                          |                    1.72 s |                                 713 ms |
+| `odb.write(blob)`                       |                    416 ms |                                 366 ms |
+| `odb.read_header(packed)`               |                    470 ms |                                 412 ms |
+| `odb.exists(missing)`                   |                    968 ms |                                 852 ms |
+| mmap-cache hits                         |                         0 |                     **0** (313 misses) |
+| cache resident / heap free              | grew to 7.4 MB → zlib OOM | **1833 KB flat / 6.4 MB free all run** |
 
 Three findings:
 
@@ -393,7 +393,7 @@ Three findings:
    `read_tree`; the tail would only re-confirm eviction under burst.
 2. **The repeated-small-window theory is REFUTED — theory #3 down** (after
    strict-creation and free-cluster-scan). v2 demonstrably admits and retains
-   the small maps now — the 1833 KB resident *is* them, held below low-water so
+   the small maps now — the 1833 KB resident _is_ them, held below low-water so
    nothing is evicted before reuse — and still scored 0 hits in 313 misses.
    So the ~8 small reads per loose write hit **unique (offset, len) every
    time**: `mwindow` was already absorbing any true repetition above `p_mmap`,
@@ -403,7 +403,7 @@ Three findings:
    (post-fast-seek) — I/O count, not I/O size or seek cost.
 3. **Within-run drift cuts both ways, so cross-run tables are mushy.** In this
    single run `commit(None)` degraded 713 ms → 1.79 s between the early and
-   late (strict-off) phases, while splice *improved* 2.83 → 1.95 s. Two
+   late (strict-off) phases, while splice _improved_ 2.83 → 1.95 s. Two
    competing effects: first-touch warm-up fading (CLMT build, first pack
    reads — helps later ops) and orphan loose objects accumulating in
    `.git/objects/xx/` slowing every freshen existence check (FAT directory
@@ -428,7 +428,7 @@ was aspirational; measured reality is ~2–2.8 s to commit on the real
 263 MB-pack repo versus 611 s (or a hard OOM) for every alternative benched.
 That puts a full real-repo `:sync` at roughly **9–10 s cold**, which ships.
 The remaining ~2 s has survived four localization rounds; the next suspect —
-FAT *directory-op* cost in the freshen/refresh path (open/stat/rename by path
+FAT _directory-op_ cost in the freshen/refresh path (open/stat/rename by path
 walk FAT directories linearly; consistent with the orphan-creep signal) — is
 one instrumentation pass for later (log each `p_mmap` miss + bench dir ops in
 `sd_bench`), not a prerequisite for the plumbing.
@@ -440,7 +440,7 @@ the real card at 10 MHz:
 1. `stat` on a **missing** name (the freshen probe's shape — no early exit,
    the whole parent is scanned) is linear in sibling count: 4.7 ms at 8
    siblings → 12.8 ms at 64 → 28.9 ms at 256 ≈ **~0.1 ms per directory entry
-   per scan**. (`stat` on a *present* name plateaued at ~8 ms, but that's the
+   per scan**. (`stat` on a _present_ name plateaued at ~8 ms, but that's the
    bench's shape — 20 iterations only ever touch the first 20 entries, which
    sit early in the scan.)
 2. The **loose-object composite** (freshen stat-miss + temp create + write +
@@ -456,11 +456,11 @@ The real repo's `.git/objects/` holds up to 256 two-hex fan-out dirs plus
 `pack/`/`info/`, so every path resolution under it pays the ~256-entry scan —
 that's the whole residual. It composes with the earlier finding that the
 splice does **0 pack reads** during these writes (run-1 `p_mmap` counters):
-nothing here is data I/O. Consequences: (a) the cost is *bounded* — ~0.4 s ×
+nothing here is data I/O. Consequences: (a) the cost is _bounded_ — ~0.4 s ×
 loose objects per commit (typically ≤ 5) ≈ ≤ 2 s, already inside the shipped
-splice numbers, so nothing burns; (b) the only real levers are *fewer
-path-resolutions per object* (libgit2 surgery) or *not writing loose objects
-at all* (commit straight into a small pack) — both out of scope until a
+splice numbers, so nothing burns; (b) the only real levers are _fewer
+path-resolutions per object_ (libgit2 surgery) or _not writing loose objects
+at all_ (commit straight into a small pack) — both out of scope until a
 future perf pass; (c) orphan-creep is now mechanically explained: each
 leftover loose object adds entries to a fan-out dir and slows every later
 scan of it.
@@ -501,10 +501,10 @@ work, ranked:
    the cache itself holding buffers past `p_munmap`. esp_map.c is now the
    plain malloc-read/free-at-munmap emulation: honest with
    `MWINDOW_MAPPED_LIMIT` by construction, ~120 lines lighter, and run 5
-   confirmed removal is I/O-neutral (even 15 reads *better* than v2, whose
+   confirmed removal is I/O-neutral (even 15 reads _better_ than v2, whose
    low-water eviction fought mwindow). Stats counters kept to spot any future
    workload that does repeat ranges.
-3. **Retired: `add_all`/explicit-path *index* staging.** Explicit-path `add_path`
+3. **Retired: `add_all`/explicit-path _index_ staging.** Explicit-path `add_path`
    still goes through the index and `index.write` → `truncate_racily_clean`, so it
    hits Wall 1 just the same. The TreeBuilder walk supersedes it entirely; the
    "explicit-path staging" idea survives only as "the editor's dirty set feeds the
@@ -540,7 +540,8 @@ untouched — which means **the device doesn't even need the images in its
 working tree.**
 
 Shipped as `git_sync::splice` (git2 0.20: `Repository::treebuilder(Option<&Tree>)`
-+ `TreeBuilder::{insert,remove,write}`). Signature:
+
+- `TreeBuilder::{insert,remove,write}`). Signature:
 
 ```rust
 fn splice(repo: &Repository, base: Option<&Tree>, path: &[&str], blob: Option<Oid>) -> Result<Oid>
@@ -579,7 +580,7 @@ log survive. The benched reference is `git_bench`'s `splice stage→tree` op.
   answers in ~150 ms instead of a Wi-Fi/TLS round.
 - `reconcile_onto_origin` now `ResetType::Soft` (ref move only) — there is no
   index to reset, and a Mixed reset's index write is exactly the racy-clean
-  wall the splice avoids. Side win: a remote-only added file is now *carried*
+  wall the splice avoids. Side win: a remote-only added file is now _carried_
   by the replay (origin's tree is the splice base) where the old `add --all`
   replay dropped it.
 - The macOS-cruft filter (`skip_macos_cruft`) is gone with the walk — the
@@ -605,8 +606,8 @@ log survive. The benched reference is `git_bench`'s `splice stage→tree` op.
   (journal keeps carrying the union); the outcome settles it —
   `publish_succeeded()` forgets the snapshot and shrinks the journal,
   `publish_failed()` returns it to pending for the next `:sync`. A save landing
-  *while* a publish runs re-enters pending and rides the next one. Recording
-  happens *before* the file write, so a crash between the two only
+  _while_ a publish runs re-enters pending and rides the next one. Recording
+  happens _before_ the file write, so a crash between the two only
   over-approximates (a no-op splice), never under-records.
 - `Effect::Publish` in `main.rs` sends `PublishRequest { paths: take_dirty() }`;
   the outcome handler in the idle branch calls the matching settle method.
@@ -666,9 +667,9 @@ Git-LFS-style pointers — is a separate decision tracked in
 That lever shrinks N and the clone; this one stops the walk from paying for N. They
 compose.
 
-## What this does *not* touch
+## What this does _not_ touch
 
 The network half of `:sync` (TLS handshake + push round-trips, ~6.5 s of the warm
 path) is a separate floor covered in [`sync-latency.md`](../notes/sync-latency.md);
-this curve is only about the local commit. Radio *frequency* (how often we pay any
+this curve is only about the local commit. Radio _frequency_ (how often we pay any
 sync at all) is [`wifi-auto-sync.md`](wifi-auto-sync.md).

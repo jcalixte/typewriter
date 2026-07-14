@@ -18,23 +18,23 @@
 From the serial log, first `:sync` after a cold boot
 (`… wifi 3654ms, clock 2108ms, tls 304ms, publish(commit+push) 9944ms, total 16012ms`):
 
-| Phase | ~ms | One-time? | Lever |
-| --- | ---: | --- | --- |
-| Wi-Fi assoc + DHCP | ~3650 | yes (per power cycle) | radio off until first `:sync`; association floor |
-| SNTP first sync | ~2100 | yes | varies with NTP RTT (4.2 s the prior run); needed before TLS + commit time |
-| TLS trust store install | ~300 | yes | write ~6 KB CA bundle to SD + set libgit2 option |
-| **publish** = stage+commit + push | **~9900** | **every sync** | see below |
-| **Total** | **~16000** | | |
+| Phase                             |        ~ms | One-time?             | Lever                                                                      |
+| --------------------------------- | ---------: | --------------------- | -------------------------------------------------------------------------- |
+| Wi-Fi assoc + DHCP                |      ~3650 | yes (per power cycle) | radio off until first `:sync`; association floor                           |
+| SNTP first sync                   |      ~2100 | yes                   | varies with NTP RTT (4.2 s the prior run); needed before TLS + commit time |
+| TLS trust store install           |       ~300 | yes                   | write ~6 KB CA bundle to SD + set libgit2 option                           |
+| **publish** = stage+commit + push |  **~9900** | **every sync**        | see below                                                                  |
+| **Total**                         | **~16000** |                       |                                                                            |
 
-The three one-time phases (~6.1 s) only pay on the *first* sync of a power cycle —
+The three one-time phases (~6.1 s) only pay on the _first_ sync of a power cycle —
 Wi-Fi, the clock, and the trust store are set up once and reused, so a **warm sync
 is just the ~10 s publish**. Publish splits as:
 
-| Sub-phase | ~ms | Note |
-| --- | ---: | --- |
-| stage + commit | ~3150 | `add_all(["*"])` walking the SD/FAT working tree, then commit to FAT |
-| push: TLS handshake | ~2400 | one mbedTLS handshake to github.com |
-| push: pack negotiate + upload | ~4400 | tiny delta — cost is negotiation/round-trips, not payload |
+| Sub-phase                     |   ~ms | Note                                                                 |
+| ----------------------------- | ----: | -------------------------------------------------------------------- |
+| stage + commit                | ~3150 | `add_all(["*"])` walking the SD/FAT working tree, then commit to FAT |
+| push: TLS handshake           | ~2400 | one mbedTLS handshake to github.com                                  |
+| push: pack negotiate + upload | ~4400 | tiny delta — cost is negotiation/round-trips, not payload            |
 
 ## The win: one TLS handshake, not two
 
@@ -45,7 +45,7 @@ sync (remote unchanged), and it did ~6 s of real work the one time it absorbed a
 maintenance commit.
 
 The optimistic-retry rewrite (commit `3386969`) drops it: **push onto the current
-tip first**; only if the remote *rejects* the push non-fast-forward do we fetch,
+tip first**; only if the remote _rejects_ the push non-fast-forward do we fetch,
 reconcile, and retry. The happy path — what runs ~99 % of the time — is now a
 **single** handshake. That took the true normal-cold baseline from ~19 s to
 **16.0 s** (and the inflated 23.7 s figure will never recur, since it was the
@@ -57,8 +57,8 @@ On a rejected push, `reconcile_onto_origin` fetches origin and does a **mixed**
 reset onto it — moving the branch ref + index but leaving the working tree, so the
 just-saved note survives — then `stage_and_commit` replays the note on the new tip
 and retries. For this **single-writer appliance** that resolves last-writer-wins:
-a concurrent remote *edit* to the same note loses to ours, and a remote-only
-*added* file the card doesn't have would be dropped by the replay's `add --all`.
+a concurrent remote _edit_ to the same note loses to ours, and a remote-only
+_added_ file the card doesn't have would be dropped by the replay's `add --all`.
 Both need a real merge (increment B) and don't arise from the device's own use.
 This path is **hardware-verified for the happy case** (`9b635c42` fast-forwarded
 clean); the reconcile branch itself is compile-verified but not yet exercised on
@@ -77,7 +77,7 @@ The big rocks are physics or protocol, not slack:
   shave.
 - **stage + commit ~3.1 s** is the one soft spot: staging over the editor's dirty
   set (`add_path`) instead of `add_all(["*"])` would skip the SD/FAT tree walk
-  (likely → sub-second) *without* losing multi-file — the dirty set is the file
+  (likely → sub-second) _without_ losing multi-file — the dirty set is the file
   list. Whether the walk actually dominates the ~4 s commit is now being measured
   by the `commit split —` log line; the cost model and the rule it decides live in
   [`../tradeoff-curves/sync-commit-staging.md`](../tradeoff-curves/sync-commit-staging.md).
@@ -86,5 +86,5 @@ The big rocks are physics or protocol, not slack:
 one TLS push over Wi-Fi with a fresh clock." It reads as slow only if you wait on
 it — and by design you don't: `:sync` is a deliberate action with a snackbar, and
 [`ctrl-g-perceived-latency.md`](ctrl-g-perceived-latency.md) argues the perceived
-cost is set by *when durability is surfaced*, not by wall-clock. Recorded here so
+cost is set by _when durability is surfaced_, not by wall-clock. Recorded here so
 the number is scoped against the protocol, not treated as a regression.

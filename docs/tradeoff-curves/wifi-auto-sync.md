@@ -1,7 +1,7 @@
 # Wi-Fi energy vs auto-sync interval
 
-> **Decision:** `auto_sync` defaults to **10 min**, and is an *opportunistic,
-> rate-limited* push — not a wall-clock timer that wakes the device. See
+> **Decision:** `auto_sync` defaults to **10 min**, and is an _opportunistic,
+> rate-limited_ push — not a wall-clock timer that wakes the device. See
 > [Policy](#policy). Backs the `.typoena.toml` `auto_sync` key in
 > [`../macroplan.md`](../macroplan.md) (v0.5). The runtime behaviour was
 > pencilled for v0.7, but v0.7 closed 2026-07-14 as search + manual `:gl`/`:gp`
@@ -15,7 +15,7 @@
 > [`../v0.7-search-and-git.md`](../v0.7-search-and-git.md)): the per-sync
 > constant roughly **doubles** and its mix shifts from radio to SD/CPU, but the
 > shape, the knee, and the decision all survive — and two v0.7 results make the
-> teardown-between-syncs argument *stronger*.
+> teardown-between-syncs argument _stronger_.
 >
 > Tradeoff-curves index: [`README.md`](README.md). Docs index:
 > [`../README.md`](../README.md).
@@ -34,7 +34,7 @@ push leg (connect + pack + upload)          5.9 s   TLS-resumed connect 2.4 s (4
 warm `:gp` end-to-end                      19.1 s   root-level file ≈ 12–13 s — the splice is depth-bound
 ```
 
-Both halves are paid once per *dirty* sync, so energy per unit time still
+Both halves are paid once per _dirty_ sync, so energy per unit time still
 scales as **(fixed cost per sync) × (syncs per hour)**:
 
 ```
@@ -46,15 +46,15 @@ wrote barely move it. What the measurement changed is **K and its
 composition**: the awake window is ~12–19 s (not the ~8 s placeholder), and
 more than half of it is SD/CPU splice work that no radio policy can touch —
 but the splice re-runs on every sync too, so it rides the same 1/T curve. The
-splice scales with file *depth* and dirty-set size, not with words (the
+splice scales with file _depth_ and dirty-set size, not with words (the
 FAT-dir-scan story in
 [`sync-commit-staging.md`](sync-commit-staging.md), run 6).
 
-Placeholder *currents*, still pending the v0.8 bench measurement ("measure
+Placeholder _currents_, still pending the v0.8 bench measurement ("measure
 idle / typing / push current draw"): ~10 s of CPU+SD at ~100 mA plus ~8 s of
 radio-on at ~150 mA ⇒ **≈ 0.6 mAh per sync**, `K ≈ 36 mAh·min/hr` — about 2×
 the original estimate. The vertical scale below moves with the real current
-measurement; the *shape* and the knee do not.
+measurement; the _shape_ and the knee do not.
 
 Two refinements the field runs added:
 
@@ -64,7 +64,7 @@ Two refinements the field runs added:
   push — idle hours with no edits cost zero regardless of the interval.
 - **The worst case is bounded at ~2×.** If the mirror moved underneath (a Mac
   push), an auto-sync hits the rejected-push → reconcile → replay → push cycle:
-  24.0 s and three connections measured (run 3, *with* session resumption).
+  24.0 s and three connections measured (run 3, _with_ session resumption).
   Rare, and it doesn't move the knee.
 
 **One assumption is baked into the burst: the radio is fully off between
@@ -79,7 +79,7 @@ further:
   session ticket lives in RAM — it survives radio de-init between syncs.
 - **Held connections die anyway.** In run 8 the idle keep-alive was closed
   during a ~31 s quiet gap and libgit2 does not reconnect (`SSL Generic
-  error`, push lost). Keep-alive is not just expensive; it's fragile.
+error`, push lost). Keep-alive is not just expensive; it's fragile.
 
 So each sync legitimately pays a fresh `wake → associate → resumed-handshake`
 burst, and "off" everywhere here means radio **de-init**, not
@@ -89,13 +89,13 @@ pull, so "Typoena only ever pushes" is no longer literally true — but pull is
 user-initiated and outbound like everything else; nothing unsolicited ever
 arrives, so there is still no reason to stay reachable.)
 
-> **Status (v0.7) — the shipped firmware still does *not* cycle the radio.**
+> **Status (v0.7) — the shipped firmware still does _not_ cycle the radio.**
 > Wi-Fi comes up lazily on the first git op and then stays associated for the
 > rest of the session: `ensure_online` in
 > [`../../firmware/src/git_sync.rs`](../../firmware/src/git_sync.rs) owns the
 > `wifi` handle and the module never stops, disconnects, or drops it (the
 > `remote.disconnect()` calls in there are git smart-protocol connections, not
-> the radio). So today's device runs the *stay-associated* strategy this
+> the radio). So today's device runs the _stay-associated_ strategy this
 > section argues against, at ~15–20 mAh/hr after the first git op. Per-sync
 > teardown remains a v0.8 refactor of the modem ownership — and a prerequisite
 > before any sleep mode ships.
@@ -117,15 +117,15 @@ The knee sits at **5–10 min**: left of it, every extra sync per hour costs a
 full splice + radio burst for zero payload benefit; right of it, the tail is
 nearly flat and longer intervals save almost nothing.
 
-| interval | syncs/hr | Wi-Fi mAh/hr | vs 5-min | per 8 h day |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 min | 60 | 36.0 | 5.0× | 288 mAh |
-| 2 min | 30 | 18.0 | 2.5× | 144 mAh |
-| 5 min | 12 | 7.2 | 1.0× | 58 mAh |
-| **10 min** | 6 | **3.6** | **0.5×** | 29 mAh |
-| 15 min | 4 | 2.4 | 0.33× | 19 mAh |
-| 30 min | 2 | 1.2 | 0.17× | 9.6 mAh |
-| 60 min | 1 | 0.6 | 0.08× | 4.8 mAh |
+|   interval | syncs/hr | Wi-Fi mAh/hr | vs 5-min | per 8 h day |
+| ---------: | -------: | -----------: | -------: | ----------: |
+|      1 min |       60 |         36.0 |     5.0× |     288 mAh |
+|      2 min |       30 |         18.0 |     2.5× |     144 mAh |
+|      5 min |       12 |          7.2 |     1.0× |      58 mAh |
+| **10 min** |        6 |      **3.6** | **0.5×** |      29 mAh |
+|     15 min |        4 |          2.4 |    0.33× |      19 mAh |
+|     30 min |        2 |          1.2 |    0.17× |     9.6 mAh |
+|     60 min |        1 |          0.6 |    0.08× |     4.8 mAh |
 
 (Every row assumes the device was dirty at each tick — a writing session in
 progress. Clean ticks cost nothing, per the journal gate above.)
@@ -134,22 +134,22 @@ progress. Clean ticks cost nothing, per the journal gate above.)
 
 **`save_on_idle` already prevents data loss — auto-sync is only remote-mirror
 freshness.** The durable local copy is the SD write on the idle pause. A longer
-sync interval never risks *losing work*; it only means the GitHub mirror is a
+sync interval never risks _losing work_; it only means the GitHub mirror is a
 few minutes staler. That's a weak cost, and it pushes the optimum toward
-*longer* intervals. The doubled K pushes the same direction: each avoided sync
+_longer_ intervals. The doubled K pushes the same direction: each avoided sync
 now saves twice what the original model claimed.
 
 **The real battery risk is the sleep interaction, not the awake case.** While
 you're typing, the CPU/e-ink baseline dwarfs the sync cost — 5 vs 15 min is
 noise. The damage happens when the device is idle or asleep and a wall-clock
-timer wakes it *just to push*: each wake pays the radio burst plus the wake/boot
+timer wakes it _just to push_: each wake pays the radio burst plus the wake/boot
 cost and blocks the low-power state. That turns "closed on the desk overnight"
 from weeks of standby into dead-by-morning.
 
 ## Policy
 
 Ship `auto_sync` as an opportunistic, rate-limited push, with the config value
-read as a *max-staleness cap* rather than a timer period:
+read as a _max-staleness cap_ rather than a timer period:
 
 - **Push when already awake + dirty**, coalesced into the existing idle-pause,
   rate-limited to at most once per `auto_sync` — so a fast typist pausing every
