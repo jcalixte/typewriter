@@ -1549,8 +1549,10 @@ impl Editor {
     }
 
     /// Run the typed `/` search: remember the pattern (a bare `/`+Enter repeats
-    /// the last one, like vim) and jump forward once. Literal, case-sensitive
-    /// substring — no regex on a writing appliance, and no smartcase surprises.
+    /// the last one, like vim) and jump forward once. Literal, case-INsensitive
+    /// substring — no regex on a writing appliance, and prose search shouldn't
+    /// care about capitalization (deliberately not smartcase either: a capital
+    /// silently flipping to exact-match is a surprise, not a feature, here).
     fn execute_search(&mut self) {
         if !self.cmdline.is_empty() {
             self.last_search = self.cmdline.clone();
@@ -1577,14 +1579,14 @@ impl Editor {
                 } else {
                     self.next_char(self.caret)
                 };
-                match self.text[start..].find(&pat) {
+                match find_ci(&self.text[start..], &pat) {
                     Some(i) => Some((start + i, false)),
-                    None => self.text.find(&pat).map(|i| (i, true)),
+                    None => find_ci(&self.text, &pat).map(|i| (i, true)),
                 }
             } else {
-                match self.text[..self.caret].rfind(&pat) {
+                match rfind_ci(&self.text[..self.caret], &pat) {
                     Some(i) => Some((i, false)),
-                    None => self.text.rfind(&pat).map(|i| (i, true)),
+                    None => rfind_ci(&self.text, &pat).map(|i| (i, true)),
                 }
             };
             match hit {
@@ -3943,6 +3945,39 @@ fn pad_cell(cell: &str, w: usize, align: Align) -> String {
             format!("{}{cell}{}", " ".repeat(l), " ".repeat(pad - l))
         }
         _ => format!("{cell}{}", " ".repeat(pad)),
+    }
+}
+
+/// Byte offset of the first case-insensitive match of `pat` in `hay`, or
+/// `None`. Char-by-char Unicode lowercase-fold comparison at every char
+/// boundary — no lowercased copy of the buffer (lowercasing can change byte
+/// lengths, which would break the returned offsets). O(n·m), fine at note
+/// sizes for an Enter-triggered jump.
+fn find_ci(hay: &str, pat: &str) -> Option<usize> {
+    hay.char_indices()
+        .map(|(i, _)| i)
+        .find(|&i| starts_with_ci(&hay[i..], pat))
+}
+
+/// [`find_ci`], but the *last* match — the backward (`N`) direction.
+fn rfind_ci(hay: &str, pat: &str) -> Option<usize> {
+    hay.char_indices()
+        .map(|(i, _)| i)
+        .rev()
+        .find(|&i| starts_with_ci(&hay[i..], pat))
+}
+
+/// Whether `s` begins with `pat`, ignoring case: both sides expanded through
+/// `char::to_lowercase` (full Unicode fold, so `É` matches `é`).
+fn starts_with_ci(s: &str, pat: &str) -> bool {
+    let mut sc = s.chars().flat_map(char::to_lowercase);
+    let mut pc = pat.chars().flat_map(char::to_lowercase);
+    loop {
+        match (pc.next(), sc.next()) {
+            (None, _) => return true,
+            (Some(p), Some(c)) if p == c => continue,
+            _ => return false,
+        }
     }
 }
 
@@ -6394,10 +6429,29 @@ mod tests {
     }
 
     #[test]
-    fn search_is_case_sensitive_and_literal() {
-        let mut e = over("Alpha alpha");
+    fn search_is_case_insensitive() {
+        let mut e = over("x Alpha alpha");
         search(&mut e, "alpha");
-        assert_eq!(e.caret, 6); // "Alpha" does not match
+        assert_eq!(e.caret, 2); // "Alpha" matches "alpha"
+        search(&mut e, "ALPHA"); // and the pattern's own case is ignored too
+        assert_eq!(e.caret, 8);
+    }
+
+    #[test]
+    fn search_case_folds_accented_chars() {
+        let mut e = over("x Été bien"); // 'É' (2 bytes) folds to 'é'
+        search(&mut e, "été");
+        assert_eq!(e.caret, 2);
+        assert_eq!(&e.text[e.caret..e.caret + 5], "Été");
+    }
+
+    #[test]
+    fn backward_search_is_case_insensitive() {
+        let mut e = over("Alpha x alpha");
+        search(&mut e, "alpha"); // → 8 (past the caret on 'A')
+        assert_eq!(e.caret, 8);
+        e.handle(Key::Char('N')); // back → the capitalized one at 0
+        assert_eq!(e.caret, 0);
     }
 
     #[test]
