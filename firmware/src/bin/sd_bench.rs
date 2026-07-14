@@ -65,7 +65,7 @@ fn run() -> Result<()> {
     );
 
     // Fresh scratch dir.
-    let _ = fs::remove_dir_all(BENCH_DIR);
+    let _ = remove_tree(std::path::Path::new(BENCH_DIR));
     fs::create_dir_all(BENCH_DIR).with_context(|| format!("creating {BENCH_DIR}"))?;
 
     // Warm-up: the first write after mount pays one-time settling — don't measure it.
@@ -185,7 +185,8 @@ fn run() -> Result<()> {
     }
 
     // Clean up so the card is left as we found it.
-    fs::remove_dir_all(BENCH_DIR).with_context(|| format!("removing {BENCH_DIR}"))?;
+    remove_tree(std::path::Path::new(BENCH_DIR))
+        .with_context(|| format!("removing {BENCH_DIR}"))?;
 
     // 7) THE ~1.5 s LOOSE-WRITE SUSPECT (git_bench, 2026-07-12 second real-repo
     //    run): lseek inside a huge file. Without CONFIG_FATFS_USE_FASTSEEK,
@@ -256,6 +257,41 @@ fn find_pack() -> Result<Option<String>> {
         }
     }
     Ok(best.map(|(_, p)| p))
+}
+
+/// `fs::remove_dir_all` replacement: std's version trusts the dirent file
+/// type, and the prebuilt std decodes esp-idf's DT constants with the generic
+/// unix table (files read as fifos, directories as char devices — same story
+/// as the palette walk in main.rs). It therefore `unlink`s subdirectories,
+/// which FatFS refuses with FR_DENIED (EACCES) when they're non-empty. Decode
+/// the type the same both-tables way and recurse ourselves.
+fn remove_tree(dir: &std::path::Path) -> Result<()> {
+    use std::os::unix::fs::FileTypeExt;
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+    let children: Vec<_> = entries
+        .flatten()
+        .filter_map(|e| e.file_type().ok().map(|t| (e.path(), t)))
+        .collect();
+    for (path, ftype) in children {
+        let is_dir = if ftype.is_dir() || ftype.is_char_device() {
+            true
+        } else if ftype.is_file() || ftype.is_fifo() {
+            false
+        } else {
+            fs::metadata(&path)?.is_dir()
+        };
+        if is_dir {
+            remove_tree(&path)?;
+        } else {
+            fs::remove_file(&path)?;
+        }
+    }
+    fs::remove_dir(dir)?;
+    Ok(())
 }
 
 /// Run `op(i)` for `i in 0..N`, returning each call's wall time in microseconds.
