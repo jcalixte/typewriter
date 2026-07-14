@@ -1561,10 +1561,10 @@ impl Editor {
     }
 
     /// Run the typed `/` search: remember the pattern (a bare `/`+Enter repeats
-    /// the last one, like vim) and jump forward once. Literal, case-INsensitive
-    /// substring — no regex on a writing appliance, and prose search shouldn't
-    /// care about capitalization (deliberately not smartcase either: a capital
-    /// silently flipping to exact-match is a surprise, not a feature, here).
+    /// the last one, like vim) and jump forward once. Literal substring — no
+    /// regex on a writing appliance — matched **smartcase** (an all-lowercase
+    /// pattern is case-insensitive; one capital makes it exact, vim-style) and
+    /// always **accent-folded** (`/ete` finds `été`; see [`fold`]).
     fn execute_search(&mut self) {
         if !self.cmdline.is_empty() {
             self.last_search = self.cmdline.clone();
@@ -1582,6 +1582,10 @@ impl Editor {
             return;
         }
         let pat = self.last_search.clone();
+        // Smartcase: any capital in the pattern makes the search exact
+        // (`n`/`N` recompute from the remembered pattern, so a repeat behaves
+        // like the original search).
+        let ci = !pat.chars().any(char::is_uppercase);
         for _ in 0..n {
             // Start strictly past (or before) the caret so a caret already on a
             // match moves to the next one, per vim.
@@ -1591,14 +1595,14 @@ impl Editor {
                 } else {
                     self.next_char(self.caret)
                 };
-                match find_ci(&self.text[start..], &pat) {
+                match find_fold(&self.text[start..], &pat, ci) {
                     Some(i) => Some((start + i, false)),
-                    None => find_ci(&self.text, &pat).map(|i| (i, true)),
+                    None => find_fold(&self.text, &pat, ci).map(|i| (i, true)),
                 }
             } else {
-                match rfind_ci(&self.text[..self.caret], &pat) {
+                match rfind_fold(&self.text[..self.caret], &pat, ci) {
                     Some(i) => Some((i, false)),
-                    None => rfind_ci(&self.text, &pat).map(|i| (i, true)),
+                    None => rfind_fold(&self.text, &pat, ci).map(|i| (i, true)),
                 }
             };
             match hit {
@@ -4005,36 +4009,71 @@ fn pad_cell(cell: &str, w: usize, align: Align) -> String {
     }
 }
 
-/// Byte offset of the first case-insensitive match of `pat` in `hay`, or
-/// `None`. Char-by-char Unicode lowercase-fold comparison at every char
-/// boundary — no lowercased copy of the buffer (lowercasing can change byte
-/// lengths, which would break the returned offsets). O(n·m), fine at note
-/// sizes for an Enter-triggered jump.
-fn find_ci(hay: &str, pat: &str) -> Option<usize> {
+/// Byte offset of the first folded match of `pat` in `hay`, or `None`.
+/// Char-by-char comparison through [`fold`] at every char boundary — no
+/// folded copy of the buffer (folding can change byte lengths, which would
+/// break the returned offsets). `ci` is the smartcase verdict, computed once
+/// per search from the pattern. O(n·m), fine at note sizes for an
+/// Enter-triggered jump.
+fn find_fold(hay: &str, pat: &str, ci: bool) -> Option<usize> {
     hay.char_indices()
         .map(|(i, _)| i)
-        .find(|&i| starts_with_ci(&hay[i..], pat))
+        .find(|&i| starts_with_fold(&hay[i..], pat, ci))
 }
 
-/// [`find_ci`], but the *last* match — the backward (`N`) direction.
-fn rfind_ci(hay: &str, pat: &str) -> Option<usize> {
+/// [`find_fold`], but the *last* match — the backward (`N`) direction.
+fn rfind_fold(hay: &str, pat: &str, ci: bool) -> Option<usize> {
     hay.char_indices()
         .map(|(i, _)| i)
         .rev()
-        .find(|&i| starts_with_ci(&hay[i..], pat))
+        .find(|&i| starts_with_fold(&hay[i..], pat, ci))
 }
 
-/// Whether `s` begins with `pat`, ignoring case: both sides expanded through
-/// `char::to_lowercase` (full Unicode fold, so `É` matches `é`).
-fn starts_with_ci(s: &str, pat: &str) -> bool {
-    let mut sc = s.chars().flat_map(char::to_lowercase);
-    let mut pc = pat.chars().flat_map(char::to_lowercase);
-    loop {
-        match (pc.next(), sc.next()) {
-            (None, _) => return true,
-            (Some(p), Some(c)) if p == c => continue,
-            _ => return false,
-        }
+/// Whether `s` begins with `pat` under [`fold`].
+fn starts_with_fold(s: &str, pat: &str, ci: bool) -> bool {
+    let mut sc = s.chars();
+    pat.chars()
+        .all(|p| sc.next().is_some_and(|c| fold(c, ci) == fold(p, ci)))
+}
+
+/// A char's search identity: diacritics are always stripped (`é` = `e`, so
+/// `/ete` finds `été` and vice versa — accents are how the word is *spelled*,
+/// not what you're *searching for*), and case is dropped only when `ci`
+/// (the smartcase rule: an all-lowercase pattern searches insensitively; one
+/// capital in it makes the search exact).
+fn fold(c: char, ci: bool) -> char {
+    let c = if ci {
+        // First char of the lowercase expansion — 1:1 for all of Latin,
+        // which is what this appliance types.
+        c.to_lowercase().next().unwrap_or(c)
+    } else {
+        c
+    };
+    strip_diacritic(c)
+}
+
+/// Map accented Latin letters to their base letter, both cases (the Latin-1
+/// Supplement set — the French/Western repertoire the keymap can produce).
+/// Ligatures (`œ`, `æ`) fold to more than one char and are left alone.
+fn strip_diacritic(c: char) -> char {
+    match c {
+        'à'..='å' => 'a',
+        'ç' => 'c',
+        'è'..='ë' => 'e',
+        'ì'..='ï' => 'i',
+        'ñ' => 'n',
+        'ò'..='ö' => 'o',
+        'ù'..='ü' => 'u',
+        'ý' | 'ÿ' => 'y',
+        'À'..='Å' => 'A',
+        'Ç' => 'C',
+        'È'..='Ë' => 'E',
+        'Ì'..='Ï' => 'I',
+        'Ñ' => 'N',
+        'Ò'..='Ö' => 'O',
+        'Ù'..='Ü' => 'U',
+        'Ý' => 'Y',
+        _ => c,
     }
 }
 
@@ -6491,20 +6530,40 @@ mod tests {
     }
 
     #[test]
-    fn search_is_case_insensitive() {
+    fn lowercase_search_is_case_insensitive() {
         let mut e = over("x Alpha alpha");
         search(&mut e, "alpha");
         assert_eq!(e.caret, 2); // "Alpha" matches "alpha"
-        search(&mut e, "ALPHA"); // and the pattern's own case is ignored too
-        assert_eq!(e.caret, 8);
     }
 
     #[test]
-    fn search_case_folds_accented_chars() {
-        let mut e = over("x Été bien"); // 'É' (2 bytes) folds to 'é'
+    fn smartcase_a_capital_makes_the_search_exact() {
+        let mut e = over("x paris Paris");
+        search(&mut e, "Paris"); // capital → case-sensitive
+        assert_eq!(e.caret, 8); // skips the lowercase "paris"
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g'));
+        search(&mut e, "paris"); // all-lowercase → insensitive again
+        assert_eq!(e.caret, 2);
+    }
+
+    #[test]
+    fn search_folds_accents_both_ways() {
+        let mut e = over("x Été bien"); // 'É' (2 bytes) folds to 'e'
         search(&mut e, "été");
         assert_eq!(e.caret, 2);
         assert_eq!(&e.text[e.caret..e.caret + 5], "Été");
+        e.handle(Key::Char('g'));
+        e.handle(Key::Char('g'));
+        search(&mut e, "ete"); // bare ascii finds the accented word too
+        assert_eq!(e.caret, 2);
+    }
+
+    #[test]
+    fn smartcase_still_folds_accents() {
+        let mut e = over("x ete Ete");
+        search(&mut e, "Été"); // capital É → case-sensitive, but é still = e
+        assert_eq!(e.caret, 6); // matches "Ete", not "ete"
     }
 
     #[test]
