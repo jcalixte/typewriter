@@ -87,7 +87,7 @@ fn main() -> anyhow::Result<()> {
     // must not hold up the first editor frame. The list lands on `walk_rx` and
     // the idle branch of the main loop feeds it to the editor; until then the
     // palette shows recents only. A pull re-feeds it the same way.
-    let (walk_tx, walk_rx) = std::sync::mpsc::channel::<Vec<String>>();
+    let (walk_tx, walk_rx) = std::sync::mpsc::channel::<String>();
     spawn_file_walk(walk_tx.clone());
 
     // Bring up the USB keyboard in the background; keys arrive via next_key().
@@ -276,6 +276,10 @@ fn main() -> anyhow::Result<()> {
                         {
                             use firmware::git_sync::GitRequest;
                             if storage.has_dirty() {
+                                // Log it too — on the 2026-07-14 run this gate
+                                // firing looked like a silent no-op in the
+                                // serial log.
+                                log::info!(":gl refused — dirty journal non-empty; :sync first");
                                 ed.set_notice("pull: unsynced changes - :sync first");
                             } else {
                                 match git_tx.send(GitRequest::Pull) {
@@ -376,7 +380,7 @@ fn main() -> anyhow::Result<()> {
             // ~630 ms panel drive. Caret visibility is passed through
             // unchanged so this can't reveal a debounced Insert caret early.
             if let Ok(files) = walk_rx.try_recv() {
-                ed.set_file_list(files);
+                ed.set_file_list_joined(files);
                 ed.draw_into(&mut back, cursor_shown);
                 if changed_rows(shown.bytes(), back.bytes()).is_some() {
                     if let Err(e) = epd.display_frame_partial_window(back.bytes(), 0, epd::HEIGHT) {
@@ -648,20 +652,27 @@ fn delete_buffer(storage: &Storage, ed: &mut Editor, path: String, scope: Scope)
 }
 
 /// Enumerate the palette's openable files: the regular files under `/sd/repo`
-/// and `/sd/local`, recursively, as absolute paths. Skips dot entries at every
-/// level (so `.git` and its thousands of object files, `.typoena.toml`, and the
-/// like never show or get walked). Best-effort: an unreadable directory (e.g.
-/// no `/sd/local` yet) contributes nothing rather than failing. The editor
-/// sorts and dedupes. Runs on the `walk` thread (`spawn_file_walk`), so the
-/// walk time is logged — on a big repo the FAT directory IO is the cost to
-/// watch (~4 ms/file over SPI).
-fn enumerate_files() -> Vec<String> {
+/// and `/sd/local`, recursively, as absolute paths — **one newline-joined
+/// blob**, not a `Vec<String>`. 1099 paths as individual small `String`s
+/// measured 182 KB of *internal* DRAM resident (each stays under the 16 KB
+/// SPIRAM-malloc threshold, plus per-alloc overhead), which starved the SD DMA
+/// pool during the first on-device pull (2026-07-14). The blob is seeded past
+/// the threshold so it and its growth reallocs land in PSRAM. Skips dot
+/// entries at every level (so `.git` and its thousands of object files never
+/// get walked). Best-effort: an unreadable directory (e.g. no `/sd/local`
+/// yet) contributes nothing rather than failing. The editor sorts and dedupes
+/// span-side. Runs on the `walk` thread (`spawn_file_walk`); on a big repo
+/// the FAT directory IO is the cost to watch (~4 ms/file over SPI).
+fn enumerate_files() -> String {
     let start = std::time::Instant::now();
-    let mut out = Vec::new();
+    // 64 KB seed: comfortably past the 16 KB SPIRAM threshold and roomy enough
+    // that a ~1100-file tree never reallocs.
+    let mut out = String::with_capacity(64 * 1024);
+    let mut count = 0usize;
     for dir in [REPO_DIR, LOCAL_DIR] {
-        walk_files(std::path::Path::new(dir), 0, &mut out);
+        walk_files(std::path::Path::new(dir), 0, &mut out, &mut count);
     }
-    log::info!("file walk: {} files in {}ms", out.len(), start.elapsed().as_millis());
+    log::info!("file walk: {count} files in {}ms", start.elapsed().as_millis());
     out
 }
 
@@ -671,11 +682,9 @@ fn enumerate_files() -> Vec<String> {
 /// seconds on a big tree and the palette is not mandatory for typing. The
 /// walk is pure directory reads, serialized against the editor's and the git
 /// thread's SD traffic by the FatFS volume lock. Bracketed with internal-DRAM
-/// readings: each path is a small String, kept internal by the SPIRAM malloc
-/// threshold (16 KB), so the list competes with Wi-Fi/TLS for DRAM — the
-/// logged number decides whether interning the paths into one shared buffer
-/// (a single >16 KB alloc, which lands in PSRAM) is worth the refactor.
-fn spawn_file_walk(tx: std::sync::mpsc::Sender<Vec<String>>) {
+/// readings to confirm the interned blob keeps the list out of internal
+/// (pre-interning: 182 KB resident; expected now: ~0, the spans only).
+fn spawn_file_walk(tx: std::sync::mpsc::Sender<String>) {
     // Explicit stack: the default pthread stack (4 KB) is tight for 8 levels
     // of readdir recursion plus FatFS underneath.
     let spawned = std::thread::Builder::new()
@@ -686,8 +695,9 @@ fn spawn_file_walk(tx: std::sync::mpsc::Sender<Vec<String>>) {
             let files = enumerate_files();
             let dram_after = internal_free_heap();
             log::info!(
-                "file list: internal heap {dram_before} -> {dram_after} ({} KB consumed)",
-                dram_before.saturating_sub(dram_after) / 1024
+                "file list: internal heap {dram_before} -> {dram_after} ({} KB consumed), blob {} KB",
+                dram_before.saturating_sub(dram_after) / 1024,
+                files.len() / 1024
             );
             let _ = tx.send(files); // receiver gone = shutting down; nothing to do
         });
@@ -705,7 +715,7 @@ const WALK_MAX_DEPTH: usize = 8;
 /// recursing (the `remove_dir_recursive` pattern in `git_sync`), so only one
 /// FatFS directory handle is open at a time regardless of depth — relevant on
 /// the FD-bounded SD mount.
-fn walk_files(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) {
+fn walk_files(dir: &std::path::Path, depth: usize, out: &mut String, count: &mut usize) {
     if depth > WALK_MAX_DEPTH {
         log::warn!("file walk: {} exceeds depth {WALK_MAX_DEPTH}, skipped", dir.display());
         return;
@@ -750,10 +760,12 @@ fn walk_files(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) {
         };
         if is_file {
             if let Some(p) = path.to_str() {
-                out.push(p.to_string());
+                out.push_str(p);
+                out.push('\n');
+                *count += 1;
             }
         } else if is_dir {
-            walk_files(&path, depth + 1, out);
+            walk_files(&path, depth + 1, out, count);
         }
     }
 }

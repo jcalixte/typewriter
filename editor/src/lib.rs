@@ -753,11 +753,22 @@ pub struct Editor {
     /// Host-effect queue, drained by [`take_effects`](Self::take_effects) after a
     /// key batch. See [`Effect`].
     requests: Vec<Effect>,
-    /// Every openable file, as absolute paths, fed by the host at boot via
-    /// [`set_file_list`](Self::set_file_list) (a recursive walk of `/sd/repo`
-    /// and `/sd/local`). The palette fuzzy-filters this once the query reaches
-    /// [`PALETTE_MIN_QUERY`] chars; empty until the host feeds it.
-    files: Vec<String>,
+    /// Every openable file, as absolute paths, fed by the host at boot (a
+    /// recursive walk of `/sd/repo` and `/sd/local`). The palette fuzzy-filters
+    /// this once the query reaches [`PALETTE_MIN_QUERY`] chars; empty until the
+    /// host feeds it.
+    ///
+    /// **Interned**: one newline-joined blob plus byte spans, not a
+    /// `Vec<String>`. On the device 1099 paths as individual `String`s cost
+    /// 182 KB of *internal* DRAM (small allocs stay under the 16 KB
+    /// PSRAM-malloc threshold, and per-alloc overhead dwarfs the ~50-byte
+    /// payloads) — which starved the SD DMA pool during the first on-device
+    /// pull (2026-07-14). A single large blob lands in PSRAM; the spans are
+    /// one small `Vec`. Access via [`file_at`](Self::file_at).
+    file_blob: String,
+    /// Byte ranges of each path in [`file_blob`](Self::file_blob), sorted by
+    /// the paths they point at (the palette's stable base order).
+    file_spans: Vec<(u32, u32)>,
     /// Recently-opened files, most-recent-first (an MRU), deduped and bounded to
     /// [`MRU_MAX`]. Every `:e`/palette open pushes to the front
     /// ([`note_recent`](Self::note_recent)); it orders the palette when the query
@@ -867,7 +878,8 @@ impl Editor {
             dirty: false,
             parked: Vec::new(),
             requests: Vec::new(),
-            files: Vec::new(),
+            file_blob: String::new(),
+            file_spans: Vec::new(),
             recent: Vec::new(),
             palette_query: String::new(),
             palette_sel: 0,
@@ -1864,31 +1876,76 @@ impl Editor {
         }
     }
 
-    /// Insert `path` into the palette's file list, keeping it sorted and unique
-    /// (matches [`set_file_list`](Self::set_file_list)'s invariant). Used by
-    /// `:enew` so a just-created file is findable without a disk re-enumeration.
+    /// The `i`-th file path in the palette's sorted base order (a slice into
+    /// [`file_blob`](Self::file_blob)).
+    fn file_at(&self, i: usize) -> &str {
+        let (s, e) = self.file_spans[i];
+        &self.file_blob[s as usize..e as usize]
+    }
+
+    /// How many files the palette knows about.
+    fn file_count(&self) -> usize {
+        self.file_spans.len()
+    }
+
+    /// Insert `path` into the palette's file list, keeping the spans sorted and
+    /// unique (matches [`set_file_list_joined`](Self::set_file_list_joined)'s
+    /// invariant). Used by `:enew` so a just-created file is findable without a
+    /// disk re-enumeration. Appends to the blob; a `String` realloc only moves
+    /// bytes, the spans are indices and stay valid.
     fn add_to_file_list(&mut self, path: &str) {
-        if let Err(i) = self.files.binary_search(&path.to_string()) {
-            self.files.insert(i, path.to_string());
+        match self
+            .file_spans
+            .binary_search_by(|&(s, e)| self.file_blob[s as usize..e as usize].cmp(path))
+        {
+            Ok(_) => {}
+            Err(i) => {
+                let start = self.file_blob.len() as u32;
+                self.file_blob.push_str(path);
+                self.file_spans.insert(i, (start, start + path.len() as u32));
+            }
         }
     }
 
-    /// Drop `path` from the palette's file list (used by `:delete`).
+    /// Drop `path` from the palette's file list (used by `:delete`). Only the
+    /// span goes; its bytes stay in the blob as dead weight until the next
+    /// host re-walk replaces the whole thing — a few dozen bytes at most.
     fn remove_from_file_list(&mut self, path: &str) {
-        self.files.retain(|f| f != path);
+        let blob = &self.file_blob;
+        self.file_spans
+            .retain(|&(s, e)| &blob[s as usize..e as usize] != path);
     }
 
     // --- File palette (Ctrl-P) ---------------------------------------------
 
-    /// Feed the palette its file list: every openable file as an absolute path,
-    /// enumerated by the host from `/sd/repo` and `/sd/local` (at boot for v0.5).
-    /// Sorted + deduped for a stable base order; the MRU floats recents above it.
-    /// The palette is a pure view over this — nothing is read from disk until a
-    /// file is actually opened.
-    pub fn set_file_list(&mut self, mut files: Vec<String>) {
-        files.sort();
-        files.dedup();
-        self.files = files;
+    /// Feed the palette its file list as **one newline-joined blob** of
+    /// absolute paths, enumerated by the host from `/sd/repo` and `/sd/local`.
+    /// This is the device's entry point: a single large `String` lands in
+    /// PSRAM (allocations ≥ 16 KB cross the SPIRAM-malloc threshold), where
+    /// the same list as 1099 individual `String`s measured 182 KB of internal
+    /// DRAM. Spans are sorted + deduped for a stable base order; the MRU
+    /// floats recents above it. The palette is a pure view over this — nothing
+    /// is read from disk until a file is actually opened.
+    pub fn set_file_list_joined(&mut self, blob: String) {
+        let mut spans: Vec<(u32, u32)> = Vec::new();
+        let mut start = 0u32;
+        for line in blob.split('\n') {
+            let end = start + line.len() as u32;
+            if !line.is_empty() {
+                spans.push((start, end));
+            }
+            start = end + 1; // past the '\n'
+        }
+        spans.sort_by(|&(a, b), &(c, d)| blob[a as usize..b as usize].cmp(&blob[c as usize..d as usize]));
+        spans.dedup_by(|&mut (a, b), &mut (c, d)| blob[a as usize..b as usize] == blob[c as usize..d as usize]);
+        self.file_blob = blob;
+        self.file_spans = spans;
+    }
+
+    /// [`set_file_list_joined`](Self::set_file_list_joined) from a `Vec` —
+    /// convenience for hosts/tests that already hold separate strings.
+    pub fn set_file_list(&mut self, files: Vec<String>) {
+        self.set_file_list_joined(files.join("\n"));
     }
 
     /// Push `path` to the front of the recent-files MRU (dropping any earlier
@@ -2042,7 +2099,7 @@ impl Editor {
         let idx = self.palette_matches().get(self.palette_sel).copied();
         self.close_palette();
         let Some(idx) = idx else { return };
-        let (path, scope) = resolve_path(&self.files[idx], self.scope);
+        let (path, scope) = resolve_path(self.file_at(idx), self.scope);
         self.open_path(path, scope);
     }
 
@@ -2056,14 +2113,14 @@ impl Editor {
     /// through unranked, but the MRU keeps quick-switch (`Cmd-P`, `Enter`) one
     /// keystroke away. Two typed chars reveal the full list.
     fn palette_matches(&self) -> Vec<usize> {
-        let mut order: Vec<usize> = Vec::with_capacity(self.files.len());
+        let mut order: Vec<usize> = Vec::with_capacity(self.file_count());
         for r in &self.recent {
-            if let Some(i) = self.files.iter().position(|f| f == r) {
+            if let Some(i) = (0..self.file_count()).find(|&i| self.file_at(i) == r) {
                 order.push(i);
             }
         }
         if self.palette_query.chars().count() >= PALETTE_MIN_QUERY {
-            for i in 0..self.files.len() {
+            for i in 0..self.file_count() {
                 if !order.contains(&i) {
                     order.push(i);
                 }
@@ -2075,7 +2132,7 @@ impl Editor {
         let mut scored: Vec<(usize, i32)> = order
             .into_iter()
             .filter_map(|i| {
-                fuzzy_score(&self.palette_query, palette_label(&self.files[i])).map(|s| (i, s))
+                fuzzy_score(&self.palette_query, palette_label(self.file_at(i))).map(|s| (i, s))
             })
             .collect();
         // Stable sort by descending score — ties keep their MRU/base position.
@@ -3707,7 +3764,7 @@ impl Editor {
                 }
             } else if command_mode {
                 "(no command)"
-            } else if self.files.is_empty() {
+            } else if self.file_spans.is_empty() {
                 "(no files on card)"
             } else if self.palette_query.chars().count() < PALETTE_MIN_QUERY {
                 // No recents yet and the query is below the search threshold —
@@ -3730,7 +3787,7 @@ impl Editor {
                 } else if command_mode {
                     self.command_label(PALETTE_CMDS[idx])
                 } else {
-                    palette_label(&self.files[idx]).chars().take(max_chars).collect()
+                    palette_label(self.file_at(idx)).chars().take(max_chars).collect()
                 };
                 if row == sel {
                     // Reverse video: black fill across the column, white glyphs.
@@ -5231,7 +5288,7 @@ mod tests {
     fn enew_adds_the_new_file_to_the_palette_list() {
         let mut e = palette_editor(&["/sd/repo/notes.md", "/sd/repo/todo.md"]);
         ex(&mut e, "enew draft.md");
-        assert!(e.files.contains(&"/sd/repo/draft.md".to_string()));
+        assert!(files_vec(&e).contains(&"/sd/repo/draft.md".to_string()));
         // and it is findable in the palette without a disk re-enumeration
         e.handle(Key::Palette);
         for c in "draft".chars() {
@@ -5306,7 +5363,7 @@ mod tests {
         let mut e = palette_editor(&["/sd/repo/notes.md", "/sd/repo/todo.md"]);
         ex(&mut e, "delete"); // notes.md is active
         e.take_effects();
-        assert!(!e.files.contains(&"/sd/repo/notes.md".to_string()));
+        assert!(!files_vec(&e).contains(&"/sd/repo/notes.md".to_string()));
         e.handle(Key::Palette);
         for c in "md".chars() {
             e.handle(Key::Char(c)); // reach the search threshold
@@ -5346,7 +5403,12 @@ mod tests {
 
     /// The palette's current result as display labels, in ranked order.
     fn palette_labels(e: &Editor) -> Vec<&str> {
-        e.palette_matches().iter().map(|&i| palette_label(&e.files[i])).collect()
+        e.palette_matches().iter().map(|&i| palette_label(e.file_at(i))).collect()
+    }
+
+    /// The interned file list back as owned strings, in base (sorted) order.
+    fn files_vec(e: &Editor) -> Vec<String> {
+        (0..e.file_count()).map(|i| e.file_at(i).to_string()).collect()
     }
 
     #[test]
@@ -5374,7 +5436,7 @@ mod tests {
             "/sd/repo/a.md".into(),
             "/sd/repo/b.md".into(),
         ]);
-        assert_eq!(e.files, vec!["/sd/repo/a.md", "/sd/repo/b.md"]);
+        assert_eq!(files_vec(&e), vec!["/sd/repo/a.md", "/sd/repo/b.md"]);
     }
 
     #[test]
@@ -6515,6 +6577,21 @@ mod tests {
         assert!(e.undo.is_empty()); // old snapshots reference the old text
         assert_eq!(e.path(), "/sd/repo/notes.md"); // same file, new contents
         assert_eq!(e.caret, 10); // boot posture: caret on the last char
+    }
+
+    #[test]
+    fn joined_file_list_sorts_dedups_and_survives_blank_lines() {
+        let mut e = Editor::new();
+        e.set_file_list_joined("/sd/repo/b.md\n\n/sd/repo/a.md\n/sd/repo/b.md\n".into());
+        assert_eq!(files_vec(&e), vec!["/sd/repo/a.md", "/sd/repo/b.md"]);
+        e.add_to_file_list("/sd/repo/ab.md"); // lands between, sorted
+        e.add_to_file_list("/sd/repo/a.md"); // already known — no dup
+        assert_eq!(
+            files_vec(&e),
+            vec!["/sd/repo/a.md", "/sd/repo/ab.md", "/sd/repo/b.md"]
+        );
+        e.remove_from_file_list("/sd/repo/b.md");
+        assert_eq!(files_vec(&e), vec!["/sd/repo/a.md", "/sd/repo/ab.md"]);
     }
 
     #[test]
