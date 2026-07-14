@@ -1,7 +1,7 @@
 # `.typoena.toml` — editor preferences
 
 > The git-tracked file that controls how the editor behaves — auto-save,
-> format-on-save, the line-number gutter, and the panel theme. Hand-editable, or
+> format-on-save, the line-number gutter, the boot file, and the panel theme. Hand-editable, or
 > changed live from the `Cmd-P` palette (booleans flip; the theme and auto-sync
 > interval rotate through preset options on **Enter**). Landed in **v0.5** (see
 > [`macroplan.md`](macroplan.md)).
@@ -25,7 +25,8 @@ later via `typoena.conf` — worth it only once `auto_sync` actually does someth
 in v0.8. See the [auto_sync](#auto_sync) note.)
 
 The file is read **once at boot**, before the first screen is drawn (so
-`line_numbers` shapes the opening frame). A **missing, empty, or partial file is
+`line_numbers` shapes the opening frame, and `open_last_on_boot` picks the file
+that frame shows). A **missing, empty, or partial file is
 fine** — every absent key falls back to its default below, so a fresh card just
 works with no config present.
 
@@ -36,6 +37,7 @@ works with no config present.
 | `save_on_idle` | bool | `true` | `true` / `false` | Auto-save the current buffer on the idle typing-pause, so `:w` is optional. |
 | `format_on_save` | bool | `true` | `true` / `false` | Run `:fmt` on the buffer before an explicit `:w`/`:sync`. |
 | `line_numbers` | bool | `true` | `true` / `false` | Show the absolute line-number gutter. Off reclaims its columns for text. |
+| `open_last_on_boot` | bool | `true` | `true` / `false` | Boot into the file that was active at power-off, instead of `notes.md`. |
 | `theme` | string | `"light"` | `light` / `dark` | Panel colour polarity. `dark` inverts the whole frame to white-on-black. |
 | `auto_sync` | string | `"10m"` | `2m` / `5m` / `10m` / `15m` / `30m` | Max-staleness cap for opportunistic auto-publish. **Value only — no behaviour yet** (rides v0.8, with the sleep work). |
 
@@ -51,6 +53,7 @@ value — the palette only cycles the presets.
 save_on_idle = true
 format_on_save = true
 line_numbers = true
+open_last_on_boot = true
 theme = "light"
 auto_sync = "10m"
 ```
@@ -88,6 +91,26 @@ Shows the absolute line-number gutter (built always-on in v0.2). Turning it off
 returns the gutter's columns to the text, so prose gets the full writing width.
 Applied **live** — toggling it from the palette redraws immediately with (or
 without) the gutter.
+
+### `open_last_on_boot`
+
+Boot into the file that was active when the device powered off, instead of the
+default `notes.md` — power the typewriter back on and you are where you left
+off, caret on the last character as always.
+
+Only the **choice** lives in this file. The last-active *path* is device state,
+not shared behaviour: the firmware keeps it in a device-local marker
+(`/sd/.typoena-last`, beside the dirty journal at the card root), rewritten on
+every buffer switch. It is deliberately **not** stored here — a tracked key
+would dirty the repo on every file switch (riding each `:gp` as noise) and make
+two devices fight over a single "last file".
+
+The fallback is safe by construction: a missing marker, a garbled one (power
+pull mid-write), or a marker naming a file that no longer exists (deleted here,
+or removed by a `:gl` from another device) simply boots the default `notes.md`.
+Turning the pref **off** doesn't stop the marker being recorded — it only stops
+boot from reading it — so flipping it back on resumes correctly from the very
+next boot.
 
 ### `theme`
 
@@ -133,6 +156,7 @@ Two ways, both landing in the same file:
    > save on idle: on
      format on save: on
      line numbers: on
+     open last on boot: on
      theme: light
      auto sync: 10m
    ```
