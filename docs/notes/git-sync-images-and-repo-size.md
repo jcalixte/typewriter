@@ -126,17 +126,28 @@ commit "delete all images" and push it → remanso loses every image. So with
 the current staging, a full checkout is mandatory — which is what feeds costs
 2 and 3.
 
-## Fix for increment C (git module in the editor)
+## Fix for increment C (git module in the editor) — LANDED 2026-07-14
 
-Change two things together:
+Both halves shipped, months apart, each by its own route:
 
-- **Stage specific paths, not `add_all(["*"])`.** The editor knows which note
-  file it wrote — commit that path explicitly.
-- Then a **sparse checkout that excludes media** is safe: the device never
-  writes images to its working tree, killing the checkout OOM and the 2×
-  storage. The bytes still transit `.git` on fetch (no partial clone), but
-  writing objects to disk is far lower memory risk than a checkout that
-  materializes them in RAM.
+- **Stage specific paths, not `add_all(["*"])`** — delivered by the v0.6
+  splice commit (2026-07-13): the device commits exactly the dirty-journal
+  paths. This is what disarmed the trap below — a working tree missing its
+  images can no longer be committed as "delete all images".
+- **Skip media in the pull apply** (the sparse-checkout idea, done the
+  `apply_tree_diff` way, 2026-07-14): media extensions are invisible to both
+  of the apply's passes — never written, never deleted, and never
+  belt-hashed (hashing a stale 16 MB image would re-open the same OOM). The
+  blobs still arrive in `.git` on fetch (streamed, no partial clone in
+  libgit2); only the working-tree copy is skipped. `is_media_path` in
+  `git_sync.rs` holds the extension list.
+
+The accepted trade: the card's media files go stale/absent relative to HEAD,
+so a computer opening the card clone sees phantom `modified`/`deleted`
+images in `git status`. The card is device-owned — refresh it with
+`just load`, never hand-commit from it (`git add -A` there would commit the
+staleness for real and break remanso). `git checkout -- .` on a computer
+restores every image from `.git` if a clean tree is ever wanted.
 
 ## Related
 
