@@ -52,10 +52,10 @@ after-kaizen slot stays empty here — the measured bar lands in step 6.
 ┌─ local commit ─────────────────────────────────────┐   ┌─ network push ──────┐
 │ stage: add_all(["*"]) + update_all(["*"])          │   │ TLS + push          │
 │   → stat()s 1179 files / 158 dirs over 10 MHz SPI  │──▶│ ~6.5 s floor        │
-│ index.write ⚡ ~611 s                               │   │ (separate curve)    │
+│ index.write ⚡ ~611 s                              │   │ (separate curve)    │
 │   → FAT's 2 s mtime marks ~every entry "racy"      │   └─────────────────────┘
 │     → re-hashes ~170 MB (150 MB of images)         │
-│ write_tree + commit-obj ⚡ seconds each             │
+│ write_tree + commit-obj ⚡ seconds each            │
 │   → loose writes trigger pack reads through        │
 │     emulated mmap; each far lseek walks the        │
 │     FAT cluster chain (~190 ms)                    │
