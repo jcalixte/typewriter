@@ -129,21 +129,25 @@ pub enum PublishOutcome {
     Failed(String),
 }
 
-/// Result of a `:gl` pull attempt. Fast-forward only, by design: this device
-/// never merges — a divergence is surfaced and left for a machine with a real
-/// git to resolve.
+/// Result of a `:gl` pull attempt. The device never does a content merge; a
+/// clean fast-forward applies origin directly, and a divergence is resolved by
+/// rebasing our local commit(s) onto origin (last-writer-wins per note) rather
+/// than left for a computer.
 pub enum PullOutcome {
     /// Fast-forwarded onto origin's tip. Carries the short commit id; the UI
     /// must treat every tracked file as possibly rewritten (reload buffers,
     /// re-walk the palette list).
     Pulled(String),
+    /// Histories diverged: origin's changes were integrated and our local
+    /// commit(s) replanted on top (a rebase, not a merge). The working copy
+    /// moved — same UI refresh as `Pulled` — and the device is now `LocalAhead`,
+    /// so the user finishes with `:gp`. Carries the rebased commit's short id.
+    Rebased(String),
     /// Origin's tip is our HEAD — nothing to pull.
     UpToDate,
     /// We are strictly ahead of origin (e.g. a stranded commit whose push
     /// failed) — nothing to pull; the next `:gp` publishes it.
     LocalAhead,
-    /// Local and remote histories diverged. Refused — no merge on the device.
-    Diverged,
     /// Something failed; short reason for the panel (full error is logged).
     Failed(String),
 }
@@ -761,10 +765,12 @@ fn update_tracking(repo: &Repository, branch: &str, tip: Oid) -> Result<()> {
     Ok(())
 }
 
-/// Open `/sd/repo`, fetch origin, and **fast-forward only** — never a merge.
-/// The four non-failure shapes map to [`PullOutcome`]: already current, we're
-/// strictly ahead (a stranded commit — `:gp`'s job), a clean fast-forward,
-/// or a divergence (refused; a machine with a real git resolves it).
+/// Open `/sd/repo`, fetch origin, and integrate — **fast-forward when we can,
+/// rebase when we must**, never a content merge. The non-failure shapes map to
+/// [`PullOutcome`]: already current, we're strictly ahead (a stranded commit —
+/// `:gp`'s job), a clean fast-forward, or a divergence — where instead of
+/// refusing we replant our local commit(s) onto origin ([`rebase_local_onto`])
+/// and end `LocalAhead` for `:gp` to publish.
 ///
 /// The fast-forward is checkout-then-ref-move, with a **SAFE** checkout: it
 /// refuses to overwrite a working-copy file whose content differs from HEAD's.
@@ -856,12 +862,62 @@ fn pull_once() -> Result<PullOutcome> {
         .graph_descendant_of(theirs, head)
         .context("descendant check (fast-forward)")?
     {
-        log::warn!(
-            "pull: origin {} and HEAD {} diverged — refusing (ff-only, no merge on the device)",
+        // Diverged: both sides moved. Rather than refuse, replant our local
+        // commit(s) onto origin's tip so a plain `:gp` publishes them — no
+        // computer needed. The branch ref moves LAST (after the card reflects
+        // the rebased tree), so a power-pull mid-rebase leaves HEAD at the old
+        // tip and the next `:gl` recomputes the identical commit idempotently.
+        log::info!(
+            "pull: origin {} and HEAD {} diverged — rebasing local work onto origin (last-writer-wins, no merge)",
             short(theirs),
             short(head)
         );
-        return Ok(PullOutcome::Diverged);
+        let t_rebase = Instant::now();
+        let rebased = rebase_local_onto(&repo, head, theirs)?;
+        let rebase_ms = t_rebase.elapsed().as_millis();
+
+        // Nothing of ours survived the replay (our edits were already upstream):
+        // collapse to a plain fast-forward onto origin.
+        if rebased == theirs {
+            let t_apply = Instant::now();
+            let changed = apply_tree_diff(&repo, head, theirs)?;
+            repo.reference(
+                &format!("refs/heads/{branch}"),
+                theirs,
+                true,
+                "typoena pull: fast-forward (local work already upstream)",
+            )
+            .context("fast-forwarding the branch ref")?;
+            log::info!(
+                "pull: local work already upstream — fast-forwarded {branch} to {} — apply {}ms ({changed} file(s))",
+                short(theirs),
+                t_apply.elapsed().as_millis()
+            );
+            return Ok(PullOutcome::Pulled(short(theirs)));
+        }
+
+        // Bring the card from our old tree to the rebased tree: origin's
+        // remote-only changes are written, our own edits are already on disk
+        // (unchanged in the diff, so untouched). Ref moves last.
+        let t_apply = Instant::now();
+        let changed = apply_tree_diff(&repo, head, rebased)?;
+        repo.reference(
+            &format!("refs/heads/{branch}"),
+            rebased,
+            true,
+            "typoena pull: rebase local onto origin",
+        )
+        .context("moving the branch ref to the rebased commit")?;
+        log::info!(
+            "pull: rebased {} onto origin {} -> {} — rebase {rebase_ms}ms, apply {}ms ({changed} file(s)), free heap {} ({} internal)",
+            short(head),
+            short(theirs),
+            short(rebased),
+            t_apply.elapsed().as_millis(),
+            free_heap(),
+            internal_free_heap()
+        );
+        return Ok(PullOutcome::Rebased(short(rebased)));
     }
 
     let t_co = Instant::now();
@@ -1010,6 +1066,90 @@ fn apply_tree_diff(repo: &Repository, head: Oid, theirs: Oid) -> Result<usize> {
         );
     }
     Ok(changed)
+}
+
+/// Rebase the device's local-only work onto origin's tip and return the new
+/// commit id — a single squashed commit whose tree is origin's tree with our
+/// edits spliced back on top. This is `:gl`'s answer to a divergence (a
+/// stranded local commit while origin also moved): rather than refuse and send
+/// the user to a computer, we replant our work on the new base so a plain `:gp`
+/// publishes it.
+///
+/// Last-writer-wins by design, exactly like publish's post-rejection reconcile
+/// ([`reconcile_onto_origin`]): the replay set is the paths our side changed
+/// since the fork point (`merge_base..head`), each spliced from the **card**
+/// (the source of truth) onto origin's tree. A note both sides edited resolves
+/// to ours; every remote-only change rides along by OID from origin's tree.
+/// It is a rebase of one squashed commit, not a content merge — the device
+/// still has no merge engine (that stays increment-B work).
+///
+/// Returns `theirs` unchanged when nothing of ours survives the replay (our
+/// edits were already upstream) so the caller can collapse to a fast-forward
+/// instead of writing an empty commit. The commit is created with
+/// `commit(None, …)`: it does **not** move the branch ref. The caller applies
+/// the merged tree to the card and moves the ref last, so a power-pull
+/// mid-rebase leaves HEAD at the old tip and the next `:gl` recomputes the
+/// identical commit idempotently.
+fn rebase_local_onto(repo: &Repository, head: Oid, theirs: Oid) -> Result<Oid> {
+    let base = repo
+        .merge_base(head, theirs)
+        .context("finding the merge-base to rebase onto origin")?;
+    let base_tree = repo.find_commit(base)?.tree().context("merge-base tree")?;
+    let head_tree = repo.find_commit(head)?.tree().context("HEAD tree")?;
+    let their_commit = repo.find_commit(theirs)?;
+    let their_tree = their_commit.tree().context("origin tree")?;
+    let their_tree_id = their_tree.id();
+
+    // Our side's changes since the fork are the replay set: splice each onto
+    // origin's tree, read from the card (a path missing on disk splices out — a
+    // local delete), mirroring stage_and_commit's working-tree-as-truth model.
+    let diff = repo
+        .diff_tree_to_tree(Some(&base_tree), Some(&head_tree), None)
+        .context("diffing merge-base..HEAD for the replay set")?;
+    let mut paths: BTreeSet<String> = BTreeSet::new();
+    for d in diff.deltas() {
+        if let Some(rel) = d
+            .new_file()
+            .path()
+            .or_else(|| d.old_file().path())
+            .and_then(|p| p.to_str())
+        {
+            paths.insert(rel.to_string());
+        }
+    }
+
+    let mut tree = their_tree;
+    for path in &paths {
+        // Media is never a device commit (the splice stages journal paths only,
+        // and the card is text-only) — but reading a stray 16 MB blob would OOM,
+        // so skip it and keep origin's version, consistent with apply_tree_diff.
+        if is_media_path(path) {
+            log::warn!("rebase: skipping media path {path} in the replay set (kept origin's version)");
+            continue;
+        }
+        let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+        if parts.is_empty() {
+            continue;
+        }
+        let blob = match fs::read(format!("{REPO_DIR}/{path}")) {
+            Ok(bytes) => Some(repo.blob(&bytes).with_context(|| format!("blob for {path}"))?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None, // local delete
+            Err(e) => return Err(e).with_context(|| format!("reading {path}")),
+        };
+        let spliced = splice(repo, Some(&tree), &parts, blob)
+            .with_context(|| format!("splicing {path} onto origin"))?;
+        tree = repo.find_tree(spliced).context("loading spliced tree")?;
+    }
+
+    // Nothing of ours survived (edits already upstream) — signal a fast-forward.
+    if tree.id() == their_tree_id {
+        return Ok(theirs);
+    }
+
+    let sig = Signature::now(AUTHOR_NAME, AUTHOR_EMAIL).context("building signature")?;
+    let message = format!("Typoena rebase onto origin — unix {}", now_unix());
+    repo.commit(None, &sig, &sig, &message, &tree, &[&their_commit])
+        .context("creating the rebased commit")
 }
 
 /// Paths [`apply_tree_diff`] never writes, deletes, or belt-hashes: binary

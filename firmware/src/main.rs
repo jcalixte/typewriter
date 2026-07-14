@@ -340,17 +340,30 @@ fn main() -> anyhow::Result<()> {
                             PublishOutcome::Failed(reason) => reason,
                         }
                     }
-                    GitOutcome::Pull(outcome) => match outcome {
-                        // The working copy moved under us: stale resident
-                        // buffers must re-read the disk. Clean parked buffers
-                        // are dropped (they reload on the next switch), the
-                        // clean active buffer is re-read now, and a RAM-dirty
-                        // buffer is left alone — its edits win, last-writer-
-                        // wins like the publish reconcile. The palette list is
-                        // re-walked in the background for files the pull added
-                        // or removed (it lands on `walk_rx` a few seconds
-                        // later, instead of stalling the UI for the walk).
-                        PullOutcome::Pulled(oid) => {
+                    GitOutcome::Pull(outcome) => {
+                        // Pulled and Rebased both move the working copy under us
+                        // (Rebased applies origin's tree *and* replants our commit
+                        // on top); LocalAhead / UpToDate leave the tree untouched.
+                        let moved_working_copy = matches!(
+                            outcome,
+                            PullOutcome::Pulled(_) | PullOutcome::Rebased(_)
+                        );
+                        let notice = match outcome {
+                            PullOutcome::Pulled(oid) => format!("pulled {oid}"),
+                            PullOutcome::Rebased(oid) => format!("rebased {oid} - :gp to publish"),
+                            PullOutcome::UpToDate => "up to date".to_string(),
+                            PullOutcome::LocalAhead => "ahead - :gp to publish".to_string(),
+                            PullOutcome::Failed(reason) => reason,
+                        };
+                        if moved_working_copy {
+                            // Stale resident buffers must re-read the disk. Clean
+                            // parked buffers are dropped (they reload on the next
+                            // switch), the clean active buffer is re-read now, and
+                            // a RAM-dirty buffer is left alone — its edits win,
+                            // last-writer-wins like the publish reconcile. The
+                            // palette list is re-walked in the background for files
+                            // the pull added or removed (it lands on `walk_rx` a
+                            // few seconds later, instead of stalling the UI).
                             ed.drop_clean_parked();
                             if ed.dirty() {
                                 log::info!(
@@ -367,13 +380,9 @@ fn main() -> anyhow::Result<()> {
                                 }
                             }
                             spawn_file_walk(walk_tx.clone());
-                            format!("pulled {oid}")
                         }
-                        PullOutcome::UpToDate => "up to date".to_string(),
-                        PullOutcome::LocalAhead => "ahead - :gp to publish".to_string(),
-                        PullOutcome::Diverged => "diverged - resolve on a computer".to_string(),
-                        PullOutcome::Failed(reason) => reason,
-                    },
+                        notice
+                    }
                 };
                 ed.set_notice(notice);
                 ed.draw_into(&mut back, true);
