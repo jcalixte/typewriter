@@ -213,7 +213,7 @@ Skipping `index.write()` entirely (fresh `Index::new()`, stamp = 0, so
 `truncate_racily_clean` can never fire) removes Wall 1. But to seed the in-memory
 index, `read_tree(HEAD)` materialises all 1179 entries and reads every tree object
 from the 570 MB pack — **77 s cold** (447 ms only once the windows are resident).
-`write_tree_to` is O(changed), but you pay O(N_tree) to build the cache it needs, so
+`write_tree_to` is O(changed), but you pay O(`N_tree`) to build the cache it needs, so
 the index-free path only trades a 611 s hash for a 77 s tree-read. Worse, that
 `read_tree` drove the `esp_map.c` cache to **7.4 MB resident** — past its own 4 MB
 soft cap — which left 508 KB of heap and made `repo.blob()`'s zlib `deflateInit`
@@ -498,7 +498,7 @@ work, ranked:
    The cache never scored a hit in four instrumented real-repo runs
    (`mwindow` absorbs true repetition above `p_mmap`; only new ranges reach
    the emulation), and the 7.4 MB OOM it was patched to avoid was caused by
-   the cache itself holding buffers past `p_munmap`. esp_map.c is now the
+   the cache itself holding buffers past `p_munmap`. `esp_map.c` is now the
    plain malloc-read/free-at-munmap emulation: honest with
    `MWINDOW_MAPPED_LIMIT` by construction, ~120 lines lighter, and run 5
    confirmed removal is I/O-neutral (even 15 reads _better_ than v2, whose
