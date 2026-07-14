@@ -18,6 +18,12 @@
 | [`typoena-toml.md`](typoena-toml.md)             | `.typoena.toml` reference — the git-tracked editor preferences (auto-save, format-on-save, line numbers, auto-sync). |
 | [`hardware.md`](hardware.md)                     | Part choices for the bench build and the rationale behind them.                                                      |
 
+## Conventions
+
+| Doc                        | What's in it                                                                                                            |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| [`testing.md`](testing.md) | Where Rust tests live — unit tests in-file vs the `editor` crate's `src/tests/` behavioural submodule; how to run them. |
+
 ## Quality method
 
 | Doc                                                | What's in it                                                                                                                            |
