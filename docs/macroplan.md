@@ -68,6 +68,8 @@ learning = "Core complete 2026-07-12, ~92 days ahead of the 2026-10-12 baseline,
 name = "v0.7 search + git"
 start = 2026-10-12
 original = 2026-11-02
+delivered = 2026-07-14
+learning = "Delivered 2026-07-14, ~16 weeks ahead of the 2026-11-02 baseline, and closed on-device across three bench runs in three days. `/` search shipped smartcase + accent-folded (a user decision that superseded the same-day plain-insensitive version; /ete finds été) with n/N, Enter-only jump, and an editor-global pattern. `:gl` pull landed fetch + fast-forward-only in all four shapes; the fast-forward is an O(changed) tree-diff apply (apply_tree_diff) built after run 2 crashed in libgit2's O(tree) checkout_tree — internal-DRAM exhaustion plus an esp-idf spi_master NULL-deref on its own failed-alloc path. Three memory/transport fixes rode along: file-list interning to one PSRAM blob (was 182 KB internal), a 64 KB DMA reserve, and TLS session resumption (third vendor delta), which cut the rejected-push reconcile cycle from 59 s to 24 s. Bonus: the first on-device rejected-push → reconcile → replay → push success, and the sd_bench dir-scaling run convicted FAT linear directory scans as the ~400 ms/loose-write residual (bounded, accepted). :sync was renamed :gp to pair with :gl."
 
 [[feature]]
 name = "v0.8 battery + sleep"
@@ -90,7 +92,7 @@ week = 2026-06-29
 requires = ["v0.1 it writes, it pushes"]
 ```
 
-## Status — synced 2026-07-12
+## Status — synced 2026-07-14
 
 The editor **core** has been built 2–3 versions ahead of the device
 **releases**, and is now **extracted into a host-testable `editor` crate** (plus
@@ -137,6 +139,14 @@ close, a two-step `new file`), `$` = snippets — which **retired `:e`**. `just 
 seeds a curated 17-snippet catalog (Symbols · Structure · Prose, opt-in). One
 caveat: `→`/`≠` sit outside ISO-8859-15 and need a display-layer glyph overlay
 (in flight) to render on the panel; the other 15 draw on the stock font.
+**v0.7 search + better git is CLOSED 2026-07-14** (firmware **0.7.0**), verified
+on-device over three bench runs: `/` search (smartcase + accent-folded, `n`/`N`)
+panel-confirmed, and `:gl` pull proven in all four shapes — the fast-forward
+closing gate passed with an O(changed) `apply_tree_diff` written after libgit2's
+`checkout_tree` crashed the device on run 2. TLS session resumption cut the
+rejected-push reconcile cycle from 59 s to 24 s, and `:sync` was renamed `:gp`.
+Still open post-v0.7: the warm clean-publish measurement, the images-off-card
+decision, and the empty-note trailing-newline watch item.
 
 Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
 inline `(✓)` marks the done half of a split item.
@@ -198,11 +208,12 @@ Zed-compatible `.typoena.snippets.json`; the `Cmd-P` palette generalised into a
 catalog. **COMPLETE in core 2026-07-12** (firmware 0.6.0), on-device smoke-test
 pending. Detail: [v0.6-markdown.md](v0.6-markdown.md).
 
-## v0.7 — Search + better git — [~]
+## v0.7 — Search + better git — [x]
 
-`/` forward search (`n`/`N`) and `:gl` pull (fetch + fast-forward only). The
-`:gl` editor command landed 2026-07-11; the on-device fetch and search are still
-to build. Detail: [v0.7-search-and-git.md](v0.7-search-and-git.md).
+`/` forward search (`n`/`N`, smartcase + accent-folded) and `:gl` pull (fetch +
+fast-forward only, an O(changed) tree-diff apply); `:sync` renamed `:gp`.
+**CLOSED 2026-07-14** (firmware 0.7.0), panel- and git-path-verified on-device.
+Detail: [v0.7-search-and-git.md](v0.7-search-and-git.md).
 
 ## v0.8 — Power: battery + sleep — [ ]
 
