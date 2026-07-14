@@ -22,7 +22,7 @@ like any note — which means the preferences **sync to every device** that clon
 the repo. That is deliberate: your editor behaviour follows you. (A per-device
 override for the one genuinely device-specific key, `auto_sync`, may layer on top
 later via `typoena.conf` — worth it only once `auto_sync` actually does something
-in v0.7. See the [auto_sync](#auto_sync) note.)
+in v0.8. See the [auto_sync](#auto_sync) note.)
 
 The file is read **once at boot**, before the first screen is drawn (so
 `line_numbers` shapes the opening frame). A **missing, empty, or partial file is
@@ -37,7 +37,7 @@ works with no config present.
 | `format_on_save` | bool | `true` | `true` / `false` | Run `:fmt` on the buffer before an explicit `:w`/`:sync`. |
 | `line_numbers` | bool | `true` | `true` / `false` | Show the absolute line-number gutter. Off reclaims its columns for text. |
 | `theme` | string | `"light"` | `light` / `dark` | Panel colour polarity. `dark` inverts the whole frame to white-on-black. |
-| `auto_sync` | string | `"10m"` | `2m` / `5m` / `10m` / `15m` / `30m` | Max-staleness cap for opportunistic auto-publish. **Value only — no behaviour yet** (rides v0.7). |
+| `auto_sync` | string | `"10m"` | `2m` / `5m` / `10m` / `15m` / `30m` | Max-staleness cap for opportunistic auto-publish. **Value only — no behaviour yet** (rides v0.8, with the sleep work). |
 
 The **Options** column is what the palette rotates through on **Enter**; a
 boolean is just the two-option case. Hand-editing a string key can still set any
@@ -109,7 +109,8 @@ to get — an *opportunistic, rate-limited* push, not a wall-clock timer. The
 palette rotates it through the presets `2m` / `5m` / `10m` / `15m` / `30m`
 (hand-editing can still set any string, e.g. `"0"`/empty to disable). **The value
 is only stored and displayed in v0.5 — nothing reads it yet:** the periodic push
-rides the better-git work in v0.7 and must interact with sleep in v0.8, so
+lands with the sleep work in v0.8 (originally pencilled on v0.7's git work;
+v0.7 closed 2026-07-14 with manual `:gl`/`:gp` only), so
 cycling the interval today changes what will be honoured *then*, not now.
 Rationale for the `"10m"` default:
 [`tradeoff-curves/wifi-auto-sync.md`](tradeoff-curves/wifi-auto-sync.md).
@@ -145,7 +146,7 @@ Two ways, both landing in the same file:
    **Esc** (or `Cmd-P`) closes it. Each change rides the next `:sync` to your
    other devices.
 
-   `auto_sync` is a value command now, but has no behaviour to drive until v0.7 —
+   `auto_sync` is a value command now, but has no behaviour to drive until v0.8 —
    cycling it sets the interval that the future periodic push will honour.
 
 ## Parsing

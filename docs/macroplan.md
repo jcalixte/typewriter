@@ -217,8 +217,9 @@ Detail: [v0.7-search-and-git.md](v0.7-search-and-git.md).
 
 ## v0.8 — Power: battery + sleep — [ ]
 
-Bench current-draw measurement, 18650 + charge board, light/deep sleep, and a
-battery indicator. **Not started.**
+Bench current-draw measurement, 18650 + charge board, per-sync Wi-Fi teardown,
+light/deep sleep, the `auto_sync` runtime (re-homed from v0.7), and a battery
+indicator. **Not started.**
 Detail: [v0.8-battery-and-sleep.md](v0.8-battery-and-sleep.md).
 
 ## v0.9 — Robustness — [ ]
