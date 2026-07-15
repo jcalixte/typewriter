@@ -159,3 +159,9 @@ it.
    `x-access-token:<token>` basic auth as a PAT, so the clone path and the
    firmware are unchanged; manual PAT paste remains the fallback. If the app
    has token expiry on, the success message flags the token's lifetime.
+   **Authorization ≠ installation** (hit in the field the same day): the token
+   proves identity, but it can only reach repos the app is *installed* on — a
+   clone of an uninstalled repo 403s (`Write access to repository not
+   granted`). The SD step detects that stderr signature and fails with a hint
+   pointing at `github.com/apps/typoena/installations/new` + Enter-to-retry
+   (no new sign-in needed; token access is evaluated live).

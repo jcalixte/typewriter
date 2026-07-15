@@ -228,12 +228,14 @@ fn clone(
     // phase transitions get a `\n`. Splitting on both carriage return and
     // newline surfaces the live "Receiving objects: 45%" ticks that a
     // line-buffered reader would swallow until the phase ends.
+    let mut denied = false;
     if let Some(err) = child.stderr.take() {
         split_cr_lf(err, &mut |seg: &str| {
             let seg = seg.trim();
             if seg.is_empty() {
                 return;
             }
+            denied = denied || is_access_denied(seg);
             match parse_progress(seg) {
                 Some((phase, pct)) => {
                     emit(SdEvent::Progress { phase, pct });
@@ -249,9 +251,27 @@ fn clone(
     }
     let status = child.wait().context("waiting for git clone")?;
     if !status.success() {
+        if denied {
+            bail!(
+                "GitHub refused access (403). A ^G sign-in proves who you are, but the \
+                 Typoena app must also be INSTALLED on this repo — grant it at \
+                 {} (pick your account → Only select repositories → this repo), \
+                 then press Enter to retry. No new sign-in needed.",
+                crate::auth::APP_INSTALL_URL
+            );
+        }
         bail!("git clone failed (exit {:?})", status.code());
     }
     Ok(())
+}
+
+/// A git-clone stderr segment that means the credential authenticated but the
+/// repo refused it — for an app token, that's "the app isn't installed here".
+/// Observed on real hardware 2026-07-15: `remote: Write access to repository
+/// not granted.` followed by `fatal: unable to access '…': The requested URL
+/// returned error: 403`.
+fn is_access_denied(seg: &str) -> bool {
+    seg.contains("error: 403") || seg.contains("not granted")
 }
 
 /// Feed each `\r`- or `\n`-delimited segment of `reader` to `on_segment`.
@@ -368,4 +388,30 @@ pub fn dry_run(remote: &str, dest: &Path, wipe: bool) -> anyhow::Result<()> {
         "dry run complete (no card write, no eject).".into(),
     ));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_observed_403_lines_are_flagged() {
+        // Verbatim from the 2026-07-15 field failure.
+        assert!(is_access_denied(
+            "remote: Write access to repository not granted."
+        ));
+        assert!(is_access_denied(
+            "fatal: unable to access 'https://github.com/jcalixte/notes.git/': \
+             The requested URL returned error: 403"
+        ));
+    }
+
+    #[test]
+    fn ordinary_clone_chatter_is_not_flagged() {
+        assert!(!is_access_denied("Cloning into '/Volumes/TYPOENA/repo'..."));
+        assert!(!is_access_denied("Receiving objects:  45% (100/220)"));
+        assert!(!is_access_denied(
+            "fatal: unable to access '…': Could not resolve host: github.com"
+        ));
+    }
 }

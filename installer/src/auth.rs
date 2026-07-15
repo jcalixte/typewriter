@@ -19,6 +19,11 @@ use std::time::{Duration, Instant};
 /// like a username — the device flow needs no secret on the client).
 pub const CLIENT_ID: &str = "Iv23liwgnE86ITDpBdnn";
 
+/// Where the user grants the app access to a repo. Signing in (^G) only proves
+/// identity — an app token can't touch a repo until the app is *installed* on
+/// it, which is the classic 403 footgun the SD step hints about.
+pub const APP_INSTALL_URL: &str = "https://github.com/apps/typoena/installations/new";
+
 const DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
 const TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 
