@@ -24,7 +24,7 @@ jobs:
       run:
         working-directory: installer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # rust-toolchain.toml pins `stable`; add the non-host target so we can
       # cross-compile the second slice of the universal binary.
