@@ -165,3 +165,13 @@ it.
    granted`). The SD step detects that stderr signature and fails with a hint
    pointing at `github.com/apps/typoena/installations/new` + Enter-to-retry
    (no new sign-in needed; token access is evaluated live).
+6. **Proactive access check** — DONE 2026-07-15 (v0.4.0). Since the device
+   flow never installs the app, *every* first-time ^G user would hit that 403
+   — so the token is probed against `GET /repos/{owner}/{repo}` the moment
+   sign-in completes. No access → a yellow flag on Configure with the fix;
+   `^O` opens the install page and a background watcher re-probes (5 s, ~2 min)
+   so the flag turns green the moment the repo is granted. (^I would be the
+   mnemonic, but Ctrl-I *is* Tab on a terminal.) Verdicts remember the remote
+   they judged — editing the field retires a stale flag. Advisory only:
+   non-GitHub hosts and network failures stay silent, the SD step still runs,
+   and slice 5's 403 hint remains the backstop.
