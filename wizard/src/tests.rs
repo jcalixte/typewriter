@@ -65,7 +65,7 @@ fn first_boot_happy_path() {
     assert_eq!(fx.len(), 2);
     match &fx[0] {
         Effect::WriteConf(c) => {
-            assert_eq!(c.pat, "ghu_tok");
+            assert_eq!(c.token, "ghu_tok");
             assert_eq!(c.gh_user, "you");
             assert_eq!(c.author_name, "you"); // blank name falls back to login
             assert_eq!(c.author_email, "you@users.noreply.github.com");
@@ -156,7 +156,7 @@ fn resume_skips_satisfied_steps() {
     assert_eq!(w.pending(), Some(Effect::StartAuth));
 
     // Full conf but no repo (power-pull mid-clone) → resumes at repo pick.
-    c.pat = "ghu_tok".into();
+    c.token = "ghu_tok".into();
     c.gh_user = "you".into();
     let w = Wizard::resume(c);
     assert_eq!(w.pending(), Some(Effect::FetchRepos));

@@ -149,7 +149,7 @@ impl Wizard {
     pub fn resume(c: conf::Conf) -> Wizard {
         let screen = if c.wifi_ssid.trim().is_empty() {
             Screen::WifiEdit { field: 0 }
-        } else if c.pat.trim().is_empty() {
+        } else if c.token.trim().is_empty() {
             Screen::AuthStarting
         } else {
             Screen::RepoLoading
@@ -296,7 +296,7 @@ impl Wizard {
             Event::WifiOk => {
                 // Wi-Fi verified — persist, then sign in (or skip straight to
                 // repos when a resume already carries a token).
-                self.screen = if self.conf.pat.trim().is_empty() {
+                self.screen = if self.conf.token.trim().is_empty() {
                     Screen::AuthStarting
                 } else {
                     Screen::RepoLoading
@@ -326,7 +326,7 @@ impl Wizard {
                 name,
                 email,
             } => {
-                self.conf.pat = token;
+                self.conf.token = token;
                 self.conf.gh_user = login.clone();
                 self.conf.author_name = if name.trim().is_empty() {
                     login.clone()

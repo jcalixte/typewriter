@@ -65,7 +65,8 @@ const BAKED_WIFI_SSID: &str = env!("TW_WIFI_SSID");
 const BAKED_WIFI_PASS: &str = env!("TW_WIFI_PASS");
 const BAKED_REMOTE_URL: &str = env!("TW_REMOTE_URL");
 const BAKED_GH_USER: &str = env!("TW_GH_USER");
-const BAKED_PAT: &str = env!("TW_PAT");
+// TW_PAT: historic env/key spelling; the value is a GitHub App user token.
+const BAKED_TOKEN: &str = env!("TW_PAT");
 const BAKED_AUTHOR_NAME: &str = env!("TW_AUTHOR_NAME");
 const BAKED_AUTHOR_EMAIL: &str = env!("TW_AUTHOR_EMAIL");
 
@@ -101,7 +102,7 @@ pub fn effective_conf_from(card: &conf::Conf) -> conf::Conf {
         wifi_ssid: pick(&card.wifi_ssid, BAKED_WIFI_SSID),
         remote_url: pick(&card.remote_url, BAKED_REMOTE_URL),
         gh_user: pick(&card.gh_user, BAKED_GH_USER),
-        pat: pick(&card.pat, BAKED_PAT),
+        token: pick(&card.token, BAKED_TOKEN),
         author_name: pick(&card.author_name, BAKED_AUTHOR_NAME),
         author_email: pick(&card.author_email, BAKED_AUTHOR_EMAIL),
     }
@@ -135,8 +136,8 @@ fn remote_url() -> &'static str {
 fn gh_user() -> &'static str {
     cfg(conf::Field::GhUser, BAKED_GH_USER)
 }
-fn pat() -> &'static str {
-    cfg(conf::Field::Pat, BAKED_PAT)
+fn token() -> &'static str {
+    cfg(conf::Field::Token, BAKED_TOKEN)
 }
 fn author_name() -> &'static str {
     cfg(conf::Field::AuthorName, BAKED_AUTHOR_NAME)
@@ -339,7 +340,7 @@ fn publish_cycle(
     tls_ready: &mut bool,
     paths: &BTreeSet<String>,
 ) -> Result<PublishOutcome> {
-    if remote_url().is_empty() || gh_user().is_empty() || pat().is_empty() || wifi_ssid().is_empty() {
+    if remote_url().is_empty() || gh_user().is_empty() || token().is_empty() || wifi_ssid().is_empty() {
         bail!("git config missing — provision the card's typoena.conf (installer / wizard) or set TW_* in firmware/.env and rebuild");
     }
 
@@ -380,7 +381,7 @@ fn pull_cycle(
     clock_synced: &mut bool,
     tls_ready: &mut bool,
 ) -> Result<PullOutcome> {
-    if remote_url().is_empty() || gh_user().is_empty() || pat().is_empty() || wifi_ssid().is_empty() {
+    if remote_url().is_empty() || gh_user().is_empty() || token().is_empty() || wifi_ssid().is_empty() {
         bail!("git config missing — provision the card's typoena.conf (installer / wizard) or set TW_* in firmware/.env and rebuild");
     }
     let t_total = Instant::now();
@@ -1254,10 +1255,10 @@ fn auth_callbacks<'a>() -> RemoteCallbacks<'a> {
     let mut cbs = RemoteCallbacks::new();
     cbs.credentials(|_url, _user_from_url, allowed| {
         if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) {
-            return Cred::userpass_plaintext(gh_user(), pat());
+            return Cred::userpass_plaintext(gh_user(), token());
         }
         Err(git2::Error::from_str(
-            "server did not offer USER_PASS_PLAINTEXT — cannot authenticate with a PAT",
+            "server did not offer USER_PASS_PLAINTEXT — cannot authenticate with a token",
         ))
     });
     cbs.certificate_check(|_cert, host| {

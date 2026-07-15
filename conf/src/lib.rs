@@ -19,7 +19,7 @@ pub enum Field {
     WifiPass,
     RemoteUrl,
     GhUser,
-    Pat,
+    Token,
     AuthorName,
     AuthorEmail,
 }
@@ -30,7 +30,7 @@ impl Field {
         Field::WifiPass,
         Field::RemoteUrl,
         Field::GhUser,
-        Field::Pat,
+        Field::Token,
         Field::AuthorName,
         Field::AuthorEmail,
     ];
@@ -42,7 +42,10 @@ impl Field {
             Field::WifiPass => "TW_WIFI_PASS",
             Field::RemoteUrl => "TW_REMOTE_URL",
             Field::GhUser => "TW_GH_USER",
-            Field::Pat => "TW_PAT",
+            // Historic spelling, kept for card compatibility (the installer
+            // and firmware/.env both use it). The VALUE is a GitHub App user
+            // token from the device flow; a fine-grained PAT also still works.
+            Field::Token => "TW_PAT",
             Field::AuthorName => "TW_AUTHOR_NAME",
             Field::AuthorEmail => "TW_AUTHOR_EMAIL",
         }
@@ -55,7 +58,7 @@ impl Field {
             Field::WifiPass => "Wi-Fi password",
             Field::RemoteUrl => "Git remote URL",
             Field::GhUser => "GitHub user",
-            Field::Pat => "GitHub token",
+            Field::Token => "GitHub token",
             Field::AuthorName => "Commit author name",
             Field::AuthorEmail => "Commit author email",
         }
@@ -63,7 +66,7 @@ impl Field {
 
     /// Masked when displayed.
     pub fn secret(self) -> bool {
-        matches!(self, Field::WifiPass | Field::Pat)
+        matches!(self, Field::WifiPass | Field::Token)
     }
 
     /// Required for a working device. TW_WIFI_PASS may be legitimately empty
@@ -71,7 +74,7 @@ impl Field {
     pub fn required(self) -> bool {
         matches!(
             self,
-            Field::WifiSsid | Field::RemoteUrl | Field::GhUser | Field::Pat
+            Field::WifiSsid | Field::RemoteUrl | Field::GhUser | Field::Token
         )
     }
 }
@@ -83,7 +86,7 @@ pub struct Conf {
     pub wifi_pass: String,
     pub remote_url: String,
     pub gh_user: String,
-    pub pat: String,
+    pub token: String,
     pub author_name: String,
     pub author_email: String,
 }
@@ -95,7 +98,7 @@ impl Conf {
             Field::WifiPass => &self.wifi_pass,
             Field::RemoteUrl => &self.remote_url,
             Field::GhUser => &self.gh_user,
-            Field::Pat => &self.pat,
+            Field::Token => &self.token,
             Field::AuthorName => &self.author_name,
             Field::AuthorEmail => &self.author_email,
         }
@@ -107,7 +110,7 @@ impl Conf {
             Field::WifiPass => &mut self.wifi_pass,
             Field::RemoteUrl => &mut self.remote_url,
             Field::GhUser => &mut self.gh_user,
-            Field::Pat => &mut self.pat,
+            Field::Token => &mut self.token,
             Field::AuthorName => &mut self.author_name,
             Field::AuthorEmail => &mut self.author_email,
         }
@@ -234,7 +237,7 @@ mod tests {
             wifi_pass: "s3cret with spaces=and=equals".into(),
             remote_url: "https://github.com/typoena/notes.git".into(),
             gh_user: "jcalixte".into(),
-            pat: "github_pat_abc".into(),
+            token: "ghu_abc".into(),
             author_name: "Julien Calixte".into(),
             author_email: "j@example.com".into(),
         };
@@ -268,12 +271,12 @@ mod tests {
         let mut c = Conf::default();
         assert_eq!(
             c.missing_required(),
-            vec![Field::WifiSsid, Field::RemoteUrl, Field::GhUser, Field::Pat]
+            vec![Field::WifiSsid, Field::RemoteUrl, Field::GhUser, Field::Token]
         );
         c.wifi_ssid = "net".into();
         c.remote_url = "you/notes".into();
         c.gh_user = "you".into();
-        c.pat = "tok".into();
+        c.token = "tok".into();
         assert!(c.missing_required().is_empty());
         // Author + wifi pass are never required.
         assert_eq!(c.author_name, "");
