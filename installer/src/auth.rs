@@ -130,6 +130,63 @@ pub fn open_browser(uri: &str) {
     let _ = Command::new("open").arg(uri).spawn();
 }
 
+/// Can the token see the target repo? Asked proactively at Configure so the
+/// authorization-≠-installation 403 (which otherwise every first-time ^G user
+/// hits at the clone) surfaces as a fixable flag instead of a failure.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RepoAccess {
+    Granted,
+    /// The API said 401/403/404 — for a ^G token that means "app not
+    /// installed on this repo"; for a PAT, "no access granted".
+    Missing,
+    /// Couldn't tell (non-GitHub host, network trouble) — never flagged.
+    Unknown,
+}
+
+/// `GET /repos/{owner}/{repo}` with the token. GitHub answers 404 (not 403)
+/// for a repo the credential can't see, so any auth-shaped status maps to
+/// `Missing`; transport failures stay `Unknown` so a flaky network never
+/// paints a false warning.
+pub fn check_repo_access(token: &str, remote: &str) -> RepoAccess {
+    let Some(url) = repo_api_url(remote) else {
+        return RepoAccess::Unknown;
+    };
+    let out = Command::new("curl")
+        .args([
+            "-sS",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "--max-time",
+            "10",
+        ])
+        .args(["-H", &format!("Authorization: Bearer {token}")])
+        .args(["-H", "X-GitHub-Api-Version: 2022-11-28"])
+        .arg(&url)
+        .output();
+    match out {
+        Ok(o) if o.status.success() => match String::from_utf8_lossy(&o.stdout).trim() {
+            "200" => RepoAccess::Granted,
+            "401" | "403" | "404" => RepoAccess::Missing,
+            _ => RepoAccess::Unknown,
+        },
+        _ => RepoAccess::Unknown,
+    }
+}
+
+/// The API endpoint for a github.com remote, or None for hosts we can't
+/// introspect (the check silently stands down there).
+fn repo_api_url(remote: &str) -> Option<String> {
+    let rest = remote.strip_prefix("https://github.com/")?;
+    let path = rest.strip_suffix(".git").unwrap_or(rest);
+    let (owner, repo) = path.split_once('/')?;
+    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
+        return None;
+    }
+    Some(format!("https://api.github.com/repos/{owner}/{repo}"))
+}
+
 /// Sleep in short ticks so a cancel takes effect promptly. Returns false when
 /// cancelled.
 fn sleep_unless_cancelled(total: Duration, cancel: &AtomicBool) -> bool {
@@ -248,5 +305,24 @@ mod tests {
     fn malformed_percent_sequences_pass_through() {
         assert_eq!(percent_decode("100%zz"), "100%zz");
         assert_eq!(percent_decode("a%2"), "a%2");
+    }
+
+    #[test]
+    fn github_remotes_map_to_the_api() {
+        assert_eq!(
+            repo_api_url("https://github.com/you/notes.git").as_deref(),
+            Some("https://api.github.com/repos/you/notes")
+        );
+        assert_eq!(
+            repo_api_url("https://github.com/you/notes").as_deref(),
+            Some("https://api.github.com/repos/you/notes")
+        );
+    }
+
+    #[test]
+    fn uncheckable_remotes_stand_down() {
+        assert!(repo_api_url("https://git.apoena.dev/you/notes.git").is_none());
+        assert!(repo_api_url("https://github.com/just-an-owner").is_none());
+        assert!(repo_api_url("https://github.com/a/b/c.git").is_none());
     }
 }

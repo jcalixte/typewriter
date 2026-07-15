@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Gauge, List, ListItem, Paragraph, Wrap},
 };
 
-use crate::app::{App, AuthState, Busy, SdState, Step};
+use crate::app::{App, AuthState, Busy, RepoCheck, SdState, Step};
 use crate::config::Field;
 use crate::preflight::Status;
 
@@ -346,6 +346,33 @@ fn render_configure(frame: &mut Frame, area: Rect, app: &App, block: Block) {
             ));
         }
     }
+    // The repo-access verdict, shown only while it matches the current remote
+    // (editing the field retires a stale flag). Missing is the big one: every
+    // first-time ^G user needs the app installed on their repo.
+    match &app.repo_check {
+        RepoCheck::Checking { remote } if *remote == app.config.remote() => {
+            lines.push(busy_line(app, "Checking repo access…"));
+        }
+        RepoCheck::Granted { remote } if *remote == app.config.remote() => {
+            lines.push(Line::styled(
+                format!("✓ your token can access {remote}"),
+                Style::new().fg(Color::Green),
+            ));
+        }
+        RepoCheck::Missing { remote } if *remote == app.config.remote() => {
+            lines.push(Line::styled(
+                format!("⚠ your token can't see {remote} yet."),
+                Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
+            lines.push(Line::styled(
+                "Signed in with ^G? The Typoena app must be installed on that repo — \
+                 ^O opens the page (this turns green once granted). \
+                 Pasted a PAT? Give it contents:write there.",
+                Style::new().fg(Color::Yellow),
+            ));
+        }
+        _ => {}
+    }
     if app.focused_field() == Field::WifiSsid && app.config.wifi_ssid_guessed {
         lines.push(Line::styled(
             "Best guess — macOS hides the active network; confirm it's the one Typoena will use.",
@@ -660,6 +687,9 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
                 key("^G"),
                 lbl(" sign in"),
                 sep(),
+                key("^O"),
+                lbl(" install app"),
+                sep(),
                 key("^K"),
                 lbl(" wifi pw"),
                 sep(),
@@ -779,6 +809,52 @@ mod tests {
         app.step = Step::Configure;
         let s = screen(&app);
         assert!(s.contains("^G"), "footer should advertise sign-in:\n{s}");
+    }
+
+    #[test]
+    fn missing_repo_access_is_flagged_with_the_fix() {
+        let mut app = App::new();
+        app.step = Step::Configure;
+        app.config.remote_url = "you/notes".into();
+        app.repo_check = crate::app::RepoCheck::Missing {
+            remote: app.config.remote(),
+        };
+        let s = screen(&app);
+        assert!(
+            s.contains("can't see"),
+            "the not-installed case must be flagged:\n{s}"
+        );
+        assert!(
+            s.contains("^O"),
+            "the flag must name the key that fixes it:\n{s}"
+        );
+    }
+
+    #[test]
+    fn granted_repo_access_shows_green_reassurance() {
+        let mut app = App::new();
+        app.step = Step::Configure;
+        app.config.remote_url = "you/notes".into();
+        app.repo_check = crate::app::RepoCheck::Granted {
+            remote: app.config.remote(),
+        };
+        let s = screen(&app);
+        assert!(s.contains("can access"), "granted must be visible:\n{s}");
+    }
+
+    #[test]
+    fn stale_access_flags_are_not_rendered() {
+        let mut app = App::new();
+        app.step = Step::Configure;
+        app.config.remote_url = "you/other".into();
+        app.repo_check = crate::app::RepoCheck::Missing {
+            remote: "https://github.com/you/notes.git".into(),
+        };
+        let s = screen(&app);
+        assert!(
+            !s.contains("can't see"),
+            "a verdict about an old remote must not label the new one:\n{s}"
+        );
     }
 
     #[test]

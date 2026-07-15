@@ -62,6 +62,16 @@ pub enum AuthState {
     },
 }
 
+/// The proactive repo-access probe (does the token see the notes repo?). Each
+/// verdict remembers which remote it judged, so editing the field silently
+/// retires a stale flag instead of mislabeling the new URL.
+pub enum RepoCheck {
+    NotRun,
+    Checking { remote: String },
+    Granted { remote: String },
+    Missing { remote: String },
+}
+
 pub enum SdState {
     Idle,
     /// The selected card already holds a repo; awaiting an explicit `y` to wipe.
@@ -132,6 +142,9 @@ pub struct App {
     auth_rx: Option<Receiver<AuthEvent>>,
     /// Raised to stop the polling worker when the user cancels.
     auth_cancel: Option<Arc<AtomicBool>>,
+    /// Proactive "can this token see the repo" probe (advisory — never blocks).
+    pub repo_check: RepoCheck,
+    check_rx: Option<Receiver<(String, auth::RepoAccess)>>,
     // ── background computation ──
     /// The off-thread work currently running (spinner + locked input), if any.
     pub busy: Busy,
@@ -163,6 +176,8 @@ impl App {
             auth: AuthState::Idle,
             auth_rx: None,
             auth_cancel: None,
+            repo_check: RepoCheck::NotRun,
+            check_rx: None,
             busy: Busy::Preflight,
             tick: 0,
             started: Instant::now(),
@@ -305,6 +320,9 @@ impl App {
             KeyCode::Char('u') if ctrl => self.config.get_mut(self.focused_field()).clear(),
             KeyCode::Char('k') if ctrl => self.fill_wifi_from_keychain(),
             KeyCode::Char('g') if ctrl => self.begin_device_flow(),
+            // ^O: open the app-install page and watch for access. (^I would be
+            // the mnemonic but Ctrl-I *is* Tab on a terminal.)
+            KeyCode::Char('o') if ctrl => self.install_app(),
             KeyCode::Backspace => {
                 self.config.get_mut(self.focused_field()).pop();
             }
@@ -401,6 +419,83 @@ impl App {
         self.auth_cancel = Some(cancel.clone());
         self.auth = AuthState::Starting;
         std::thread::spawn(move || auth::run_device_flow(tx, cancel));
+    }
+
+    /// ^O: the fix for a Missing access flag — open the install page in the
+    /// browser and keep probing so the flag flips to green by itself once the
+    /// user grants the repo (token access is evaluated live by GitHub).
+    fn install_app(&mut self) {
+        if self.config.pat.trim().is_empty() {
+            self.status = Some("sign in first (^G) or paste a token, then ^O".into());
+            return;
+        }
+        if self.config.remote().trim().is_empty() {
+            self.status = Some("set the Git remote first — ^O checks access to that repo".into());
+            return;
+        }
+        auth::open_browser(auth::APP_INSTALL_URL);
+        self.status = Some("browser opened — grant your notes repo; watching for access…".into());
+        self.spawn_repo_check(true);
+    }
+
+    /// Probe repo access off-thread. `watch: true` keeps probing (every 5 s,
+    /// ~2 min) until access appears — used after ^O so the flag goes green the
+    /// moment the user finishes installing in the browser.
+    fn spawn_repo_check(&mut self, watch: bool) {
+        let token = self.config.pat.clone();
+        let remote = self.config.remote();
+        if token.trim().is_empty() || remote.trim().is_empty() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.check_rx = Some(rx); // replaces (and thereby retires) any prior probe
+        self.repo_check = RepoCheck::Checking {
+            remote: remote.clone(),
+        };
+        std::thread::spawn(move || {
+            let rounds = if watch { 24 } else { 1 };
+            for i in 0..rounds {
+                if i > 0 {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                }
+                let access = auth::check_repo_access(&token, &remote);
+                let granted = access == auth::RepoAccess::Granted;
+                if tx.send((remote.clone(), access)).is_err() || granted {
+                    break; // probe retired by a newer one, or job done
+                }
+            }
+        });
+    }
+
+    fn drain_check(&mut self) {
+        let Some(rx) = self.check_rx.take() else {
+            return;
+        };
+        let mut open = true;
+        loop {
+            match rx.try_recv() {
+                Ok((remote, access)) => {
+                    self.repo_check = match access {
+                        auth::RepoAccess::Granted => RepoCheck::Granted { remote },
+                        auth::RepoAccess::Missing => RepoCheck::Missing { remote },
+                        // Can't tell — show nothing rather than guess.
+                        auth::RepoAccess::Unknown => RepoCheck::NotRun,
+                    };
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    open = false;
+                    // A watcher that timed out mid-Checking never got a verdict.
+                    if matches!(self.repo_check, RepoCheck::Checking { .. }) {
+                        self.repo_check = RepoCheck::NotRun;
+                    }
+                    break;
+                }
+            }
+        }
+        if open {
+            self.check_rx = Some(rx);
+        }
     }
 
     fn cancel_device_flow(&mut self) {
@@ -523,6 +618,7 @@ impl App {
         self.drain_worker();
         self.drain_task();
         self.drain_auth();
+        self.drain_check();
     }
 
     fn drain_auth(&mut self) {
@@ -543,8 +639,10 @@ impl App {
                 Ok(AuthEvent::Done(result)) => {
                     self.auth = AuthState::Idle;
                     self.auth_cancel = None;
+                    let mut signed_in = false;
                     self.status = Some(match result {
                         Ok(t) => {
+                            signed_in = true;
                             self.config.pat = t.access_token;
                             match t.expires_in {
                                 // Expiry ON in the app settings: still works, but
@@ -558,7 +656,13 @@ impl App {
                         }
                         Err(e) => format!("sign-in failed: {e}"),
                     });
-                    return; // rx drops: the flow is over
+                    if signed_in {
+                        // Probe access right away (no-op until the remote is
+                        // set) so the not-installed case flags at Configure
+                        // instead of 403ing at the clone.
+                        self.spawn_repo_check(false);
+                    }
+                    return; // auth rx drops: the flow is over
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -717,6 +821,36 @@ mod tests {
         app.on_key(ctrl('p'));
         assert!(app.step == Step::Configure, "the sign-in panel is modal");
         assert!(matches!(app.auth, AuthState::Waiting { .. }));
+    }
+
+    #[test]
+    fn ctrl_o_without_a_token_explains_instead_of_probing() {
+        let mut app = idle_app();
+        app.step = Step::Configure;
+        app.on_key(ctrl('o'));
+        assert!(matches!(app.repo_check, RepoCheck::NotRun), "no probe yet");
+        assert!(app.status.is_some(), "should say to sign in first");
+    }
+
+    #[test]
+    fn a_stale_access_flag_is_hidden_after_editing_the_remote() {
+        // The verdict names the remote it judged; the UI only shows it while
+        // that still matches. Simulate a verdict then a remote edit.
+        let mut app = idle_app();
+        app.step = Step::Configure;
+        app.config.remote_url = "you/notes".into();
+        app.repo_check = RepoCheck::Missing {
+            remote: app.config.remote(),
+        };
+        app.config.remote_url = "you/other".into();
+        let RepoCheck::Missing { remote } = &app.repo_check else {
+            panic!("state itself is untouched");
+        };
+        assert_ne!(
+            *remote,
+            app.config.remote(),
+            "mismatch is what the UI keys the hide on"
+        );
     }
 
     #[test]
