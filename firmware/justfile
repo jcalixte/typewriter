@@ -244,6 +244,27 @@ provision sd_volume="":
     just _write-conf "$vol"
     just _eject "$vol"
 
+# Reformat the card to an empty FAT32 volume and eject — a blank slate for
+# testing the first-boot wizard (no repo/, no typoena.conf, no .typoena-dirty,
+# no macOS dot-dirs). Reuses _card's removable-only detection, so it can't hit
+# the internal disk, then confirms once before the irreversible erase. FAT32 is
+# what the device mounts (esp_vfs_fat, format_if_mount_failed=false). The label
+# is uppercased to ≤11 chars by diskutil.
+#   just wipe
+#   just wipe SDCARD MYLABEL
+wipe sd_volume="" label="TYPOENA":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    vol="$(just _card "{{sd_volume}}" | tail -n1)"
+    dev="$(diskutil info "$vol" | grep -E '^[[:space:]]*Device Node:' | sed -E 's/.*: *//')"
+    size="$(diskutil info "$vol" | grep -E '^[[:space:]]*Disk Size:' | sed -E 's/.*: *//')"
+    echo "⚠️  ERASE everything on $vol ($dev, ${size:-?}) → empty FAT32 '{{label}}'"
+    read -r -p "continue? [y/N] " ans
+    case "$ans" in [yY]*) ;; *) echo "aborted" >&2; exit 1 ;; esac
+    diskutil eraseVolume "MS-DOS FAT32" "{{label}}" "$dev"
+    newvol="$(diskutil info "$dev" | grep -E '^[[:space:]]*Mount Point:' | sed -E 's/.*: *//')"
+    just _eject "${newvol:-/Volumes/{{label}}}"
+
 # Resolve the target card volume. Prints the /Volumes/<name> path as the last
 # stdout line (callers capture it); all diagnostics go to stderr. Prefers an
 # explicit name; else auto-detects exactly one removable/SD volume (covers cards
