@@ -408,6 +408,13 @@ impl Storage {
         Ok(())
     }
 
+    /// Persist the device conf (wizard `WriteConf`). Same atomic swap as
+    /// [`Storage::save_path`] but never journaled — `typoena.conf` is card
+    /// infrastructure, not a note for `:gp` to publish.
+    pub fn write_conf(&self, contents: &str) -> Result<()> {
+        Self::atomic_write(CONF_PATH, contents)
+    }
+
     /// Unlink a file under `/sd` (`:delete`). Tolerates a missing target — an
     /// already-gone file is a success, so the call is idempotent. Also clears a
     /// stray `{path}.tmp` best-effort, so a crash-interrupted save can't leave the

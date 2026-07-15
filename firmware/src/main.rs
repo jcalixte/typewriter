@@ -1,4 +1,6 @@
 mod usb_kbd;
+#[cfg(feature = "git")]
+mod wizard_io;
 
 use std::time::Instant;
 
@@ -81,27 +83,65 @@ fn main() -> anyhow::Result<()> {
     // the next `:w`. See docs/v0.1-mvp-technical.md, boot sequence.
     let storage = boot_storage(&mut epd);
 
-    // Device runtime config: the card's typoena.conf (installer- or
-    // wizard-written) overrides the .env-baked TW_* per field (v0.9 onboarding
-    // slice 0). Installed before the git thread spawns; a missing file just
-    // means the baked values carry the whole load, as before. Secrets stay out
-    // of the log — only which keys the card provided.
-    #[cfg(feature = "git")]
-    match std::fs::read_to_string(CONF_PATH) {
-        Ok(body) => {
-            let card = conf::Conf::parse(&body);
-            let provided: Vec<&str> = conf::Field::ALL
-                .iter()
-                .filter(|f| !card.get(**f).trim().is_empty())
-                .map(|f| f.conf_key())
-                .collect();
-            log::info!("typoena.conf on card — provides {}", provided.join(", "));
-            firmware::git_sync::set_card_conf(card);
-        }
-        Err(_) => log::info!("no typoena.conf on card — baked TW_* config only"),
-    }
+    // The light build has no wizard (it can't clone), so it keeps the old
+    // no-repo halt; the git build's repo check happens in the wizard gate
+    // below, where a missing repo *enters setup* instead of halting.
     #[cfg(not(feature = "git"))]
-    let _ = CONF_PATH; // read by the git build; the light build has no consumer yet
+    if !storage.repo_present() {
+        let _ = CONF_PATH; // conf is consumed by the git build only
+        boot_halt(
+            &mut epd,
+            "No repo on the SD card",
+            "Provision it on your computer (just init) and reboot.",
+        );
+    }
+
+    // Bring up the USB keyboard in the background; keys arrive via next_key().
+    // Before the wizard gate — first-boot setup types on this keyboard.
+    usb_kbd::start()?;
+
+    // Device runtime config + the first-boot wizard gate (v0.9 onboarding).
+    // The card's typoena.conf overrides the .env-baked TW_* per field
+    // (slice 0). If the effective config is incomplete or the repo is missing,
+    // the wizard runs *instead of* the editor (slice 2) and hands back the
+    // completed conf; either way the result is installed before the git
+    // thread spawns. Secrets stay out of the log — only which keys exist.
+    #[cfg(feature = "git")]
+    let (sys_loop, nvs, modem) = {
+        use esp_idf_svc::eventloop::EspSystemEventLoop;
+        use esp_idf_svc::nvs::EspDefaultNvsPartition;
+
+        let sys_loop = EspSystemEventLoop::take()?;
+        let nvs = EspDefaultNvsPartition::take()?;
+        let mut modem = peripherals.modem;
+
+        let card = match std::fs::read_to_string(CONF_PATH) {
+            Ok(body) => conf::Conf::parse(&body),
+            Err(_) => conf::Conf::default(),
+        };
+        let provided: Vec<&str> = conf::Field::ALL
+            .iter()
+            .filter(|f| !card.get(**f).trim().is_empty())
+            .map(|f| f.conf_key())
+            .collect();
+        log::info!(
+            "typoena.conf on card provides: {}",
+            if provided.is_empty() { "nothing".into() } else { provided.join(", ") }
+        );
+
+        let effective = firmware::git_sync::effective_conf_from(&card);
+        let final_conf = if !effective.missing_required().is_empty() || !storage.repo_present() {
+            log::info!("unconfigured card (conf incomplete or repo missing) — entering the onboarding wizard");
+            match wizard_io::run(&mut epd, &storage, effective, &sys_loop, &nvs, &mut modem) {
+                Ok(c) => c,
+                Err(e) => boot_halt(&mut epd, "Setup stopped", &format!("{e:#}")),
+            }
+        } else {
+            card
+        };
+        firmware::git_sync::set_card_conf(final_conf);
+        (sys_loop, nvs, modem)
+    };
 
     // Editor preferences (.typoena.toml, git-tracked). Read before the boot
     // buffer is chosen (`open_last_on_boot` decides which file that is) and
@@ -124,9 +164,6 @@ fn main() -> anyhow::Result<()> {
     let (walk_tx, walk_rx) = std::sync::mpsc::channel::<String>();
     spawn_file_walk(walk_tx.clone());
 
-    // Bring up the USB keyboard in the background; keys arrive via next_key().
-    usb_kbd::start()?;
-
     // Spawn the dedicated git thread — the `:gp` publish transport. It owns
     // the Wi-Fi stack (brought up lazily on the first `:gp`, so the radio
     // stays off until you publish) and parks on `git_tx` until signalled; the
@@ -134,13 +171,11 @@ fn main() -> anyhow::Result<()> {
     // snackbar. Behind the `git` feature so a light build carries no libgit2.
     #[cfg(feature = "git")]
     let (git_tx, git_rx) = {
-        use esp_idf_svc::eventloop::EspSystemEventLoop;
-        use esp_idf_svc::nvs::EspDefaultNvsPartition;
         use firmware::git_sync::{run_git_service, GitOutcome, GitRequest, GIT_STACK};
 
-        let sys_loop = EspSystemEventLoop::take()?;
-        let nvs = EspDefaultNvsPartition::take()?;
-        let modem = peripherals.modem;
+        // sys_loop / nvs / modem come from the wizard-gate block above — the
+        // wizard borrows the modem for its join test, then the git thread
+        // owns all three for good.
         let (req_tx, req_rx) = std::sync::mpsc::channel::<GitRequest>();
         let (res_tx, res_rx) = std::sync::mpsc::channel::<GitOutcome>();
         std::thread::Builder::new()
@@ -567,10 +602,11 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-/// Mount the SD card, or halt with the reason on the panel. Everything here is
+/// Mount the SD card, or halt with the reason on the panel. A missing CARD is
 /// fatal by design (see the boot-sequence comment in `main`): the note is the
 /// whole point of the appliance, so we refuse to run in a state where the next
-/// save could destroy it.
+/// save could destroy it. A missing REPO is the caller's call — the git
+/// build's wizard gate enters first-boot setup, the light build halts.
 fn boot_storage(epd: &mut Epd) -> Storage {
     // A git build shares this mount with the git thread, and libgit2 keeps the
     // pack + idx descriptors open across a publish — that overruns the
@@ -580,18 +616,10 @@ fn boot_storage(epd: &mut Epd) -> Storage {
     let mounted = Storage::mount_for_git();
     #[cfg(not(feature = "git"))]
     let mounted = Storage::mount();
-    let storage = match mounted {
+    match mounted {
         Ok(s) => s,
         Err(e) => boot_halt(epd, "SD card not ready", &format!("{e:#}")),
-    };
-    if !storage.repo_present() {
-        boot_halt(
-            epd,
-            "No repo on the SD card",
-            "Provision it on your computer (just init) and reboot.",
-        );
     }
-    storage
 }
 
 /// Choose and load the boot buffer. With `open_last_on_boot` set and a marker

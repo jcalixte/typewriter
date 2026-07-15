@@ -110,7 +110,7 @@ esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc.git" }
 # do; `build-light` doesn't, so the component is an empty no-op). git2/libgit2-sys
 # run in system mode (LIBGIT2_NO_VENDOR=1) purely for the Rust bindings, with
 # default features off to avoid dragging in openssl-sys/libssh2-sys.
-git = ["dep:git2", "dep:libgit2-sys"]
+git = ["dep:git2", "dep:libgit2-sys", "dep:wizard"]
 
 [dependencies]
 anyhow = "1"
@@ -127,6 +127,10 @@ display = { path = "../display" }
 # card's conf is read at boot and overrides the .env-baked TW_* per field —
 # v0.9 onboarding slice 0. See ../conf and docs/v0.9-onboarding-wizard.md.
 conf = { path = "../conf" }
+# The onboarding wizard's host-tested state machine; src/wizard_io.rs is its
+# hardware driver (keys in, panel out, Wi-Fi join test). Only the git build
+# runs it (the wizard's end state is a clone), hence the feature gate below.
+wizard = { path = "../wizard", optional = true }
 git2 = { version = "0.20", default-features = false, optional = true }
 # Already in the tree under git2 (same system-mode build); named directly for
 # the raw `git_libgit2_opts` calls git2 doesn't wrap — the odb-cache cap

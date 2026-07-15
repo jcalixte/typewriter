@@ -134,6 +134,12 @@ impl Wizard {
         Wizard::resume(conf::Conf::default())
     }
 
+    /// The conf as built so far — the driver reads this on `Effect::Finish`
+    /// to hand the completed config to the normal boot path.
+    pub fn conf(&self) -> &conf::Conf {
+        &self.conf
+    }
+
     /// Start from an existing (possibly partial) conf: the resume-after-
     /// power-pull entry, and the base of the future `:setup` re-entry. Skips
     /// to the first step the conf doesn't already satisfy: blank SSID → Wi-Fi,

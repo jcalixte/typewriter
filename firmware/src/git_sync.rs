@@ -79,6 +79,34 @@ pub fn set_card_conf(c: conf::Conf) {
     let _ = CARD_CONF.set(c);
 }
 
+/// The per-field card-over-baked merge as a value, WITHOUT installing the
+/// card conf: the wizard gate needs the effective view before deciding
+/// whether to run (and what to prefill), and `set_card_conf` is called once
+/// afterwards with the final result. The Wi-Fi password follows the SSID's
+/// source, exactly like [`wifi_pass`].
+pub fn effective_conf_from(card: &conf::Conf) -> conf::Conf {
+    let pick = |v: &str, baked: &'static str| {
+        if v.trim().is_empty() {
+            baked.to_string()
+        } else {
+            v.to_string()
+        }
+    };
+    conf::Conf {
+        wifi_pass: if card.wifi_ssid.trim().is_empty() {
+            BAKED_WIFI_PASS.to_string()
+        } else {
+            card.wifi_pass.clone()
+        },
+        wifi_ssid: pick(&card.wifi_ssid, BAKED_WIFI_SSID),
+        remote_url: pick(&card.remote_url, BAKED_REMOTE_URL),
+        gh_user: pick(&card.gh_user, BAKED_GH_USER),
+        pat: pick(&card.pat, BAKED_PAT),
+        author_name: pick(&card.author_name, BAKED_AUTHOR_NAME),
+        author_email: pick(&card.author_email, BAKED_AUTHOR_EMAIL),
+    }
+}
+
 /// Card value if present and non-blank, else the baked fallback. `&'static`
 /// works because `CARD_CONF` is a static — the parsed strings live forever.
 fn cfg(field: conf::Field, baked: &'static str) -> &'static str {

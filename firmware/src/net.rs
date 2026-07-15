@@ -31,7 +31,7 @@ const MAX_BACKOFF_MS: u32 = 4000;
 ///
 /// An empty `pass` selects an open network; otherwise WPA2-Personal.
 pub fn connect_wifi(
-    wifi: &mut BlockingWifi<EspWifi<'static>>,
+    wifi: &mut BlockingWifi<EspWifi<'_>>,
     ssid: &str,
     pass: &str,
 ) -> Result<()> {
@@ -71,7 +71,7 @@ pub fn connect_wifi(
 
 /// One association + DHCP wait. Split out so the retry loop reads cleanly and to
 /// keep the two `wifi` borrows in separate statements.
-fn associate_once(wifi: &mut BlockingWifi<EspWifi<'static>>) -> Result<()> {
+fn associate_once(wifi: &mut BlockingWifi<EspWifi<'_>>) -> Result<()> {
     wifi.connect().context("Wi-Fi association failed")?;
     wifi.wait_netif_up().context("DHCP / netif never came up")?;
     Ok(())
