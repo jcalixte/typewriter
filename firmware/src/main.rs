@@ -15,7 +15,7 @@ use editor::{
     SNIPPETS_PATH,
 };
 use firmware::epd::{self, Epd};
-use firmware::persistence::{Storage, NOTES};
+use firmware::persistence::{Storage, CONF_PATH, NOTES};
 
 /// Injected by build.rs so serial output identifies the exact build.
 const BUILD_TAG: &str = concat!("build ", env!("BUILD_TIME"), " @", env!("BUILD_GIT"));
@@ -80,6 +80,29 @@ fn main() -> anyhow::Result<()> {
     // writing appliance that silently started empty would clobber the note on
     // the next `:w`. See docs/v0.1-mvp-technical.md, boot sequence.
     let storage = boot_storage(&mut epd);
+
+    // Device runtime config: the card's typoena.conf (installer- or
+    // wizard-written) overrides the .env-baked TW_* per field (v0.9 onboarding
+    // slice 0). Installed before the git thread spawns; a missing file just
+    // means the baked values carry the whole load, as before. Secrets stay out
+    // of the log — only which keys the card provided.
+    #[cfg(feature = "git")]
+    match std::fs::read_to_string(CONF_PATH) {
+        Ok(body) => {
+            let card = conf::Conf::parse(&body);
+            let provided: Vec<&str> = conf::Field::ALL
+                .iter()
+                .filter(|f| !card.get(**f).trim().is_empty())
+                .map(|f| f.conf_key())
+                .collect();
+            log::info!("typoena.conf on card — provides {}", provided.join(", "));
+            firmware::git_sync::set_card_conf(card);
+        }
+        Err(_) => log::info!("no typoena.conf on card — baked TW_* config only"),
+    }
+    #[cfg(not(feature = "git"))]
+    let _ = CONF_PATH; // read by the git build; the light build has no consumer yet
+
     // Editor preferences (.typoena.toml, git-tracked). Read before the boot
     // buffer is chosen (`open_last_on_boot` decides which file that is) and
     // before the first render (`line_numbers` shapes the opening frame). A

@@ -66,6 +66,10 @@ const SDMMC_HOST_FLAG_DEINIT_ARG: u32 = 1 << 5;
 pub const MOUNT: &str = "/sd";
 /// Git working copy — provisioned host-side, opened on device.
 pub const REPO_DIR: &str = "/sd/repo";
+/// Device runtime config (Wi-Fi, remote, token, author) — the card is the
+/// source of truth, the .env-baked values the fallback. Written by the
+/// installer or the on-device wizard; card root, so it's never staged.
+pub const CONF_PATH: &str = "/sd/typoena.conf";
 /// The one file v0.1 opens.
 pub const NOTES: &str = "/sd/repo/notes.md";
 /// Staging name for the atomic save. Two dots → needs long-filename support

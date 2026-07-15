@@ -28,8 +28,10 @@
 //!    docs/tradeoff-curves/sync-commit-staging.md for the whole trail.
 //!
 //! Runs on a dedicated 96 KB thread (libgit2's init→push chain nests ~67 KB of
-//! `GIT_PATH_MAX` stack buffers — see git_push.rs / postmortem #3). Config is
-//! baked at build time (`TW_*`, ADR-007: v0.1 device config is compiled in).
+//! `GIT_PATH_MAX` stack buffers — see git_push.rs / postmortem #3). Config
+//! comes from the card's `/sd/typoena.conf` (installer- or wizard-written,
+//! parsed at boot — v0.9 onboarding slice 0), falling back per field to the
+//! build-time `TW_*` values (ADR-007's dev path, `firmware/.env`).
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -54,16 +56,66 @@ use git2::{
 use crate::net::connect_wifi;
 use crate::persistence::REPO_DIR;
 
-// Baked in at build time from firmware/.env (see build.rs). Empty when unset;
-// checked at runtime before the first publish so a misconfigured build fails
-// with a clear message rather than a cryptic git error.
-const WIFI_SSID: &str = env!("TW_WIFI_SSID");
-const WIFI_PASS: &str = env!("TW_WIFI_PASS");
-const REMOTE_URL: &str = env!("TW_REMOTE_URL");
-const GH_USER: &str = env!("TW_GH_USER");
-const PAT: &str = env!("TW_PAT");
-const AUTHOR_NAME: &str = env!("TW_AUTHOR_NAME");
-const AUTHOR_EMAIL: &str = env!("TW_AUTHOR_EMAIL");
+// Baked in at build time from firmware/.env (see build.rs). Empty when unset.
+// Since the runtime conf (v0.9 onboarding slice 0) these are the per-field
+// FALLBACK: the card's /sd/typoena.conf overrides them, so a provisioned card
+// works on a firmware built with an empty .env. A field empty in both is
+// caught by the publish/pull guards with a clear message.
+const BAKED_WIFI_SSID: &str = env!("TW_WIFI_SSID");
+const BAKED_WIFI_PASS: &str = env!("TW_WIFI_PASS");
+const BAKED_REMOTE_URL: &str = env!("TW_REMOTE_URL");
+const BAKED_GH_USER: &str = env!("TW_GH_USER");
+const BAKED_PAT: &str = env!("TW_PAT");
+const BAKED_AUTHOR_NAME: &str = env!("TW_AUTHOR_NAME");
+const BAKED_AUTHOR_EMAIL: &str = env!("TW_AUTHOR_EMAIL");
+
+/// The card's parsed `typoena.conf`, installed once by `main` after the SD
+/// mount and before the git thread spawns. `OnceLock` because the git thread
+/// reads it concurrently with the UI thread from then on.
+static CARD_CONF: std::sync::OnceLock<conf::Conf> = std::sync::OnceLock::new();
+
+/// Install the card config (once; later calls are ignored).
+pub fn set_card_conf(c: conf::Conf) {
+    let _ = CARD_CONF.set(c);
+}
+
+/// Card value if present and non-blank, else the baked fallback. `&'static`
+/// works because `CARD_CONF` is a static — the parsed strings live forever.
+fn cfg(field: conf::Field, baked: &'static str) -> &'static str {
+    match CARD_CONF.get() {
+        Some(c) if !c.get(field).trim().is_empty() => c.get(field),
+        _ => baked,
+    }
+}
+
+fn wifi_ssid() -> &'static str {
+    cfg(conf::Field::WifiSsid, BAKED_WIFI_SSID)
+}
+/// The pass follows whichever source supplied the SSID: a card SSID with a
+/// blank pass is an OPEN NETWORK, not "fall back to the baked pass" — mixing
+/// the card's SSID with the .env password of a different network must never
+/// happen.
+fn wifi_pass() -> &'static str {
+    match CARD_CONF.get() {
+        Some(c) if !c.wifi_ssid.trim().is_empty() => &c.wifi_pass,
+        _ => BAKED_WIFI_PASS,
+    }
+}
+fn remote_url() -> &'static str {
+    cfg(conf::Field::RemoteUrl, BAKED_REMOTE_URL)
+}
+fn gh_user() -> &'static str {
+    cfg(conf::Field::GhUser, BAKED_GH_USER)
+}
+fn pat() -> &'static str {
+    cfg(conf::Field::Pat, BAKED_PAT)
+}
+fn author_name() -> &'static str {
+    cfg(conf::Field::AuthorName, BAKED_AUTHOR_NAME)
+}
+fn author_email() -> &'static str {
+    cfg(conf::Field::AuthorEmail, BAKED_AUTHOR_EMAIL)
+}
 
 /// GitHub's root CAs, embedded so the push can verify the server's TLS chain.
 /// Shared with the spikes. Written to the card and handed to libgit2 via
@@ -259,8 +311,8 @@ fn publish_cycle(
     tls_ready: &mut bool,
     paths: &BTreeSet<String>,
 ) -> Result<PublishOutcome> {
-    if REMOTE_URL.is_empty() || GH_USER.is_empty() || PAT.is_empty() || WIFI_SSID.is_empty() {
-        bail!("git config missing — set TW_WIFI_SSID / TW_REMOTE_URL / TW_GH_USER / TW_PAT in firmware/.env and rebuild");
+    if remote_url().is_empty() || gh_user().is_empty() || pat().is_empty() || wifi_ssid().is_empty() {
+        bail!("git config missing — provision the card's typoena.conf (installer / wizard) or set TW_* in firmware/.env and rebuild");
     }
 
     // Nothing recorded dirty and origin's tracking ref already has HEAD: this
@@ -300,8 +352,8 @@ fn pull_cycle(
     clock_synced: &mut bool,
     tls_ready: &mut bool,
 ) -> Result<PullOutcome> {
-    if REMOTE_URL.is_empty() || GH_USER.is_empty() || PAT.is_empty() || WIFI_SSID.is_empty() {
-        bail!("git config missing — set TW_WIFI_SSID / TW_REMOTE_URL / TW_GH_USER / TW_PAT in firmware/.env and rebuild");
+    if remote_url().is_empty() || gh_user().is_empty() || pat().is_empty() || wifi_ssid().is_empty() {
+        bail!("git config missing — provision the card's typoena.conf (installer / wizard) or set TW_* in firmware/.env and rebuild");
     }
     let t_total = Instant::now();
     ensure_online(sys_loop, wifi, modem, nvs, clock_synced, tls_ready)?;
@@ -339,7 +391,7 @@ fn ensure_online(
             EspWifi::new(m, sys_loop.clone(), Some(n))?,
             sys_loop.clone(),
         )?;
-        connect_wifi(&mut w, WIFI_SSID, WIFI_PASS).context("connecting Wi-Fi")?;
+        connect_wifi(&mut w, wifi_ssid(), wifi_pass()).context("connecting Wi-Fi")?;
         let ip = w.wifi().sta_netif().get_ip_info()?;
         log::info!("Wi-Fi up — IP {}", ip.ip);
         *wifi = Some(w);
@@ -518,7 +570,7 @@ fn stage_and_commit(repo: &Repository, paths: &BTreeSet<String>) -> Result<Optio
         }
     }
 
-    let sig = Signature::now(AUTHOR_NAME, AUTHOR_EMAIL).context("building signature")?;
+    let sig = Signature::now(author_name(), author_email()).context("building signature")?;
     let message = format!("Typoena publish — unix {}", now_unix());
     let parents: Vec<&Commit> = parent.iter().collect();
     let t_commit = Instant::now();
@@ -1146,7 +1198,7 @@ fn rebase_local_onto(repo: &Repository, head: Oid, theirs: Oid) -> Result<Oid> {
         return Ok(theirs);
     }
 
-    let sig = Signature::now(AUTHOR_NAME, AUTHOR_EMAIL).context("building signature")?;
+    let sig = Signature::now(author_name(), author_email()).context("building signature")?;
     let message = format!("Typoena rebase onto origin — unix {}", now_unix());
     repo.commit(None, &sig, &sig, &message, &tree, &[&their_commit])
         .context("creating the rebased commit")
@@ -1167,14 +1219,14 @@ fn is_media_path(rel: &str) -> bool {
         .is_some_and(|e| MEDIA_EXT.iter().any(|m| e.eq_ignore_ascii_case(m)))
 }
 
-/// Auth + cert callbacks shared by fetch and push. Captures only the baked
-/// consts, so a fresh set can be built per operation. The PAT is handed to
-/// libgit2 here and never logged.
+/// Auth + cert callbacks shared by fetch and push. Captures only statics
+/// (card conf / baked consts), so a fresh set can be built per operation. The
+/// token is handed to libgit2 here and never logged.
 fn auth_callbacks<'a>() -> RemoteCallbacks<'a> {
     let mut cbs = RemoteCallbacks::new();
     cbs.credentials(|_url, _user_from_url, allowed| {
         if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) {
-            return Cred::userpass_plaintext(GH_USER, PAT);
+            return Cred::userpass_plaintext(gh_user(), pat());
         }
         Err(git2::Error::from_str(
             "server did not offer USER_PASS_PLAINTEXT — cannot authenticate with a PAT",

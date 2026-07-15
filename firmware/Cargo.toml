@@ -123,6 +123,10 @@ keymap = { path = "../keymap" }
 # off-device. The firmware links them; the host tests live in each crate.
 editor = { path = "../editor" }
 display = { path = "../display" }
+# The typoena.conf schema + parser (shared with the installer/wizard). The
+# card's conf is read at boot and overrides the .env-baked TW_* per field —
+# v0.9 onboarding slice 0. See ../conf and docs/v0.9-onboarding-wizard.md.
+conf = { path = "../conf" }
 git2 = { version = "0.20", default-features = false, optional = true }
 # Already in the tree under git2 (same system-mode build); named directly for
 # the raw `git_libgit2_opts` calls git2 doesn't wrap — the odb-cache cap

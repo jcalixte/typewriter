@@ -47,25 +47,24 @@ fn main() {
         println!("cargo:rerun-if-env-changed={var}");
     }
 
-    // A git-feature build with an empty publish config can only ever fail at
-    // runtime (git_sync's publish_cycle guard), so refuse it here instead.
-    // env!() bakes the values at compile time and only `just` dotenv-loads
-    // firmware/.env — a plain `cargo build --features git` in a bare shell
-    // silently produced a firmware whose `:sync` could never work (bit the
-    // 2026-07-13 flash). TW_WIFI_PASS may be legitimately empty (open network)
-    // and TW_AUTHOR_* have runtime defaults, so only the four required vars
-    // are checked.
+    // A git-feature build with an empty publish config used to be refused here
+    // (env!() only bakes what `just` dotenv-loads from firmware/.env; a bare
+    // `cargo build --features git` silently produced a firmware whose `:sync`
+    // could never work — bit the 2026-07-13 flash). Since the runtime conf
+    // (v0.9 onboarding slice 0) the card's /sd/typoena.conf overrides the
+    // baked values per field, so an unbaked git build is legitimate — it just
+    // needs a provisioned card. Warn instead of panic: the dev-flash foot-gun
+    // stays visible, the card-provisioned path stays buildable.
     if std::env::var("CARGO_FEATURE_GIT").is_ok() {
         let missing: Vec<&str> = ["TW_WIFI_SSID", "TW_REMOTE_URL", "TW_GH_USER", "TW_PAT"]
             .into_iter()
             .filter(|v| std::env::var(v).map_or(true, |val| val.is_empty()))
             .collect();
         if !missing.is_empty() {
-            panic!(
-                "git-feature build without publish config: {} unset/empty. \
-                 Build through `just build` (dotenv-loads firmware/.env), or \
-                 source firmware/.env into this shell. For a no-git editor \
-                 build use `just build-light` (drops --features git).",
+            println!(
+                "cargo:warning=git build without baked publish config ({} unset/empty): \
+                 the device needs a provisioned typoena.conf on the card, or build \
+                 through `just build` to bake firmware/.env.",
                 missing.join(", ")
             );
         }
