@@ -49,9 +49,9 @@ const NAME: &str = "typoena";
 /// Tagline, lifted verbatim from typoena.dev so the two read as one product.
 /// One caret types the name, then continues into this.
 const TAGLINE: &str = "A distraction-free writing machine.";
-/// Milliseconds between revealed letters — a hair over the 100 ms render tick,
-/// so each repaint lands about one new key.
-const KEY_MS: u128 = 110;
+/// Milliseconds between revealed letters — comfortably above the 100 ms render
+/// tick so the typewriter reads as a deliberate, unhurried keystroke rhythm.
+const KEY_MS: u128 = 150;
 /// How long the caret blinks after both lines are typed, before it settles.
 const BLINK_MS: u128 = 10_000;
 
