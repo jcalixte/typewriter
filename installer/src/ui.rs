@@ -4,7 +4,7 @@
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Gauge, List, ListItem, Paragraph, Wrap},
@@ -30,7 +30,7 @@ fn busy_line(app: &App, label: &str) -> Line<'static> {
 
 pub fn render(frame: &mut Frame, app: &App) {
     let [header, body, footer] = Layout::vertical([
-        Constraint::Length(2),
+        Constraint::Length(4),
         Constraint::Min(0),
         Constraint::Length(1),
     ])
@@ -46,41 +46,79 @@ pub fn render(frame: &mut Frame, app: &App) {
 
 /// The product name, typed out one letter at a time by the header intro.
 const NAME: &str = "typoena";
+/// Tagline, lifted verbatim from typoena.dev so the two read as one product.
+/// One caret types the name, then continues into this.
+const TAGLINE: &str = "A distraction-free writing machine.";
 /// Milliseconds between revealed letters — a hair over the 100 ms render tick,
 /// so each repaint lands about one new key.
 const KEY_MS: u128 = 110;
-/// Tagline, lifted verbatim from typoena.dev so the two read as one product.
-const TAGLINE: &str = "A distraction-free writing machine.";
+/// How long the caret blinks after both lines are typed, before it settles.
+const BLINK_MS: u128 = 10_000;
 
-/// A two-line brand header: the name types itself in with a trailing block
-/// caret that keeps blinking once it's done (the machine, waiting for you),
-/// and the tagline lands beneath once the name is complete.
+/// One centred line of the header: `text[..shown]` in `style`, a caret cell at
+/// the cursor position (reverse-video when `caret` is lit), then padding out to
+/// the full text width so the centred line never shifts as it fills.
+fn typed_line(text: &str, shown: usize, style: Style, caret: bool) -> Line<'static> {
+    let mut spans = vec![
+        Span::styled(text[..shown].to_string(), style), // text is ASCII: byte == char
+        if caret {
+            Span::styled(" ", Style::new().add_modifier(Modifier::REVERSED))
+        } else {
+            Span::raw(" ")
+        },
+    ];
+    if shown < text.len() {
+        spans.push(Span::raw(" ".repeat(text.len() - shown)));
+    }
+    Line::from(spans)
+}
+
+/// A centred brand header with a blank line of margin above and below. A single
+/// caret types the name, then continues down into the tagline; once both lines
+/// are written it blinks for `BLINK_MS` (the machine, waiting for you) and then
+/// settles so the header goes quiet.
 fn render_header(frame: &mut Frame, area: Rect, app: &App) {
     let elapsed = app.started.elapsed().as_millis();
-    let shown = ((elapsed / KEY_MS) as usize).min(NAME.len()); // NAME is ASCII
-    let done = shown == NAME.len();
 
-    // ~530 ms half-period: a calm, cursor-like blink at the idle render rate.
-    let caret = if (elapsed / 530) % 2 == 0 {
-        Span::styled(" ", Style::new().add_modifier(Modifier::REVERSED))
+    // One running counter drives both lines: the first NAME.len() keys fill the
+    // name, the rest spill into the tagline.
+    let typed = (elapsed / KEY_MS) as usize;
+    let name_shown = typed.min(NAME.len());
+    let tag_shown = typed.saturating_sub(NAME.len()).min(TAGLINE.len());
+    let type_done = (NAME.len() + TAGLINE.len()) as u128 * KEY_MS;
+
+    // Caret: solid while typing, then a ~530 ms blink for BLINK_MS, then gone.
+    let lit = if elapsed < type_done {
+        true
+    } else if elapsed < type_done + BLINK_MS {
+        (elapsed / 530) % 2 == 0
     } else {
-        Span::raw(" ")
+        false
     };
-    let title = Line::from(vec![
-        Span::styled(
-            NAME[..shown].to_string(),
+    // It sits on whichever line is still being written (the tagline once the
+    // name is complete), so there's only ever one caret on screen.
+    let on_name = typed < NAME.len();
+
+    let lines = vec![
+        Line::from(""), // top margin
+        typed_line(
+            NAME,
+            name_shown,
             Style::new().add_modifier(Modifier::BOLD),
+            lit && on_name,
         ),
-        caret,
-    ]);
-
-    let subtitle = if done {
-        Line::styled(TAGLINE, Style::new().fg(Color::DarkGray))
-    } else {
-        Line::from("")
-    };
-
-    frame.render_widget(Paragraph::new(Text::from(vec![title, subtitle])), area);
+        typed_line(
+            TAGLINE,
+            tag_shown,
+            Style::new().fg(Color::DarkGray),
+            lit && !on_name,
+        ),
+        Line::from(""), // bottom margin
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).alignment(Alignment::Center),
+        area,
+    );
 }
 
 fn render_steps(frame: &mut Frame, area: Rect, app: &App) {
@@ -125,6 +163,7 @@ fn render_steps_legend(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines = vec![
         Line::styled("Tab   next", dim),
         Line::styled("⇧Tab  back", dim),
+        Line::styled("^N/^P step", dim),
         Line::from(""),
     ];
     match (app.forward_open(), app.next_step()) {
@@ -594,15 +633,16 @@ mod tests {
     fn header_types_the_name_then_shows_the_tagline() {
         use std::time::{Duration, Instant};
         let mut app = App::new();
-        // Wind the clock back past the intro so it renders fully typed.
+        // Wind the clock back past the whole intro (type + 10 s blink) so it
+        // renders in its final, fully-typed, settled state.
         app.started = Instant::now()
-            .checked_sub(Duration::from_secs(3))
+            .checked_sub(Duration::from_secs(20))
             .unwrap_or_else(Instant::now);
         let s = screen(&app);
         assert!(s.contains("typoena"), "the name should have typed in:\n{s}");
         assert!(
-            s.contains("distraction-free"),
-            "the tagline should show once the name is done:\n{s}"
+            s.contains(TAGLINE),
+            "the single caret should have typed the whole tagline too:\n{s}"
         );
     }
 

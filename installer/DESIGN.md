@@ -115,10 +115,12 @@ it.
 - **Preflight hides the Mac's own storage** — the SD-card check reports only
   genuinely removable cards (via `diskutil`), never names `Macintosh HD`; a
   machine's own disk showing as "available" alarmed users.
-- **Animated brand header** — the name `typoena` types itself in letter-by-letter
-  against a wall-clock `Instant` (not the render tick, so pace is cadence-independent)
-  with a trailing block caret that keeps blinking once done; the site's tagline
-  ("A distraction-free writing machine.") lands beneath. Kept to two rows.
+- **Animated brand header** — a single block caret types the name `typoena`
+  then continues into the site's tagline ("A distraction-free writing machine."),
+  paced against a wall-clock `Instant` (not the render tick, so it's
+  cadence-independent). The caret is solid while writing, blinks for 10 s once
+  both lines are done, then settles. Both lines centred (reserved widths keep
+  them from drifting as they fill), with a blank line of margin above and below.
 - **Live clone progress bar** — `git clone --progress` is streamed by splitting
   on `\r`/`\n` (line-buffered reading swallows the in-place ticks) and parsed
   into a gauge (`Receiving objects  42%`); the scrolling log keeps only the
