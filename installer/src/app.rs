@@ -3,6 +3,7 @@
 //! each behave differently).
 
 use std::sync::mpsc::{Receiver, TryRecvError};
+use std::time::Instant;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -113,6 +114,9 @@ pub struct App {
     pub busy: Busy,
     /// Frame counter, bumped once per render loop, animating the spinner.
     pub tick: u64,
+    /// When the UI came up — the wall-clock origin the header's typewriter
+    /// intro plays against, so its pace is independent of the render cadence.
+    pub started: Instant,
     task_rx: Option<Receiver<TaskResult>>,
     pub should_quit: bool,
 }
@@ -135,6 +139,7 @@ impl App {
             sd_rx: None,
             busy: Busy::Preflight,
             tick: 0,
+            started: Instant::now(),
             task_rx: None,
             should_quit: false,
         }

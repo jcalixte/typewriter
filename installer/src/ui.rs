@@ -36,7 +36,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     ])
     .areas(frame.area());
 
-    render_header(frame, header);
+    render_header(frame, header, app);
     let [steps, main] =
         Layout::horizontal([Constraint::Length(22), Constraint::Min(0)]).areas(body);
     render_steps(frame, steps, app);
@@ -44,12 +44,43 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_footer(frame, footer, app);
 }
 
-fn render_header(frame: &mut Frame, area: Rect) {
+/// The product name, typed out one letter at a time by the header intro.
+const NAME: &str = "typoena";
+/// Milliseconds between revealed letters — a hair over the 100 ms render tick,
+/// so each repaint lands about one new key.
+const KEY_MS: u128 = 110;
+/// Tagline, lifted verbatim from typoena.dev so the two read as one product.
+const TAGLINE: &str = "A distraction-free writing machine.";
+
+/// A two-line brand header: the name types itself in with a trailing block
+/// caret that keeps blinking once it's done (the machine, waiting for you),
+/// and the tagline lands beneath once the name is complete.
+fn render_header(frame: &mut Frame, area: Rect, app: &App) {
+    let elapsed = app.started.elapsed().as_millis();
+    let shown = ((elapsed / KEY_MS) as usize).min(NAME.len()); // NAME is ASCII
+    let done = shown == NAME.len();
+
+    // ~530 ms half-period: a calm, cursor-like blink at the idle render rate.
+    let caret = if (elapsed / 530) % 2 == 0 {
+        Span::styled(" ", Style::new().add_modifier(Modifier::REVERSED))
+    } else {
+        Span::raw(" ")
+    };
     let title = Line::from(vec![
-        Span::styled("TYPOENA", Style::new().add_modifier(Modifier::BOLD)),
-        Span::styled("  installer", Style::new().fg(Color::DarkGray)),
+        Span::styled(
+            NAME[..shown].to_string(),
+            Style::new().add_modifier(Modifier::BOLD),
+        ),
+        caret,
     ]);
-    frame.render_widget(Paragraph::new(title), area);
+
+    let subtitle = if done {
+        Line::styled(TAGLINE, Style::new().fg(Color::DarkGray))
+    } else {
+        Line::from("")
+    };
+
+    frame.render_widget(Paragraph::new(Text::from(vec![title, subtitle])), area);
 }
 
 fn render_steps(frame: &mut Frame, area: Rect, app: &App) {
@@ -557,6 +588,22 @@ mod tests {
             app.step = step;
             let _ = screen(&app); // a layout-array or index panic would fail here
         }
+    }
+
+    #[test]
+    fn header_types_the_name_then_shows_the_tagline() {
+        use std::time::{Duration, Instant};
+        let mut app = App::new();
+        // Wind the clock back past the intro so it renders fully typed.
+        app.started = Instant::now()
+            .checked_sub(Duration::from_secs(3))
+            .unwrap_or_else(Instant::now);
+        let s = screen(&app);
+        assert!(s.contains("typoena"), "the name should have typed in:\n{s}");
+        assert!(
+            s.contains("distraction-free"),
+            "the tagline should show once the name is done:\n{s}"
+        );
     }
 
     #[test]
