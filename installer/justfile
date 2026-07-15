@@ -1,0 +1,33 @@
+# Typoena installer — common commands.
+# A plain (stable-toolchain) cargo crate; just sets cwd to installer/ so every
+# recipe runs from here. `run` launches the interactive TUI wizard; the rest are
+# the headless modes that need no TTY.
+
+# list recipes
+default:
+    @just --list
+
+# launch the interactive setup wizard (needs a TTY)
+run:
+    cargo run
+
+# preflight checks + derived config, printed and exit (scriptable, no TTY)
+check:
+    cargo run -- --check
+
+# list the removable cards the SD step would offer
+list-cards:
+    cargo run -- --list-cards
+
+# exercise the clone + config-write path with no card: clones to a temp dir.
+# usage: just dry-run <remote-url> [dest-dir] [--wipe]
+dry-run remote *args:
+    cargo run -- --dry-run-sd {{remote}} {{args}}
+
+# compile (release)
+build:
+    cargo build --release
+
+# run the test suite
+test:
+    cargo test
