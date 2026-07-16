@@ -36,7 +36,7 @@ use firmware::epd::Epd;
 use firmware::net::connect_wifi;
 use firmware::persistence::Storage;
 use wizard::github;
-use wizard::{Effect, Event, Wizard};
+use wizard::{Effect, Event, RepoChoice, Wizard};
 
 use crate::usb_kbd;
 
@@ -163,12 +163,27 @@ pub fn run(
                     queue.extend(wiz.event(ev));
                     dirty = true;
                 }
-                Effect::FetchRepos | Effect::Clone { .. } => {
-                    // Slice 4. Stop rather than loop.
+                Effect::FetchRepos => {
+                    let token = wiz.conf().token.clone();
+                    let ev = match fetch_repos(&token) {
+                        Ok(repos) => {
+                            log::info!("wizard: {} repo(s) available", repos.len());
+                            Event::Repos(repos)
+                        }
+                        Err(e) => {
+                            log::warn!("wizard: repo list failed: {e:#}");
+                            Event::ReposFailed(format!("{e:#}"))
+                        }
+                    };
+                    queue.extend(wiz.event(ev));
+                    dirty = true;
+                }
+                Effect::Clone { .. } => {
+                    // Slice 4 clone — lands in the next commit.
                     bail!(
-                        "You are signed in. The on-device repo setup lands in the \
-                         next firmware - until then, finish this card with the \
-                         installer (typoena.dev)."
+                        "Repo chosen and saved. On-device cloning lands in the next \
+                         firmware - until then, seed the card from a computer once \
+                         (typoena.dev)."
                     );
                 }
                 Effect::Finish => return Ok(wiz.conf().clone()),
@@ -362,8 +377,10 @@ fn poll_token(device_code: &str) -> Result<github::Poll> {
     Ok(github::parse_poll(&body))
 }
 
-/// `GET /user` → (login, name, email) for the commit identity.
-fn fetch_identity(token: &str) -> Result<(String, String, String)> {
+/// One authenticated GitHub API GET; returns the body, erroring on non-2xx.
+/// The `api.github.com` replies (a repo list especially) dwarf the OAuth
+/// bodies, hence the generous cap — the buffer lands on PSRAM.
+fn github_get(token: &str, url: &str) -> Result<String> {
     let mut conn = https_conn()?;
     let auth = format!("Bearer {token}");
     let headers = [
@@ -372,15 +389,49 @@ fn fetch_identity(token: &str) -> Result<(String, String, String)> {
         ("X-GitHub-Api-Version", "2022-11-28"),
         ("Authorization", auth.as_str()),
     ];
-    conn.initiate_request(Method::Get, github::USER_URL, &headers)
-        .context("GET /user")?;
+    conn.initiate_request(Method::Get, url, &headers)
+        .with_context(|| format!("GET {url}"))?;
     conn.initiate_response()?;
     let status = conn.status();
-    let body = read_body(&mut conn)?;
+    let body = read_body(&mut conn, 2 * 1024 * 1024)?;
     if !(200..300).contains(&status) {
-        bail!("GitHub /user answered {status}");
+        bail!("GitHub {url} answered {status}");
     }
+    Ok(body)
+}
+
+/// `GET /user` → (login, name, email) for the commit identity.
+fn fetch_identity(token: &str) -> Result<(String, String, String)> {
+    let body = github_get(token, github::USER_URL).context("GET /user")?;
     github::parse_user(&body).map_err(|e| anyhow!(e))
+}
+
+/// The repos the app installation can reach, with sizes for the wizard's gate:
+/// list the user's installations, then each one's repositories. Deduped across
+/// installations, sorted by name. Empty list → the app isn't installed
+/// anywhere yet (signing in proves identity, not repo access), so point at the
+/// install page rather than showing a blank list.
+fn fetch_repos(token: &str) -> Result<Vec<RepoChoice>> {
+    let body = github_get(token, github::INSTALLATIONS_URL).context("listing installations")?;
+    let ids = github::parse_installation_ids(&body).map_err(|e| anyhow!(e))?;
+    if ids.is_empty() {
+        bail!(
+            "no GitHub App installation - install Typoena on the repo you want first: {}",
+            github::APP_INSTALL_URL
+        );
+    }
+    let mut out: Vec<RepoChoice> = Vec::new();
+    for id in ids {
+        let body = github_get(token, &github::installation_repos_url(id))
+            .with_context(|| format!("listing repos for installation {id}"))?;
+        for (full_name, size_kb) in github::parse_repos(&body).map_err(|e| anyhow!(e))? {
+            if !out.iter().any(|r| r.full_name == full_name) {
+                out.push(RepoChoice { full_name, size_kb });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.full_name.to_lowercase().cmp(&b.full_name.to_lowercase()));
+    Ok(out)
 }
 
 /// One TLS connection against the esp-idf certificate bundle (Spike 6).
@@ -407,24 +458,25 @@ fn post_form(url: &str, body: &str) -> Result<String> {
     conn.write_all(body.as_bytes()).context("sending the form")?;
     conn.initiate_response()?;
     let status = conn.status();
-    let reply = read_body(&mut conn)?;
+    let reply = read_body(&mut conn, 16 * 1024)?;
     log::info!("wizard: POST {url} -> {status} ({} B)", reply.len());
     Ok(reply)
 }
 
-/// Drain a response into a String (these replies are a few hundred bytes;
-/// the cap is a guard against reading something unexpected forever).
-fn read_body(conn: &mut EspHttpConnection) -> Result<String> {
+/// Drain a response into a String; `max` guards against reading something
+/// unexpected forever (OAuth replies are a few hundred bytes, an API repo
+/// list can be a few hundred KB).
+fn read_body(conn: &mut EspHttpConnection, max: usize) -> Result<String> {
     let mut out = Vec::new();
-    let mut buf = [0u8; 512];
+    let mut buf = [0u8; 2048];
     loop {
         let n = conn.read(&mut buf)?;
         if n == 0 {
             break;
         }
         out.extend_from_slice(&buf[..n]);
-        if out.len() > 16 * 1024 {
-            bail!("reply unexpectedly large (> 16 KB)");
+        if out.len() > max {
+            bail!("reply unexpectedly large (> {} KB)", max / 1024);
         }
     }
     Ok(String::from_utf8_lossy(&out).into_owned())

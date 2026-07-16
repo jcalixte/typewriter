@@ -21,6 +21,17 @@ pub const USER_URL: &str = "https://api.github.com/user";
 /// identity — the token can't see a repo until the app is *installed* on it.
 pub const APP_INSTALL_URL: &str = "https://github.com/apps/typoena/installations/new";
 
+/// The app installations the signed-in user can see (device-flow user token).
+pub const INSTALLATIONS_URL: &str = "https://api.github.com/user/installations?per_page=100";
+
+/// Repos one installation grants the user. Per-installation (not `/user/repos`)
+/// so the list is exactly what the app can actually reach — what the clone can
+/// use. `per_page=100` covers any realistic grant (the app is installed on a
+/// handful of hand-picked repos), truncating silently past that.
+pub fn installation_repos_url(id: u64) -> String {
+    format!("https://api.github.com/user/installations/{id}/repositories?per_page=100")
+}
+
 /// Body for `POST login/device/code`. All values are URL-safe literals.
 pub fn device_code_body() -> String {
     format!("client_id={CLIENT_ID}")
@@ -99,6 +110,39 @@ pub fn parse_user(json: &str) -> Result<(String, String, String), String> {
         return Err("GitHub /user reply carried no login".into());
     }
     Ok((login, s("name"), s("email")))
+}
+
+/// Installation ids from `GET /user/installations`.
+pub fn parse_installation_ids(json: &str) -> Result<Vec<u64>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("bad /user/installations reply: {e}"))?;
+    let arr = v
+        .get("installations")
+        .and_then(|x| x.as_array())
+        .ok_or("no installations in reply")?;
+    Ok(arr
+        .iter()
+        .filter_map(|i| i.get("id").and_then(|x| x.as_u64()))
+        .collect())
+}
+
+/// `(full_name, size_kb)` pairs from an installation's repositories list.
+/// `size` is GitHub's repo size in kilobytes — the input to the wizard's gate.
+pub fn parse_repos(json: &str) -> Result<Vec<(String, u64)>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("bad repositories reply: {e}"))?;
+    let arr = v
+        .get("repositories")
+        .and_then(|x| x.as_array())
+        .ok_or("no repositories in reply")?;
+    Ok(arr
+        .iter()
+        .filter_map(|r| {
+            let full = r.get("full_name")?.as_str()?.to_string();
+            let size = r.get("size").and_then(|x| x.as_u64()).unwrap_or(0);
+            Some((full, size))
+        })
+        .collect())
 }
 
 /// `error_description` > `error`, like the installer.
@@ -215,6 +259,35 @@ mod tests {
         assert_eq!(email, "y@x.com");
         assert!(parse_user(r#"{"id":1}"#).is_err());
         assert!(parse_user("not json").is_err());
+    }
+
+    #[test]
+    fn installation_ids_parse() {
+        let json = r#"{"total_count":2,"installations":[{"id":11,"x":1},{"id":22}]}"#;
+        assert_eq!(parse_installation_ids(json).unwrap(), vec![11, 22]);
+        assert!(parse_installation_ids("nope").is_err());
+        assert!(parse_installation_ids(r#"{"x":1}"#).is_err());
+    }
+
+    #[test]
+    fn repos_parse_full_name_and_size() {
+        let json = r#"{"total_count":2,"repositories":[
+            {"full_name":"you/notes","size":420,"private":true},
+            {"full_name":"you/big","size":574000}
+        ]}"#;
+        assert_eq!(
+            parse_repos(json).unwrap(),
+            vec![
+                ("you/notes".to_string(), 420),
+                ("you/big".to_string(), 574000)
+            ]
+        );
+        // A repo missing `size` defaults to 0 (never wrongly gated out).
+        assert_eq!(
+            parse_repos(r#"{"repositories":[{"full_name":"a/b"}]}"#).unwrap(),
+            vec![("a/b".to_string(), 0)]
+        );
+        assert!(parse_repos("nope").is_err());
     }
 
     #[test]
