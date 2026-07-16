@@ -131,6 +131,12 @@ pub enum Effect {
     /// bookkeeping. Separate from [`Save`](Effect::Save): prefs are not a text
     /// buffer and live at a fixed path outside the multi-buffer model.
     SavePrefs { contents: String },
+    /// `:setup` (or `> setup`) — reopen the onboarding wizard to change Wi-Fi,
+    /// re-sign-in, or switch repos. The running editor can't reclaim the radio
+    /// from the git thread, so the host reboots into the boot-time wizard
+    /// (prefilled from the card conf). Only queued when no buffer has unsaved
+    /// edits ([`any_dirty`](Editor::any_dirty)) — the reboot would lose them.
+    Setup,
 }
 
 
@@ -370,6 +376,13 @@ impl Editor {
     /// Whether the active buffer has unsaved edits.
     pub fn dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// Whether *any* resident buffer (active or parked) has unsaved edits. Used
+    /// by [`request_setup`](Self::request_setup): a `:setup` reboot would lose
+    /// every unsaved buffer, not just the active one.
+    pub fn any_dirty(&self) -> bool {
+        self.dirty || self.parked.iter().any(|b| b.dirty)
     }
 
     /// Drain the queued host effects (save/load/publish/pull). The main loop
@@ -933,8 +946,20 @@ impl Editor {
             // fmt → save → push, shared with the `>` publish command.
             "gp" => self.run_publish(),
             "gl" => self.requests.push(Effect::Pull),
+            "setup" => self.request_setup(),
             _ => {}
         }
+    }
+
+    /// `:setup` / `> setup` — ask the host to reopen the onboarding wizard.
+    /// Refuses while anything is unsaved: the host reboots into the wizard, so
+    /// a dirty buffer would be lost. Save with `:w` first, then retry.
+    pub(crate) fn request_setup(&mut self) {
+        if self.any_dirty() {
+            self.set_notice("unsaved changes - :w first");
+            return;
+        }
+        self.requests.push(Effect::Setup);
     }
 
     fn reset_pending(&mut self) {

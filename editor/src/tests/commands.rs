@@ -28,6 +28,29 @@ fn gl_command_signals_pull() {
 }
 
 #[test]
+fn setup_command_requests_the_wizard_when_clean() {
+    // A fresh clean buffer → `:setup` asks the host to reboot into the wizard.
+    assert_eq!(kinds(&command("setup").1), vec![Kind::Setup]);
+}
+
+#[test]
+fn setup_command_is_refused_with_unsaved_changes() {
+    // Dirty the buffer, then `:setup` — the reboot would lose the edit, so it
+    // refuses with a notice and queues nothing.
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    e.handle(Key::Char('i'));
+    send(&mut e, "hi");
+    e.handle(Key::Escape);
+    ex(&mut e, "setup");
+    assert!(e.take_effects().is_empty(), "dirty :setup must queue nothing");
+    assert!(
+        e.notice.as_deref().unwrap_or_default().contains("unsaved"),
+        "expected an unsaved-changes notice, got {:?}",
+        e.notice
+    );
+}
+
+#[test]
 fn gp_formats_the_buffer_before_publishing() {
     // fmt → save → commit → push: `:gp` runs :fmt in-core first (default on).
     let mut e = Editor::with_file(

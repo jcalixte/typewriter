@@ -377,6 +377,18 @@ fn command_label_reflects_current_pref_state() {
 }
 
 #[test]
+fn setup_palette_command_requests_the_wizard() {
+    // `> setup` fuzzy-ranks the Setup action first; Enter (clean buffer) closes
+    // the palette and queues the reboot-into-wizard effect.
+    let mut e = palette_type(&["/sd/repo/notes.md"], ">setup");
+    let matches = e.palette_command_matches();
+    assert_eq!(PALETTE_CMDS[matches[0]], PaletteCmd::Setup);
+    e.handle(Key::Enter);
+    assert_eq!(e.mode(), Mode::Normal); // one-shot closes the palette
+    assert_eq!(kinds(&e.take_effects()), vec![Kind::Setup]);
+}
+
+#[test]
 fn running_a_command_toggles_the_pref_live_and_queues_a_save_prefs() {
     // >line<Enter> flips line_numbers off, in-core, and asks the host to persist.
     let mut e = palette_type(&["/sd/repo/notes.md"], ">line");

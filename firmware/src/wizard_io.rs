@@ -79,11 +79,18 @@ pub fn run(
     epd: &mut Epd,
     storage: &Storage,
     start: conf::Conf,
+    setup: bool,
     sys_loop: &EspSystemEventLoop,
     nvs: &EspDefaultNvsPartition,
     modem: &mut Modem,
 ) -> Result<conf::Conf> {
-    let mut wiz = Wizard::resume(start);
+    // `:setup` opens the reset menu prefilled from the card conf; first boot /
+    // power-pull resume walks the steps linearly from the first unmet one.
+    let mut wiz = if setup {
+        Wizard::setup(start)
+    } else {
+        Wizard::resume(start)
+    };
     let mut frame = Frame::new_white();
     let mut queue: Vec<Effect> = wiz.pending().into_iter().collect();
     let mut first_paint = true;

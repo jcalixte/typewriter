@@ -130,14 +130,27 @@ fn main() -> anyhow::Result<()> {
         );
 
         let effective = firmware::git_sync::effective_conf_from(&card);
-        let final_conf = if !effective.missing_required().is_empty() || !storage.repo_present() {
-            log::info!("unconfigured card (conf incomplete or repo missing) — entering the onboarding wizard");
+        let unconfigured = !effective.missing_required().is_empty() || !storage.repo_present();
+        // `:setup` reboots into the wizard prefilled (the running editor can't
+        // reclaim the radio from the git thread). One-shot: clear the marker on
+        // read so a power-pull mid-setup boots the editor, not setup again.
+        let setup_requested = storage.setup_requested();
+        if setup_requested {
+            storage.clear_setup_request();
+        }
+        let final_conf = if unconfigured || setup_requested {
+            if unconfigured {
+                log::info!("unconfigured card (conf incomplete or repo missing) — entering the onboarding wizard");
+            } else {
+                log::info!(":setup requested — reopening the wizard prefilled from the card conf");
+            }
             // The gate above asks "is the device usable?" (baked dev values can
             // answer yes). The wizard provisions the *card*, so it resumes from
             // the card's own state — never the baked fallback, which would skip
             // the very steps a blank card needs (and, on the author's device,
-            // mask the whole flow by jumping straight to the repo step).
-            match wizard_io::run(&mut epd, &storage, card, &sys_loop, &nvs, &mut modem) {
+            // mask the whole flow by jumping straight to the repo step). `:setup`
+            // (configured card, marker set) opens the reset menu instead.
+            match wizard_io::run(&mut epd, &storage, card, setup_requested && !unconfigured, &sys_loop, &nvs, &mut modem) {
                 Ok(c) => c,
                 Err(e) => boot_halt(&mut epd, "Setup stopped", &format!("{e:#}")),
             }
@@ -360,6 +373,30 @@ fn main() -> anyhow::Result<()> {
                     }
                     Effect::Delete { path, scope } => delete_buffer(&storage, &mut ed, path, scope),
                     Effect::SavePrefs { contents } => save_prefs(&storage, &mut ed, &contents),
+                    Effect::Setup => {
+                        // Reboot into the boot-time wizard: the running editor
+                        // can't reclaim the radio from the git thread. The editor
+                        // already refused if anything was unsaved, so the reboot
+                        // loses nothing. Paint a notice with a blocking full
+                        // refresh (visible before the reset), then restart — the
+                        // boot gate sees the marker and re-enters the wizard.
+                        #[cfg(feature = "git")]
+                        match storage.request_setup() {
+                            Ok(()) => {
+                                ed.set_notice("opening setup - restarting...");
+                                ed.draw_into(&mut back, true);
+                                let _ = epd.display_frame(back.bytes());
+                                log::info!(":setup — rebooting into the wizard");
+                                unsafe { esp_idf_svc::sys::esp_restart() };
+                            }
+                            Err(e) => {
+                                log::warn!(":setup marker write failed: {e:#}");
+                                ed.set_notice("setup: could not save marker");
+                            }
+                        }
+                        #[cfg(not(feature = "git"))]
+                        ed.set_notice(":setup needs the full firmware");
+                    }
                 }
             }
         }

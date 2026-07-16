@@ -62,6 +62,7 @@ enum Kind {
     Pull,
     Delete,
     SavePrefs,
+    Setup,
 }
 
 fn kinds(effects: &[Effect]) -> Vec<Kind> {
@@ -74,6 +75,7 @@ fn kinds(effects: &[Effect]) -> Vec<Kind> {
             Effect::Pull => Kind::Pull,
             Effect::Delete { .. } => Kind::Delete,
             Effect::SavePrefs { .. } => Kind::SavePrefs,
+            Effect::Setup => Kind::Setup,
         })
         .collect()
 }

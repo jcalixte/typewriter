@@ -51,7 +51,7 @@ pub(crate) struct Buffer {
     text: String,
     caret: usize,
     scroll_top: usize,
-    dirty: bool,
+    pub(crate) dirty: bool,
     undo: Vec<(String, usize)>,
     redo: Vec<(String, usize)>,
 }

@@ -101,6 +101,13 @@ const DIRTY_JOURNAL: &str = "/sd/.typoena-dirty";
 /// devices never fight over one "last file".
 const LAST_FILE: &str = "/sd/.typoena-last";
 
+/// `:setup` reboot marker. The running editor can't reclaim the radio from the
+/// git thread, so `:setup` writes this and reboots; the boot gate sees it and
+/// re-enters the wizard (prefilled from the card conf) even on a configured
+/// card. A one-shot: cleared as soon as the boot gate reads it. Card root,
+/// outside `/sd/repo` — never committed.
+const SETUP_MARKER: &str = "/sd/.typoena-setup";
+
 /// Local scratch — [`REPO_DIR`]'s never-published sibling (mirrors the editor
 /// crate's `LOCAL_DIR`). Here it bounds what [`Storage::last_file`] will
 /// resume.
@@ -413,6 +420,29 @@ impl Storage {
     /// infrastructure, not a note for `:gp` to publish.
     pub fn write_conf(&self, contents: &str) -> Result<()> {
         Self::atomic_write(CONF_PATH, contents)
+    }
+
+    /// Drop the `:setup` reboot marker. The editor calls this (then reboots)
+    /// so the next boot re-enters the wizard prefilled — the running editor
+    /// can't reclaim the radio from the git thread to run it inline.
+    pub fn request_setup(&self) -> Result<()> {
+        Self::atomic_write(SETUP_MARKER, "1\n")
+    }
+
+    /// Whether a `:setup` reboot is pending (marker present).
+    pub fn setup_requested(&self) -> bool {
+        Path::new(SETUP_MARKER).is_file()
+    }
+
+    /// Clear the `:setup` marker — the boot gate calls this as soon as it reads
+    /// it, so the trigger fires exactly once. Best-effort: a stale marker only
+    /// costs re-entering setup once more, never data.
+    pub fn clear_setup_request(&self) {
+        if let Err(e) = fs::remove_file(SETUP_MARKER) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("could not clear {SETUP_MARKER}: {e}");
+            }
+        }
     }
 
     /// Unlink a file under `/sd` (`:delete`). Tolerates a missing target — an
