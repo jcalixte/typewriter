@@ -19,6 +19,7 @@
 //! `GET /user` identity) are real. `FetchRepos` / `Clone` (slice 4) surface
 //! as a hard stop with a pointer at the installer.
 
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -42,6 +43,14 @@ use crate::usb_kbd;
 
 /// SNTP first-sync budget (mirrors git_sync's): required before any TLS.
 const SNTP_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Progress from the background clone thread (see `Effect::Clone`), drained in
+/// the main loop's idle branch and turned into wizard `Event`s.
+enum CloneMsg {
+    Progress(String),
+    Done,
+    Failed(String),
+}
 
 /// An in-flight device-flow grant the main loop polls between keystrokes.
 struct PendingAuth {
@@ -75,6 +84,8 @@ pub fn run(
     let mut wifi: Option<BlockingWifi<EspWifi<'_>>> = None;
     let mut clock_synced = false;
     let mut pending_auth: Option<PendingAuth> = None;
+    // Set while a clone thread is running; drained in the idle branch.
+    let mut clone_rx: Option<Receiver<CloneMsg>> = None;
 
     loop {
         // Paint before executing: waiting screens ("Joining Wi-Fi…",
@@ -178,13 +189,43 @@ pub fn run(
                     queue.extend(wiz.event(ev));
                     dirty = true;
                 }
-                Effect::Clone { .. } => {
-                    // Slice 4 clone — lands in the next commit.
-                    bail!(
-                        "Repo chosen and saved. On-device cloning lands in the next \
-                         firmware - until then, seed the card from a computer once \
-                         (typoena.dev)."
-                    );
+                Effect::Clone { full_name } => {
+                    // Shallow-clone on a dedicated GIT_STACK thread (libgit2's
+                    // path nesting overflows the main task stack) using the
+                    // network the wizard already brought up. Creds come from the
+                    // in-progress conf — CARD_CONF isn't set until the wizard
+                    // returns. Progress lands on `clone_rx`, drained below.
+                    let remote_url = wiz.conf().remote_url.clone();
+                    let gh_user = wiz.conf().gh_user.clone();
+                    let token = wiz.conf().token.clone();
+                    log::info!("wizard: cloning {full_name} from {remote_url}");
+                    let (ctx, crx) = std::sync::mpsc::channel::<CloneMsg>();
+                    clone_rx = Some(crx);
+                    std::thread::Builder::new()
+                        .name("wizclone".into())
+                        .stack_size(firmware::git_sync::GIT_STACK)
+                        .spawn(move || {
+                            let ptx = ctx.clone();
+                            let progress =
+                                move |s: &str| { let _ = ptx.send(CloneMsg::Progress(s.to_string())); };
+                            let msg = match firmware::git_sync::clone_repo(
+                                &remote_url,
+                                &gh_user,
+                                &token,
+                                &progress,
+                            ) {
+                                Ok(n) => {
+                                    log::info!("wizard: clone wrote {n} file(s)");
+                                    CloneMsg::Done
+                                }
+                                Err(e) => {
+                                    log::warn!("wizard: clone failed: {e:#}");
+                                    CloneMsg::Failed(format!("{e:#}"))
+                                }
+                            };
+                            let _ = ctx.send(msg);
+                        })
+                        .context("spawning the clone thread")?;
                 }
                 Effect::Finish => return Ok(wiz.conf().clone()),
             }
@@ -202,7 +243,39 @@ pub fn run(
                 dirty = true;
             }
             None => {
-                // Idle: advance an in-flight sign-in at GitHub's pace.
+                // Idle: drain a running clone thread's progress. Read out one
+                // message with the borrow scoped tight, then act (so we can
+                // clear `clone_rx` on the terminal ones).
+                let cmsg = clone_rx.as_ref().and_then(|rx| match rx.try_recv() {
+                    Ok(m) => Some(Ok(m)),
+                    Err(TryRecvError::Empty) => None,
+                    Err(TryRecvError::Disconnected) => Some(Err(())),
+                });
+                if let Some(res) = cmsg {
+                    match res {
+                        Ok(CloneMsg::Progress(s)) => {
+                            queue.extend(wiz.event(Event::CloneProgress(s)));
+                        }
+                        Ok(CloneMsg::Done) => {
+                            clone_rx = None;
+                            queue.extend(wiz.event(Event::CloneDone));
+                        }
+                        Ok(CloneMsg::Failed(e)) => {
+                            clone_rx = None;
+                            queue.extend(wiz.event(Event::CloneFailed(e)));
+                        }
+                        Err(()) => {
+                            clone_rx = None;
+                            queue.extend(wiz.event(Event::CloneFailed(
+                                "clone thread ended unexpectedly".into(),
+                            )));
+                        }
+                    }
+                    dirty = true;
+                    continue;
+                }
+
+                // Advance an in-flight sign-in at GitHub's pace.
                 if let Some(pa) = pending_auth.as_mut() {
                     let now = Instant::now();
                     if now >= pa.deadline {

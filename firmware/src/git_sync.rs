@@ -54,7 +54,7 @@ use git2::{
 };
 
 use crate::net::connect_wifi;
-use crate::persistence::REPO_DIR;
+use crate::persistence::{LOCAL_DIR, REPO_DIR};
 
 // Baked in at build time from firmware/.env (see build.rs). Empty when unset.
 // Since the runtime conf (v0.9 onboarding slice 0) these are the per-field
@@ -170,6 +170,37 @@ pub const GIT_STACK: usize = 96 * 1024;
 /// over ours — near-identical trees), so the second walk stays off the SD card.
 const ODB_CACHE_MAX_BYTES: isize = 1024 * 1024;
 
+/// Process-global libgit2 tuning, applied once before any repo work. The 32-bit
+/// defaults (32 MB window / 256 MB mapped budget, mwindow.c) would git__malloc
+/// past PSRAM on the first pack access — the p_mmap emulation (esp_map.c) makes
+/// every window a real PSRAM malloc, so this budget decides whether a
+/// push/clone survives. 64 KB / 1.5 MB leaves ~2 MB headroom even with the
+/// 5-pack card and shrinks read amplification (a window miss costs a 64 KB SPI
+/// read, ~65 ms, not 256 KB). Both the service thread and the onboarding
+/// wizard's one-shot clone call this on their own thread before opening a repo;
+/// re-applying the same values is harmless.
+///
+/// SAFETY: set before any Repository is opened on the calling thread.
+pub fn tune_libgit2() {
+    unsafe {
+        if let Err(e) = git2::opts::set_mwindow_size(64 * 1024) {
+            log::error!("set_mwindow_size failed ({e}); first pack access may OOM");
+        }
+        if let Err(e) = git2::opts::set_mwindow_mapped_limit(1536 * 1024) {
+            log::error!("set_mwindow_mapped_limit failed ({e}); first pack access may OOM");
+        }
+        // Odb cache cap (see ODB_CACHE_MAX_BYTES). git2 0.20 wraps only the
+        // per-object-type limit, not the total, so this one is a raw call.
+        let rc = libgit2_sys::git_libgit2_opts(
+            libgit2_sys::GIT_OPT_SET_CACHE_MAX_SIZE as i32,
+            ODB_CACHE_MAX_BYTES,
+        );
+        if rc < 0 {
+            log::error!("set cache_max_size failed (rc {rc}); a push/clone may exhaust the heap");
+        }
+    }
+}
+
 /// What the UI task asks the git thread to do.
 pub enum GitRequest {
     /// `:gp` — commit the dirty paths and push (the upload half).
@@ -245,37 +276,7 @@ pub fn run_git_service(
     rx: Receiver<GitRequest>,
     tx: Sender<GitOutcome>,
 ) {
-    // Process-global libgit2 tuning, once, before any repo work. The 32-bit
-    // defaults (32 MB window / 256 MB mapped budget, mwindow.c) would
-    // git__malloc past PSRAM on the first pack access of the real 570 MB-pack
-    // clone — the p_mmap emulation (esp_map.c) makes every window a real
-    // PSRAM malloc, so this budget is the knob that decides whether a push
-    // survives. Run 7 (2026-07-13) heartbeat data with 256 KB / 4 MB: mmap
-    // live plateaued at 7.15 MB (windows at the limit PLUS ~3.4 MB of
-    // whole-file .idx + multi-pack-index maps, which live OUTSIDE the mwindow
-    // budget) and a ~7 KB zlib alloc died. 64 KB / 1.5 MB leaves ~2 MB
-    // headroom even with the 5-pack card, and shrinks read amplification:
-    // a window miss costs a 64 KB SPI read (~65 ms) instead of 256 KB
-    // (~250 ms) to fetch a few-KB tree object (run 7 read 19.9 MB off the
-    // card to push two commits).
-    // SAFETY: set on the git thread before any Repository is opened.
-    unsafe {
-        if let Err(e) = git2::opts::set_mwindow_size(64 * 1024) {
-            log::error!("set_mwindow_size failed ({e}); first pack access may OOM");
-        }
-        if let Err(e) = git2::opts::set_mwindow_mapped_limit(1536 * 1024) {
-            log::error!("set_mwindow_mapped_limit failed ({e}); first pack access may OOM");
-        }
-        // Odb cache cap (see ODB_CACHE_MAX_BYTES). git2 0.20 wraps only the
-        // per-object-type limit, not the total, so this one is a raw call.
-        let rc = libgit2_sys::git_libgit2_opts(
-            libgit2_sys::GIT_OPT_SET_CACHE_MAX_SIZE as i32,
-            ODB_CACHE_MAX_BYTES,
-        );
-        if rc < 0 {
-            log::error!("set cache_max_size failed (rc {rc}); a push may exhaust the heap");
-        }
-    }
+    tune_libgit2();
 
     // Lazily initialised on the first request, then reused across publishes.
     let mut wifi: Option<BlockingWifi<EspWifi<'static>>> = None;
@@ -326,6 +327,182 @@ pub fn run_git_service(
         }
     }
     log::info!("git service: request channel closed — exiting");
+}
+
+/// Shallow-clone `remote_url` into `REPO_DIR` for the onboarding wizard
+/// (v0.9 slice 4): init, learn the default branch, fetch it at depth 1, then
+/// materialize the tip tree to the working copy (media skipped, like the pull).
+/// Credentials are passed explicitly — the wizard runs before `set_card_conf`,
+/// so the global accessors are still empty. Returns the number of working-tree
+/// files written.
+///
+/// Runs on a `GIT_STACK` thread (libgit2's path-buffer nesting overflows the
+/// default) and applies `tune_libgit2` itself, since the service thread that
+/// normally does so hasn't started yet. `progress` receives short status lines
+/// for the panel.
+pub fn clone_repo(
+    remote_url: &str,
+    gh_user: &str,
+    token: &str,
+    progress: &dyn Fn(&str),
+) -> Result<usize> {
+    tune_libgit2();
+    log::info!(
+        "clone: init {REPO_DIR} <- {remote_url} (free heap {})",
+        free_heap()
+    );
+    let repo = Repository::init(REPO_DIR).context("git init")?;
+    let mut remote = repo.remote("origin", remote_url).context("adding origin")?;
+
+    // Learn the default branch (main/master/…) from the ref advertisement.
+    progress("contacting origin");
+    {
+        let (u, t) = (gh_user.to_string(), token.to_string());
+        let mut cbs = RemoteCallbacks::new();
+        cbs.credentials(move |_url, _u, allowed| {
+            if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) {
+                Cred::userpass_plaintext(&u, &t)
+            } else {
+                Err(git2::Error::from_str("server did not offer USER_PASS_PLAINTEXT"))
+            }
+        });
+        cbs.certificate_check(|_c, host| {
+            log::info!("verifying {host} TLS chain against embedded GitHub CA bundle");
+            Ok(CertificateCheckStatus::CertificatePassthrough)
+        });
+        remote
+            .connect_auth(git2::Direction::Fetch, Some(cbs), None)
+            .context("connecting to origin")?;
+    }
+    let default = remote
+        .default_branch()
+        .context("origin advertised no default branch")?;
+    let refname = default.as_str().context("default branch not UTF-8")?;
+    let branch = refname
+        .strip_prefix("refs/heads/")
+        .unwrap_or(refname)
+        .to_string();
+    let _ = remote.disconnect();
+
+    // Shallow-fetch just that branch's tip.
+    progress(&format!("downloading {branch}"));
+    {
+        let (u, t) = (gh_user.to_string(), token.to_string());
+        let mut cbs = RemoteCallbacks::new();
+        cbs.credentials(move |_url, _u, allowed| {
+            if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) {
+                Cred::userpass_plaintext(&u, &t)
+            } else {
+                Err(git2::Error::from_str("server did not offer USER_PASS_PLAINTEXT"))
+            }
+        });
+        cbs.certificate_check(|_c, _host| Ok(CertificateCheckStatus::CertificatePassthrough));
+        // Throttled transfer progress: a line every ~512 objects, not per-object
+        // (each line repaints the panel).
+        let mut last = 0usize;
+        cbs.transfer_progress(|p| {
+            let recv = p.received_objects();
+            let total = p.total_objects();
+            if recv >= last + 512 || (total > 0 && recv == total) {
+                last = recv;
+                progress(&format!("downloading {recv}/{total} objects"));
+            }
+            true
+        });
+        let mut fo = FetchOptions::new();
+        fo.depth(1);
+        fo.remote_callbacks(cbs);
+        remote
+            .fetch(&[branch.as_str()], Some(&mut fo), None)
+            .context("shallow fetch")?;
+    }
+
+    let tip = repo
+        .find_reference("FETCH_HEAD")
+        .context("no FETCH_HEAD after fetch")?
+        .peel_to_commit()
+        .context("FETCH_HEAD is not a commit")?
+        .id();
+
+    // Establish branch + HEAD + tracking ref so the next boot sees a real repo,
+    // and a power-pull between here and the working-copy write still resumes
+    // (the wizard re-enters on missing/partial repo).
+    repo.reference(&format!("refs/heads/{branch}"), tip, true, "typoena clone")
+        .context("creating local branch")?;
+    repo.set_head(&format!("refs/heads/{branch}"))
+        .context("setting HEAD")?;
+    repo.reference(
+        &format!("refs/remotes/origin/{branch}"),
+        tip,
+        true,
+        "typoena clone",
+    )
+    .context("creating tracking ref")?;
+
+    // Materialize the tip tree (media skipped — never writes a big blob to RAM).
+    progress("writing files");
+    let tree = repo.find_commit(tip)?.tree().context("tip tree")?;
+    let mut count = 0usize;
+    materialize_tree(&repo, &tree, "", &mut count)?;
+
+    // The file palette walks /sd/local too; make sure it exists.
+    let _ = fs::create_dir_all(LOCAL_DIR);
+    log::info!(
+        "clone: wrote {count} file(s), branch {branch} @ {} (free heap {})",
+        short(tip),
+        free_heap()
+    );
+    Ok(count)
+}
+
+/// Recursively write a tree's blobs to the working copy under `REPO_DIR`,
+/// skipping media (a pulled image would materialize its whole blob in RAM — the
+/// OOM the pull avoids). Atomic writes (tmp + rename, FAT won't overwrite) like
+/// the pull, so a power-pull mid-clone leaves partial files the next attempt
+/// overwrites idempotently.
+fn materialize_tree(
+    repo: &Repository,
+    tree: &git2::Tree,
+    prefix: &str,
+    count: &mut usize,
+) -> Result<()> {
+    for entry in tree.iter() {
+        let Some(name) = entry.name() else { continue };
+        let rel = if prefix.is_empty() {
+            name.to_string()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        match entry.kind() {
+            Some(ObjectType::Tree) => {
+                let obj = entry
+                    .to_object(repo)
+                    .with_context(|| format!("reading subtree {rel}"))?;
+                if let Some(sub) = obj.as_tree() {
+                    materialize_tree(repo, sub, &rel, count)?;
+                }
+            }
+            Some(ObjectType::Blob) => {
+                if is_media_path(&rel) {
+                    continue;
+                }
+                let abs = format!("{REPO_DIR}/{rel}");
+                if let Some(dir) = std::path::Path::new(&abs).parent() {
+                    fs::create_dir_all(dir).with_context(|| format!("mkdir for {rel}"))?;
+                }
+                let blob = repo
+                    .find_blob(entry.id())
+                    .with_context(|| format!("reading blob for {rel}"))?;
+                let tmp = format!("{abs}.gltmp");
+                fs::write(&tmp, blob.content()).with_context(|| format!("writing {rel}"))?;
+                let _ = fs::remove_file(&abs);
+                fs::rename(&tmp, &abs).with_context(|| format!("landing {rel}"))?;
+                *count += 1;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// One full publish: ensure Wi-Fi + clock + trust store (each done once), then

@@ -104,7 +104,7 @@ const LAST_FILE: &str = "/sd/.typoena-last";
 /// Local scratch — [`REPO_DIR`]'s never-published sibling (mirrors the editor
 /// crate's `LOCAL_DIR`). Here it bounds what [`Storage::last_file`] will
 /// resume.
-const LOCAL_DIR: &str = "/sd/local";
+pub const LOCAL_DIR: &str = "/sd/local";
 
 /// VFS open-file budget for the editor path: it opens only a note and its
 /// `*.tmp`, so a tight budget keeps FatFS's per-file buffers off the heap.
