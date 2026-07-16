@@ -243,15 +243,18 @@ impl<'d> Epd<'d> {
     /// Port of GxEPD2 `_Update_Part` — the partial-update waveform. No full
     /// flashing; only pixels that differ between the "previous" (`0x26`) and
     /// "current" (`0x24`) banks transition. Much faster than a full refresh
-    /// but leaves faint ghosting that a periodic full refresh clears. Like
-    /// GxEPD2 for this dual-controller panel, the update covers the whole
-    /// panel (windowing isn't worthwhile — the waveform time dominates, not
-    /// the area).
-    /// `y0`/`h` restrict the update to a horizontal band of rows. E-paper
-    /// update time scales with the number of gate lines driven, so a narrow
-    /// band (one text line) is far faster than the whole panel — the win that
-    /// makes per-keystroke typing responsive. Full width is always driven
-    /// (both controllers), so the seam/mirroring logic is untouched.
+    /// but leaves faint ghosting that a periodic full refresh clears.
+    /// `y0`/`h` restrict the RAM window (and thus the SPI transfer) to a
+    /// horizontal band of rows; the *waveform* still drives the whole panel.
+    ///
+    /// Do NOT try to restrict the gate scan to the band (driver output
+    /// control `0x01` MUX + gate scan start `0x0F`) — spiked and refuted on
+    /// hardware 2026-07-16: a 20-gate scan still took 571 ms (vs 543 ms for
+    /// the default full scan), so the waveform's BUSY time does not scale
+    /// with MUX here, and writing `0x01` with the datasheet POR scan-order
+    /// byte mirrored the panel vertically — the real gate config is loaded
+    /// from panel OTP at reset and can't be read back, so any `0x01` write
+    /// risks clobbering it for zero gain.
     fn update_part(&mut self, y0: u16, h: u16) -> Result<(), EspError> {
         self.set_ram_area(0, y0, WIDTH / 2, h, 0x03, 0x80)?; // slave
         self.set_ram_area(0, y0, WIDTH / 2, h, 0x03, 0x00)?; // master
