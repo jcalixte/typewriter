@@ -384,3 +384,27 @@ fn all_screens_draw() {
     w.event(Event::CloneDone);
     w.draw_into(&mut f); // done
 }
+
+#[test]
+fn wrap_words_keeps_lines_within_width() {
+    // The actual size-gate message shape — must fit ≤3 wrapped lines at 74.
+    let msg = "you/big-notes is 562 MB - too large to set up from the device. \
+               Pick or create a smaller repo, or seed the card from a computer \
+               once (typoena.dev).";
+    let lines = wrap_words(msg, 74);
+    assert!(lines.len() <= 3, "should wrap to ≤3 lines, got {lines:?}");
+    for l in &lines {
+        assert!(l.chars().count() <= 74, "line over 74 chars: {l:?}");
+    }
+    // No word is lost or split across the join.
+    assert_eq!(lines.join(" "), msg.split_whitespace().collect::<Vec<_>>().join(" "));
+}
+
+#[test]
+fn wrap_words_hard_splits_an_overlong_word() {
+    let long = "a".repeat(200);
+    let lines = wrap_words(&long, 74);
+    assert_eq!(lines.len(), 3); // 74 + 74 + 52
+    assert!(lines.iter().all(|l| l.chars().count() <= 74));
+    assert_eq!(lines.concat(), long);
+}

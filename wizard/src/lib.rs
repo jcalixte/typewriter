@@ -655,8 +655,9 @@ impl Wizard {
                 line(f, 0, &format!("Pick your notes repo  ({})", repos.len()), ink);
                 line(f, 1, &format!("  filter: {filter}"), ink);
                 let shown = filtered(repos, filter);
-                // Rows 3..9 — a 6-row window scrolled to keep sel visible.
-                let win = 6usize;
+                // A scrolled window over the list. When a size-gate refusal is
+                // showing, shrink it so the wrapped message fits below.
+                let win = if refused.is_some() { 4usize } else { 6 };
                 let top = sel.saturating_sub(win - 1);
                 for (i, r) in shown.iter().enumerate().skip(top).take(win) {
                     let row = 3 + (i - top) as i32;
@@ -675,7 +676,12 @@ impl Wizard {
                     }
                 }
                 if let Some(msg) = refused {
-                    line(f, 9, &format!("  {msg}"), ink);
+                    // Wrap to the panel width (FONT_10X20 → ~78 chars at x=10;
+                    // keep the 2-space indent, so ~74 usable) so nothing clips.
+                    let base = 3 + win as i32;
+                    for (k, l) in wrap_words(msg, 74).iter().take(3).enumerate() {
+                        line(f, base + k as i32, &format!("  {l}"), ink);
+                    }
                 }
                 hint(f, "type to filter - Ctrl-N/Ctrl-P move - Enter picks");
             }
@@ -740,6 +746,38 @@ fn filtered<'a>(repos: &'a [RepoChoice], filter: &str) -> Vec<&'a RepoChoice> {
         .iter()
         .filter(|r| q.is_empty() || r.full_name.to_lowercase().contains(&q))
         .collect()
+}
+
+/// Greedy word-wrap to at most `max` chars per line. Words longer than `max`
+/// (e.g. a very long repo path) are hard-split so nothing clips off-panel.
+fn wrap_words(s: &str, max: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for word in s.split_whitespace() {
+        // A single word longer than the line: emit it in `max`-char chunks.
+        if word.chars().count() > max {
+            if !cur.is_empty() {
+                lines.push(std::mem::take(&mut cur));
+            }
+            let chars: Vec<char> = word.chars().collect();
+            for chunk in chars.chunks(max) {
+                lines.push(chunk.iter().collect());
+            }
+            continue;
+        }
+        let extra = if cur.is_empty() { 0 } else { 1 };
+        if cur.chars().count() + extra + word.chars().count() > max {
+            lines.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(word);
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines
 }
 
 /// Case-insensitive substring filter over scanned SSIDs.
