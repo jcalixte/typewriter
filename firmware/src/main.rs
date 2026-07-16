@@ -13,7 +13,7 @@ use esp_idf_svc::hal::units::FromValueType;
 
 use display::Frame;
 use editor::{
-    Editor, Effect, Mode, Prefs, Scope, Snippets, CH, LOCAL_DIR, PREFS_PATH, REPO_DIR,
+    Editor, Effect, Mode, Prefs, Scope, Snippets, CH, CW, LOCAL_DIR, PREFS_PATH, REPO_DIR,
     SNIPPETS_PATH,
 };
 use firmware::epd::{self, Epd};
@@ -24,17 +24,24 @@ const BUILD_TAG: &str = concat!("build ", env!("BUILD_TIME"), " @", env!("BUILD_
 
 /// Occasional full refresh, mainly for panel longevity — partial updates on
 /// this panel stay visually clean far longer, so this is deliberately rare.
+/// Once this many partials have accumulated, the full refresh runs at the
+/// next typing pause (the caret-debounce window) rather than promoting a
+/// keystroke repaint: the counter only advances while typing, so the old
+/// in-band promotion guaranteed the ~2 s flash always landed mid-sentence.
 const FULL_REFRESH_EVERY: u32 = 64;
 
 /// How long typing must pause before the Insert-mode caret is shown. There is no
 /// caret while actively typing (it would ghost under windowed refresh); it
 /// reappears once you settle. Normal/View draw their own caret every action.
-const CURSOR_DEBOUNCE_MS: u128 = 750;
+/// 2 s, not shorter: at 750 ms ordinary mid-sentence pauses triggered the
+/// caret, and each show/re-suppress pair cost two ~630 ms panel passes right
+/// as typing resumed (the "toggling" of the 2026-07-16 serial trace).
+const CURSOR_DEBOUNCE_MS: u128 = 2000;
 
 /// How long input must pause before `save_on_idle` persists a dirty buffer.
-/// Longer than the caret debounce so autosave settles after typing, not during
-/// a mid-sentence pause. The save is silent (no snackbar, no forced e-ink
-/// flash) — a safety net against power loss, not a user action.
+/// The save is silent (no snackbar, no forced e-ink flash) — a safety net
+/// against power loss, not a user action — so unlike the caret it can afford
+/// to fire during a mid-sentence pause.
 const IDLE_SAVE_MS: u128 = 1500;
 
 fn main() -> anyhow::Result<()> {
@@ -233,6 +240,10 @@ fn main() -> anyhow::Result<()> {
     log::info!("snippets: {} loaded", snippets.0.len());
     ed.set_snippets(snippets);
     let mut updates: u32 = 0;
+    // Partial refreshes since the last full one — when it reaches
+    // FULL_REFRESH_EVERY, the idle branch runs the panel-longevity full
+    // refresh at the next typing pause.
+    let mut partials_since_full: u32 = 0;
     let mut cursor_shown = true; // the initial render includes the caret
     let mut last_activity = Instant::now();
     // Whether `save_on_idle` already persisted the current idle window, so it
@@ -552,6 +563,36 @@ fn main() -> anyhow::Result<()> {
                 // No repaint: `dirty` clearing has no visible effect, and a flash
                 // here would defeat the point. Fall through to the caret/idle path.
             }
+            // Panel-longevity full refresh, deferred to a typing pause. The
+            // partial counter only advances on keystroke repaints, so promoting
+            // in-band (the pre-2026-07-16 behavior) meant the ~2 s flash could
+            // ONLY ever land mid-typing. Runs before the caret branch and draws
+            // the caret itself, so the pause costs one flash, not flash + caret
+            // pass. Kept ahead of a long typing burst's ghost budget: a burst
+            // without a 2 s pause just accumulates a few more partials until
+            // the writer next settles.
+            if partials_since_full >= FULL_REFRESH_EVERY
+                && last_activity.elapsed().as_millis() >= CURSOR_DEBOUNCE_MS
+            {
+                ed.refresh_stats();
+                ed.draw_into(&mut back, true);
+                updates += 1;
+                let t0 = Instant::now();
+                if let Err(e) = epd.display_frame(back.bytes()) {
+                    // Same recovery as a failed keystroke paint. Counter reset
+                    // too — force_full's FULL on the next paint covers the
+                    // longevity duty, and retrying from here would busy-loop.
+                    log::warn!("idle FULL refresh #{updates} FAILED ({e}); full refresh next");
+                    force_full = true;
+                    partials_since_full = 0;
+                    continue;
+                }
+                partials_since_full = 0;
+                log::info!("idle FULL refresh #{updates}: {} ms", t0.elapsed().as_millis());
+                std::mem::swap(&mut shown, &mut back);
+                cursor_shown = true;
+                continue;
+            }
             // Debounced caret, Insert mode only: once typing pauses, bring the
             // bar caret back and refresh the panel word count with a silent
             // full-area partial (no flash). Normal/View draw their caret on action.
@@ -604,18 +645,28 @@ fn main() -> anyhow::Result<()> {
         updates += 1;
         // A purely additive Insert edit (no cursor, no scroll) uses the fast
         // windowed partial; anything else — deletes, caret moves, scrolling,
-        // mode switches — uses a clean full-area partial, with a periodic full
-        // refresh for panel longevity.
-        let periodic = updates % FULL_REFRESH_EVERY == 0;
+        // mode switches — uses a clean full-area partial. One tolerated erase:
+        // the debounced caret bar (2×CH px, one cell) being re-suppressed as
+        // typing resumes — its ghost risk is negligible, and promoting it made
+        // every post-pause keystroke drive the whole panel. Any wider erase
+        // (a backspaced glyph spans the caret's cell plus its own) still
+        // falls back to the clean full-area pass.
         let additive = ed.mode() == Mode::Insert
             && !scrolled
-            && only_adds_ink(shown.bytes(), back.bytes(), y0, y1);
+            && match erase_bbox(shown.bytes(), back.bytes(), y0, y1) {
+                None => true,
+                Some((ex0, ex1, ey0, ey1)) => {
+                    cursor_shown && ex1 - ex0 < CW as u16 && ey1 - ey0 < CH as u16
+                }
+            };
 
         let t0 = Instant::now();
         // `force_full` promotes to a full refresh after a failed paint: it
         // rewrites both RAM banks, recovering from a partial that may have died
-        // mid-transfer and desynced them.
-        let (result, refresh) = if periodic || force_full {
+        // mid-transfer and desynced them. (The *periodic* panel-longevity full
+        // no longer promotes here — it runs from the idle branch, so its ~2 s
+        // flash lands in a typing pause instead of mid-sentence.)
+        let (result, refresh) = if force_full {
             (epd.display_frame(back.bytes()), "FULL")
         } else if additive {
             (epd.display_frame_partial_window(back.bytes(), y0, y1 - y0 + 1), "windowed")
@@ -635,6 +686,11 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
         force_full = false;
+        if refresh == "FULL" {
+            partials_since_full = 0;
+        } else {
+            partials_since_full += 1;
+        }
         log::info!(
             "{refresh} refresh #{updates} [{:?}]: {ms} ms (rows {y0}..={y1}, {keys} key(s))",
             ed.mode()
@@ -939,17 +995,30 @@ fn changed_rows(a: &[u8], b: &[u8]) -> Option<(u16, u16)> {
     first.map(|f| (f, last))
 }
 
-/// True if going from frame `a` to `b` only *adds* ink within rows `y0..=y1`
-/// (no black pixel becomes white). Windowed partial refresh renders added ink
-/// cleanly but leaves ghosts where ink is erased, so erasing edits fall back to
-/// a clean full-area partial. Bit convention: 1 = white, 0 = black ink.
-fn only_adds_ink(a: &[u8], b: &[u8], y0: u16, y1: u16) -> bool {
+/// Bounding box (x0, x1, y0, y1 — pixels, inclusive) of the ink *erased* going
+/// from frame `a` to `b` within rows `y0..=y1`, or `None` when the change only
+/// adds ink. Windowed partial refresh renders added ink cleanly but leaves
+/// ghosts where ink is erased, so erasing edits fall back to a clean full-area
+/// partial — except an erase confined to one character cell with the caret on
+/// screen, which the caller reads as the debounced caret bar being
+/// re-suppressed. Bit convention: 1 = white, 0 = black ink.
+fn erase_bbox(a: &[u8], b: &[u8], y0: u16, y1: u16) -> Option<(u16, u16, u16, u16)> {
     let w = epd::FB_BYTES_W;
-    for i in y0 as usize * w..(y1 as usize + 1) * w {
-        // A bit set in b but clear in a went black→white — an erase.
-        if b[i] & !a[i] != 0 {
-            return false;
+    let mut bbox: Option<(u16, u16, u16, u16)> = None;
+    for y in y0 as usize..=y1 as usize {
+        for xb in 0..w {
+            // Bits set in b but clear in a went black→white — erased ink.
+            let erased = b[y * w + xb] & !a[y * w + xb];
+            if erased == 0 {
+                continue;
+            }
+            let x_lo = (xb * 8) as u16 + erased.leading_zeros() as u16;
+            let x_hi = (xb * 8) as u16 + 7 - erased.trailing_zeros() as u16;
+            let bb = bbox.get_or_insert((x_lo, x_hi, y as u16, y as u16));
+            bb.0 = bb.0.min(x_lo);
+            bb.1 = bb.1.max(x_hi);
+            bb.3 = y as u16; // rows scan top-down, so y is always the new max
         }
     }
-    true
+    bbox
 }

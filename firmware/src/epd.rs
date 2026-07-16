@@ -335,12 +335,19 @@ impl<'d> Epd<'d> {
 
     /// Partial-refresh only rows `y0..y0+h` of the panel from a full
     /// framebuffer — the fast per-keystroke path (pass `(0, HEIGHT)` for the
-    /// whole panel). Requires the `0x26` (previous) bank to already hold the
-    /// on-screen image for those rows — true after any `display_frame`,
-    /// `clear_screen`, or a prior partial covering them. Writes the new rows to
-    /// `0x24`, runs the partial waveform over just that band, then syncs `0x26`
-    /// so the next partial has a correct baseline. `fb` is always the full
-    /// frame; only the given rows are used.
+    /// whole panel). Requires the banks to already hold the on-screen image
+    /// for those rows — true after any `display_frame`, `clear_screen`, or a
+    /// prior partial covering them. Writes the new rows to `0x24`, runs the
+    /// partial waveform over just that band, then re-writes the band to BOTH
+    /// banks. Both, not just `0x26`: the controller ping-pongs its two RAM
+    /// buffers on a Mode-2 display, so post-refresh the bank addressed as
+    /// `0x24` is the stale one. Syncing only `0x26` (this driver's original
+    /// port, until 2026-07-16) left `0x24` two frames old outside each
+    /// update's band, and the next partial drove the panel back toward it —
+    /// on the panel, lines/chars from the previous batches flapped in and out
+    /// while typing fast. GxEPD2's `writeImageAgain` (same panel) writes
+    /// `0x26` then `0x24` after every partial refresh; this is that sequence.
+    /// `fb` is always the full frame; only the given rows are used.
     pub fn display_frame_partial_window(
         &mut self,
         fb: &[u8],
@@ -351,8 +358,9 @@ impl<'d> Epd<'d> {
         assert!(h > 0 && y0 + h <= HEIGHT, "row window out of range");
         self.wait_ready()?;
         self.write_frame_bank(0x24, fb, y0, h)?; // current = new
-        self.update_part(y0, h)?; // transition previous (0x26) -> current (0x24)
-        self.write_frame_bank(0x26, fb, y0, h)?; // previous = new, for next time
+        self.update_part(y0, h)?; // transition previous -> current
+        self.write_frame_bank(0x26, fb, y0, h)?; // resync both banks…
+        self.write_frame_bank(0x24, fb, y0, h)?; // …post ping-pong
         Ok(())
     }
 }
