@@ -1,6 +1,6 @@
 # Quality House — empty (training)
 
-Same 14 WHATs × 14 HOWs chassis as the filled House in
+Same 15 WHATs × 15 HOWs chassis as the filled House in
 [`qfd.md` §3](qfd.md#3-house-of-quality--whats--hows), with the **relations**,
 **roof correlations**, and basement Σ / Rel % **deliberately blank**. Fill them
 in yourself, then compare against the populated house to check your reading.
@@ -237,9 +237,9 @@ Blank (training surface):
   \end{tikzpicture}%
 }
 
-% --- Dimensions tuned for the typewriter QFD (14 W x 14 H) ---
-\def\qfdNW{14}
-\def\qfdNH{14}
+% --- Dimensions tuned for the typewriter QFD (15 W x 15 H) ---
+\def\qfdNW{15}
+\def\qfdNH{15}
 \def\qfdWhatW{4.6}
 \def\qfdImpW{0.7}
 \def\qfdHdrH{5.0}
@@ -271,7 +271,8 @@ Blank (training surface):
     11/{W11 Multi-day battery life (v0.8 onward)},
     12/{W12 Local-only files coexist with git scope (v0.5+)},
     13/{W13 Typography sets a writing-tool tone},
-    14/{W14 I can carry the device and write away from a desk}%
+    14/{W14 I can carry the device and write away from a desk},
+    15/{W15 A first-time user reaches writing without developer tools}%
   }
     \node[anchor=west, font=\scriptsize,
           text width=\qfdWhatTextW cm, align=left]
@@ -279,7 +280,7 @@ Blank (training surface):
 
   % ---------- Importance (raw 1-10 weight) ----------
   \foreach \r/\w in {1/10, 2/9, 3/10, 4/7, 5/6, 6/9, 7/8, 8/7,
-                     9/8, 10/5, 11/4, 12/5, 13/7, 14/8}
+                     9/8, 10/5, 11/4, 12/5, 13/7, 14/8, 15/7}
     \node[font=\scriptsize] at ({-\qfdImpW/2}, {-\r + 0.5}) {\w};
 
   % ---------- HOWs (rotated column titles) ----------
@@ -292,12 +293,13 @@ Blank (training surface):
     6/{H6 Publish reliability},
     7/{H7 Publish latency},
     8/{H8 Save durability},
-    9/{H9 PSRAM heap headroom},
+    9/{H9 Heap headroom (Publish)},
     10/{H10 Firmware binary size},
     11/{H11 Total stack budget},
     12/{H12 Network reconnect time},
     13/{H13 Idle / typing / push current},
-    14/{H15 Clean release build time}%
+    14/{H15 Clean release build time},
+    15/{H16 Onboarding duration}%
   }
     \node[rotate=90, anchor=west, font=\scriptsize]
       at ({\c - 0.5}, 0.15) {\t};
@@ -321,9 +323,9 @@ Blank (training surface):
   % compute them from your relations: abs = Σ over WHATs of
   % (importance × cell strength), with strength 9 / 3 / 1 / 0.
   \foreach \c/\tgt in {%
-    1/{$\leq$200\,ms},
+    1/{$\leq$400\,ms},
     2/{$\leq$1 line},
-    3/{1 : 20},
+    3/{1 : 64},
     4/{$\leq$5\,s},
     5/{$\geq$1\,h},
     6/{$\geq$95\,\%},
@@ -331,10 +333,11 @@ Blank (training surface):
     8/{100\,\%},
     9/{$\geq$1\,MB},
     10/{$\leq$2\,MB},
-    11/{$\leq$80\,KB},
+    11/{$\leq$128\,KB},
     12/{$\leq$30\,s},
     13/{obs.},
-    14/{$\leq$7\,min}%
+    14/{$\leq$7\,min},
+    15/{$\leq$10\,min}%
   }
     \node[font=\scriptsize] at ({\c - 0.5}, {-\qfdNW - 0.5}) {\tgt};
 

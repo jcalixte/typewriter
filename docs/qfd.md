@@ -356,7 +356,7 @@ targets kept; relations + roof + Σ basement left empty for practice), see
     6/{H6 Publish reliability},
     7/{H7 Publish latency},
     8/{H8 Save durability},
-    9/{H9 PSRAM heap headroom},
+    9/{H9 Heap headroom (Publish)},
     10/{H10 Firmware binary size},
     11/{H11 Total stack budget},
     12/{H12 Network reconnect time},
@@ -495,7 +495,7 @@ targets kept; relations + roof + Σ basement left empty for practice), see
     \node[anchor=east, font=\scriptsize\itshape]
       at ({-0.1}, {-\qfdNW - \k + 0.5}) {\lbl};
 
-  % ---------- Perception zone: 5 products x 14 WHATs (0-5 scores) ----------
+  % ---------- Perception zone: 5 products x 15 WHATs (0-5 scores) ----------
   % Columns: \so=Typoena shipped (measured through 2026-07-16), \st=reMarkable 2 + Type Folio,
   %          \sf=Freewrite Traveler, \sg=Pomera DM250,
   %          \sh=Freewrite Smart Typewriter.
@@ -743,7 +743,7 @@ characteristic advances a requirement (9 / 3 / 1 / blank). The roof carries the 
 v0.1 targets (from §2), the weighted-vote sums `Σ = Σ(W weight × cell strength)`,
 and rounded relative weights. The right-hand zone scores five products against
 the WHATs (0–5): the four competitors are **guessed, not measured**, while the
-Typoena column is its **measured v0.1** profile (see
+Typoena column is the **shipped, measured device** (rebased 2026-07-16; see
 [Perception scores](#perception-scores-guessed)). The Σ totals quoted in the
 priority list below come from the basement.
 
@@ -852,9 +852,9 @@ hackable-Linux 3).
 | ID  | WHAT (truncated)                                  | Typoena | reM. | Frw.T | Frw.S | Pom. | Rationale (shortest defensible)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | --- | ------------------------------------------------- | :-----: | :--: | :---: | :---: | :--: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | W1  | Sub-second response to typing                     |    3    |  1   |   4   |   3   |  5   | Typoena additive typing rides the windowed-Y partial, ~100–130 ms projected (2026-07-14 re-read; bench confirm pending) — competitive with the Freewrites — but erase/caret events still pay the ~630 ms full-area partial, so 3 not 4; reMarkable e-ink visibly laggy on a typing-focused device — tested less responsive than Smart Typewriter, and latency is so load-bearing for W1 that it earns a 1 not a 2; both Freewrites post-Sailfish trimmed latency 40–100 % (Frw.T plausibly inside 200 ms; Frw.S still trails by one notch on larger panel); Pomera LCD ~zero. |
-| W2  | Publishing is one deliberate action away          |    5    |  4   |   4   |   4   |  2   | Ctrl-G atomic; reMarkable + Freewrite cloud-sync is one-tap but not git; Pomera = USB/SD copy or QR transfer.                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| W3  | Pulling power never corrupts the file             |    4    |  4   |   2   |   2   |  2   | Typoena: atomic-rename + fsync (round-trip verified 2026-07-11; power-pull test deferred to v0.9). reMarkable journals. Freewrite + Pomera: forum reports of corruption on yank.                                                                                                                                                                                                                                                                                                                                                           |
-| W4  | Provisioning never interrupts writing             |    5    |  2   |   2   |   2   |  5   | Typoena v0.1: build-time config (dev-only). reM/Frw need Wi-Fi + account. Pomera: literally none.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| W2  | Publishing is one deliberate action away          |    5    |  4   |   4   |   4   |  2   | `:gp` atomic (one command, splice → commit → push, rejected-push replay included — verified on device 2026-07-14); reMarkable + Freewrite cloud-sync is one-tap but not git; Pomera = USB/SD copy or QR transfer.                                                                                                                                                                                                                                                                                                                          |
+| W3  | Pulling power never corrupts the file             |    4    |  4   |   2   |   2   |  2   | Typoena: atomic-rename + fsync, plus the dirty-path journal at `/sd/.typoena-dirty` making an interrupted Publish power-pull-safe (2026-07-13); the actual power-pull test is still deferred to v0.9, so 4 not 5. reMarkable journals. Freewrite + Pomera: forum reports of corruption on yank.                                                                                                                                                                                                                                            |
+| W4  | Provisioning never interrupts writing             |    5    |  2   |   2   |   2   |  5   | Typoena: config is read once at boot from `/sd/typoena.conf`; reconfiguration lives behind `:setup` (reboot → reset menu), never mid-session. reM/Frw need Wi-Fi + account. Pomera: literally none.                                                                                                                                                                                                                                                                                                                                       |
 | W5  | Quick boot to a writing cursor                    |    4    |  3   |   4   |   4   |  5   | Typoena measured 4.26 s cold (2026-07-11). reMarkable cold-boots ~20 s (great from sleep). Both Freewrites accelerated post-Sailfish (no published number; were ~10–15 s e-ink wake). Pomera ~3 s.                                                                                                                                                                                                                                                                                                                                         |
 | W6  | Long sessions without crash / lag / drift         |    4    |  3   |   4   |   4   |  5   | Typoena: 1 h soak attested 2026-07-11 (real use, no crash / lag / leak) — one proven hour vs rivals' years, so 4 not 5. Freewrite famously stable (both variants). Pomera firmware is decades-mature.                                                                                                                                                                                                                                                                                                                                      |
 | W7  | Nothing on the device competes with prose         |    5    |  2   |   5   |   5   |  5   | reMarkable has apps, menus, drawing, PDFs. Freewrite + Pomera are single-purpose; Typoena by design.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -862,22 +862,25 @@ hackable-Linux 3).
 | W9  | Codebase absorbs the planned roadmap              |    4    |  3   |   2   |   2   |  1   | Modular Rust Typoena; reMarkable is hackable Linux; both Freewrites carry Sailfish (Rust rewrite explicitly unblocked features JS could not carry) but closed; Pomera closed firmware.                                                                                                                                                                                                                                                                                                                                                     |
 | W10 | I can repair or fork it with hobbyist tools       |    5    |  4   |   2   |   2   |  1   | Typoena: open BOM + ESP32. reMarkable: rooted Linux + community ROMs. Freewrite + Pomera: closed.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | W11 | Multi-day battery life (v0.8 onward)              |    1    |  5   |   5   |   5   |  4   | Typoena v0.1 = wall-powered (battery deferred). reMarkable + both Freewrites legendary (~4 weeks; Sailfish trimmed −30 % typing / −50 % idle). Pomera ~24 h.                                                                                                                                                                                                                                                                                                                                                                               |
-| W12 | Local-only files coexist with git scope           |    3    |  1   |   2   |   2   |  3   | Typoena v0.5+ design. reMarkable cloud-only. Freewrites have local + Postbox but no VCS. Pomera = pure local.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| W12 | Local-only files coexist with git scope           |    4    |  1   |   2   |   2   |  3   | Typoena: shipped in v0.5 (on-device 2026-07-12) — `/sd/local` never publishes, palette walks both scopes; 4 not 5 while the scope model has one shipped week of lived use. reMarkable cloud-only. Freewrites have local + Postbox but no VCS. Pomera = pure local.                                                                                                                                                                                                                                                                         |
 | W13 | Typography sets a writing-tool tone               |    3    |  5   |   2   |   2   |  2   | Typoena v0.1: single mono (serif option in v1.0). reMarkable: rich type rendering. Freewrite + Pomera: utilitarian.                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| W14 | I can carry the device and write away from a desk |    2    |  4   |   5   |   1   |  5   | Typoena v0.1 wall-powered (ADR-008), no enclosure spec yet — desk-bound by design. reMarkable + Type Folio bag-friendly with bulk. Freewrite Traveler is the form-factor reference (~1.6 lb, folds). Smart Typewriter ~5 lb, desk-bound. Pomera DM250 pocketable foldable.                                                                                                                                                                                                                                                                 |
+| W14 | I can carry the device and write away from a desk |    2    |  4   |   5   |   1   |  5   | Typoena still wall-powered (ADR-008) — desk-bound until v0.8's battery, though the parametric case (`hardware/case/`, OpenSCAD) now exists. reMarkable + Type Folio bag-friendly with bulk. Freewrite Traveler is the form-factor reference (~1.6 lb, folds). Smart Typewriter ~5 lb, desk-bound. Pomera DM250 pocketable foldable.                                                                                                                                                                                                        |
+| W15 | First-time setup without developer tools          |    4    |  2   |   3   |   3   |  5   | Typoena: two verified paths — on-device wizard (Wi-Fi scan-pick, QR device-flow sign-in, repo pick + shallow clone; slices 0–5a on hardware 2026-07-16) and the `curl … \| sh` installer (checksum-verified, no toolchain); 4 not 5 while factory-reset/repo-switch are on-device-pending and repos > ~30 MB are refused. reMarkable needs account + companion app. Freewrites need a Postbox account. Pomera: no setup at all.                                                                                                            |
 
-**Totals** (sum across 14 WHATs, no weighting): Typoena 51, Pomera 50,
-Freewrite Traveler 47, reMarkable 44, Freewrite Smart Typewriter 42
-(Typoena netted 52→51 on measurement: W6 +1 on the attested 1 h soak, W1 −2
-once type latency measured at ~630 ms, over the revised ≤400 ms target (was ≤200 ms); Traveler
-pre-Sailfish 44; Smart pre-Sailfish 39; reMarkable W1 dropped
-3→2→1 across two rounds of author testing — first to 2 after firsthand
-typing, then to 1 once latency was recognised as the dominant W1
-signal). Typoena's lead over Pomera is now a single point: W14 (portability)
-and the measured W1 latency are the two dimensions on which v0.1's tethered,
-e-ink MVP loses ground; v0.8 (battery) and a faster refresh path are what
-recover it. The "Pomera + Wi-Fi + git + hackable BOM" framing from
-`README.md` still holds, but reads as a closer contest until those land.
+**Totals** (sum across 15 WHATs, no weighting): Typoena 57, Pomera 55,
+Freewrite Traveler 50, reMarkable 46, Freewrite Smart Typewriter 45.
+History: Typoena 52→51 at the 2026-07-11 measurement rebase (W6 +1 soak,
+W1 −2 on the ~630 ms reading), then 51→57 at the 2026-07-16 rebase (W1 +1
+once the ~630 ms figure was re-read as the erase tier, W12 +1 on shipped
+v0.5, W15 4 new); every product gained its W15 row (Pomera +5, Traveler and
+Smart +3, reMarkable +2). Traveler pre-Sailfish 44; Smart pre-Sailfish 39;
+reMarkable W1 dropped 3→2→1 across two rounds of author testing.
+Typoena's lead over Pomera is two points and still hinges on the same
+dimensions: W14 (portability) and W1's erase tier are where the tethered
+e-ink device loses ground; v0.8 (battery) and a faster erase/caret path are
+what widen it. The "Pomera + Wi-Fi + git + hackable BOM" framing from
+`README.md` holds — and W15 is now measurable product surface (wizard +
+installer), not aspiration.
 
 Weighted totals (Σ score × W weight) tell the same story with more
 contrast — left as exercise; the unweighted view is enough to read the
@@ -885,7 +888,7 @@ picture.
 
 #### Caveats
 
-- **Single-rater bias.** All fourteen rows are scored from the project
+- **Single-rater bias.** All fifteen rows are scored from the project
   author's POV. A reMarkable buyer would weight W11 (battery) at 10 and
   W12 (git) at 1, flipping the totals.
 - **Configuration matters.** Freewrite Smart Typewriter and Traveler are
@@ -946,17 +949,29 @@ below.
   rows-vs-latency cost model behind this tradeoff — full / full-area-partial /
   windowed-Y — is in
   [`tradeoff-curves/epd-refresh-latency.md`](tradeoff-curves/epd-refresh-latency.md).
-- **H9 heap ↔ H10 binary size** (strong). std + gitoxide + mbedtls inflate
+- **H9 heap ↔ H10 binary size** (strong). std + libgit2 + mbedtls inflate
   both. We chose to spend on these ([ADR-001], [ADR-004]) because 16 MB flash
-  and 8 MB PSRAM make them affordable; the kill-switch is spike 7. If
-  heap during Publish refuses to come under 1 MB free, [ADR-004] flips to
-  libgit2-sys for v0.1.
+  and 8 MB PSRAM make them affordable. Spike 7's kill-switch fired for a
+  different reason than feared (gix had no HTTPS push, not a heap failure),
+  and the heap fight then happened on libgit2's side: the 2026-07-13 push
+  campaign traced full-PSRAM exhaustion to its mmap working set and settled
+  it with hard caps (mwindow 64 KB/1.5 MB, odb cache 1 MB — §2 ¶).
 - **H9 heap ↔ H5 soak** (strong). A long writing session grows the rope
-  and the glyph cache; Publishing on top can OOM. Mitigation: 256 KB file
-  cap (v0.1 tech doc) + glyph cache eviction before Publish + watching the
-  spike in spike 7.
+  and the glyph cache; Publishing on top can OOM. Mitigations shipped: 256 KB
+  file cap (v0.1 tech doc), the persistent two-frame draw in `main.rs`
+  (repaints never allocate — added after a mid-push `HalfPageUp` OOM-aborted
+  the UI thread, run 4), and the palette file list interned to one PSRAM
+  blob (was 182 KB of internal DRAM).
 - **H6 Publish reliability ↔ H12 network reconnect** (reinforcing). Both come
-  from the same network stack; investing in reconnect backoff helps both.
+  from the same network stack; the TLS session-resumption vendored delta
+  (2026-07-14) proved the correlation — added for reconnect cost, it also
+  removed the idle keep-alive push failure's sting (run 8's `SSL Generic
+  error` during the 31 s marking gap; durable fix — reconnect-on-stale in
+  the http layer — still open).
+- **H12 reconnect ↔ H16 onboarding** (reinforcing). The wizard's clone leg
+  rides the same TLS + Wi-Fi bring-up as Publish; every second shaved off
+  connect/reconnect shortens first-run too (ls-refs fast path, session
+  resumption).
 - **H10 binary ↔ H15 build time** (strong). std builds are slow. Accepted
   in [ADR-001] — refactor leverage is the long-term payoff, not the
   per-build seconds.
@@ -996,49 +1011,65 @@ Components (with anchoring ADR):
 | C7  | Custom widget / dirty-rect layer     | [ADR-002]             |
 | C8  | `ropey` rope buffer                  | [ADR-001] (ecosystem) |
 | C9  | TinyUSB host (`esp-idf` bindings)    | [ADR-009]             |
-| C10 | FAT on microSD                       | [ADR-007]             |
+| C10 | FAT on microSD (own SPI3 host)       | [ADR-007], [ADR-012]  |
 | C11 | LittleFS on internal flash           | [ADR-007]             |
-| C12 | `gitoxide` (`gix-*`)                 | [ADR-004]             |
+| C12 | `libgit2` (`git2`, esp-idf CMake component + vendored mbedTLS stream) | [ADR-004] (kill-switch outcome) |
 | C13 | mbedtls TLS (via ESP-IDF)            | [ADR-005]             |
-| C14 | HTTPS + GitHub PAT auth              | [ADR-005]             |
+| C14 | HTTPS + GitHub token auth (PAT or App device-flow `ghu_`) | [ADR-005], [ADR-011]  |
 | C15 | eFuse-derived encryption key         | [ADR-005], [ADR-007]  |
 | C16 | USB-C wall PSU                       | [ADR-008]             |
+| C17 | `conf` + `wizard` crates (on-device onboarding) | [wizard](v0.9-onboarding-wizard.md) |
+| C18 | macOS installer (ratatui card provisioner) | [installer/DESIGN.md](../installer/DESIGN.md) |
+| C19 | typoena.dev + `install.sh` one-liner | (site repo, checksum-verified release download) |
+| C20 | Typoena GitHub App (device-flow auth) | [wizard](v0.9-onboarding-wizard.md) |
 
 HOW-to-component matrix (9 strong / 3 medium / 1 weak):
 
-|           | C1 SoC | C2 std | C3 thr | C4 PSR | C5 EPD | C6 eg | C7 wid | C8 rope | C9 USB | C10 SD | C11 LFS | C12 gix | C13 TLS | C14 PAT | C15 efs | C16 PSU |
-| --------- | :----: | :----: | :----: | :----: | :----: | :---: | :----: | :-----: | :----: | :----: | :-----: | :-----: | :-----: | :-----: | :-----: | :-----: |
-| H1 lat    |   3    |   1    |   9    |   3    |   9    |   9   |   9    |    3    |   9    |        |         |         |         |         |         |         |
-| H2 area   |        |        |        |        |   9    |   9   |   9    |         |        |        |         |         |         |         |         |         |
-| H3 cad    |        |        |        |        |   9    |   3   |   9    |         |        |        |         |         |         |         |         |         |
-| H4 boot   |   3    |   9    |   3    |   1    |   3    |       |        |         |        |   9    |    3    |         |         |         |         |         |
-| H5 soak   |   3    |   3    |   3    |   9    |   1    |       |        |    9    |   9    |   3    |         |    3    |    3    |         |         |         |
-| H6 reli   |        |   3    |        |        |        |       |        |         |        |        |         |    9    |    9    |    9    |         |         |
-| H7 lat    |        |        |   3    |   1    |        |       |        |         |        |   3    |         |    9    |    9    |         |         |         |
-| H8 dura   |        |   3    |        |        |        |       |        |         |        |   9    |    9    |         |         |         |         |         |
-| H9 heap   |   3    |   3    |        |   9    |        |       |        |    3    |        |        |         |    9    |    9    |         |         |         |
-| H10 bin   |        |   9    |   1    |        |        |   3   |   3    |    3    |   3    |        |         |    9    |    3    |         |         |         |
-| H11 stk   |        |        |   9    |        |        |       |        |         |   3    |        |         |    3    |         |         |         |         |
-| H12 recon |   3    |   9    |        |        |        |       |        |         |        |        |         |         |    3    |         |         |         |
-| H13 mA    |   9    |        |   1    |        |   9    |       |        |         |   3    |   3    |         |         |         |         |         |    9    |
-| H15 build |        |   9    |        |        |        |       |        |         |        |        |         |    9    |    3    |         |         |         |
+|           | C1 SoC | C2 std | C3 thr | C4 PSR | C5 EPD | C6 eg | C7 wid | C8 rope | C9 USB | C10 SD | C11 LFS | C12 git | C13 TLS | C14 tok | C15 efs | C16 PSU | C17 wiz | C18 inst | C19 site | C20 app |
+| --------- | :----: | :----: | :----: | :----: | :----: | :---: | :----: | :-----: | :----: | :----: | :-----: | :-----: | :-----: | :-----: | :-----: | :-----: | :-----: | :------: | :------: | :-----: |
+| H1 lat    |   3    |   1    |   9    |   3    |   9    |   9   |   9    |    3    |   9    |        |         |         |         |         |         |         |         |          |          |         |
+| H2 area   |        |        |        |        |   9    |   9   |   9    |         |        |        |         |         |         |         |         |         |         |          |          |         |
+| H3 cad    |        |        |        |        |   9    |   3   |   9    |         |        |        |         |         |         |         |         |         |         |          |          |         |
+| H4 boot   |   3    |   9    |   3    |   1    |   3    |       |        |         |        |   9    |    3    |         |         |         |         |         |         |          |          |         |
+| H5 soak   |   3    |   3    |   3    |   9    |   1    |       |        |    9    |   9    |   3    |         |    3    |    3    |         |         |         |         |          |          |         |
+| H6 reli   |        |   3    |        |        |        |       |        |         |        |        |         |    9    |    9    |    9    |         |         |         |          |          |         |
+| H7 lat    |        |        |   3    |   1    |        |       |        |         |        |   3    |         |    9    |    9    |         |         |         |         |          |          |         |
+| H8 dura   |        |   3    |        |        |        |       |        |         |        |   9    |    9    |         |         |         |         |         |         |          |          |         |
+| H9 heap   |   3    |   3    |        |   9    |        |       |        |    3    |        |        |         |    9    |    9    |         |         |         |         |          |          |         |
+| H10 bin   |        |   9    |   1    |        |        |   3   |   3    |    3    |   3    |        |         |    9    |    3    |         |         |         |    1    |          |          |         |
+| H11 stk   |        |        |   9    |        |        |       |        |         |   3    |        |         |    3    |         |         |         |         |         |          |          |         |
+| H12 recon |   3    |   9    |        |        |        |       |        |         |        |        |         |         |    3    |         |         |         |         |          |          |         |
+| H13 mA    |   9    |        |   1    |        |   9    |       |        |         |   3    |   3    |         |         |         |         |         |    9    |         |          |          |         |
+| H15 build |        |   9    |        |        |        |       |        |         |        |        |         |    9    |    3    |         |         |         |         |          |          |         |
+| H16 onb   |        |        |        |        |        |       |        |         |        |   3    |         |    9    |    3    |    3    |         |         |    9    |    9     |    3     |    9    |
 
 ### Read across, not down
 
 - **C5/C6/C7** (panel + graphics + widget) are the single most leveraged
   cluster — they own H1, H2, H3 (the top of the priority list). [ADR-002]
   and [ADR-003] are the ADRs to keep most honest as v0.x progresses.
-- **C12** (`gitoxide`) is overloaded: H6, H7, H9, H10, H11, H15 all
-  touch it. That's why [ADR-004] includes a kill-switch (fall back to
-  `libgit2-sys` if spike 7 fails). It's also why H9 sits in the top three
-  priorities — `gitoxide`'s memory profile is the unknown.
-  [ADR-010] pins the _shape_ of the publish sequence (the `gct` flow); C12
-  is just the library that implements it. Changing [ADR-010] doesn't change
-  C12's column, but changing C12 (the kill-switch) does not change
-  [ADR-010]'s user contract.
-- **C11** (LittleFS) is unused in v0.1: config is build-time. Its non-zero
-  cells in the matrix describe the v0.9+ shape per [ADR-007], not v0.1
-  reality.
+- **C12** (`libgit2`) is overloaded: H6, H7, H9, H10, H11, H15 — and now
+  H16's clone leg — all touch it. [ADR-004]'s kill-switch **fired**
+  (spike 7, 2026-07-06: gix had no HTTPS push) and the fallback became the
+  component: `git2` vendored as an esp-idf CMake component with two
+  deliberate C-side deltas (`esp_mbedtls_stream.c`: a double-free fix in the
+  error path reported upstream, plus TLS session resumption). The overload
+  prediction held — the real-repo push campaign (2026-07-13) was fought
+  entirely inside C12's memory profile. [ADR-010] pins the _shape_ of the
+  publish sequence; swapping the library under it never changed the user
+  contract, exactly as designed.
+- **C11** (LittleFS) is **still unused — and v0.9 decided against it for
+  config**: the wizard/installer write plaintext `/sd/typoena.conf` on the
+  card (one artifact both provisioning paths share, desktop-inspectable).
+  C15 (eFuse key) is likewise unused; token-at-rest protection is the open
+  [ADR-011]. C11's non-zero cells describe a possible future shape per
+  [ADR-007], not shipped reality.
+- **C17–C20** (wizard, installer, site, GitHub App) form the onboarding
+  cluster that owns H16. Deliberate redundancy: C17 and C18 are peer paths
+  to the same configured card, so neither is a single point of failure for
+  W15 — a Mac user never touches the wizard; a computer-less user never
+  touches the installer. C20 (device-flow auth) and C12 (shallow clone) are
+  the shared spine of both.
 - **C2** (std runtime) sits underneath almost everything, but it's the
   _enabler_ (H4 boot, H10 binary, H12 reconnect) rather than the bottleneck.
   Reversing [ADR-001] would force re-deciding [ADR-004], [ADR-005],
@@ -1053,24 +1084,26 @@ A curated rank, drawing from §3 importance and §4 conflicts, with one
 deliberate override: acceptance-criteria critical paths (H4 boot,
 H5 soak) move up regardless of weighted-vote spread. (Pre-W14 this list
 also lifted H8 durability over its narrow voter base; W14 has widened
-that base, so H8's #3 spot is now arithmetic — see §3.) These are the
-numbers spikes 2–7 must validate before integration starts.
+that base, so H8's #3 spot is now arithmetic — see §3.) These started as
+the numbers spikes 2–7 had to validate; most are now measured on the
+shipped device, so the last column reads as verdict → next lever.
 
-| Rank | Characteristic         | Target                           | Watched on           | If we miss it                                                                                                                                 |
-| ---- | ---------------------- | -------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | H2 region area         | ≤ 1 line per keypress            | spike 2 + spike 5    | Increase font size to shrink per-glyph dirty rect ([ADR-003] consequence)                                                                     |
-| 2    | H9 PSRAM heap          | ≥ 1 MB free at push peak         | spike 7              | [ADR-004] kill-switch → `libgit2-sys`; cap rope at 128 KB                                                                                     |
-| 3    | H8 durability          | 100 % (post-confirm power loss)  | bench HIL            | Re-evaluate [ADR-007] (move config to internal NVS only)                                                                                      |
-| 4    | H1 Type latency        | ≤ 400 ms (revised from ≤ 200 ms) | ~630 ms 2026-07-11 ✗ | Still over target — windowed-Y refresh already in; batch multi-char bursts; open v0.1 gap                                                     |
-| 5    | H6 Publish reliability | ≥ 95 % (network up)              | spike 6 + spike 7    | TLS cipher trim; reconnect backoff tuning                                                                                                     |
-| 6    | H3 cadence             | full every ~64 partials          | spike 2              | Adjust per panel temperature; defer flash to idle ≥ 1 s                                                                                       |
-| 7    | H4 Boot latency        | ≤ 5 s (cold, to cursor)          | 4258 ms 2026-07-11 ✓ | Editor rides a full-area partial over the splash (done, −1.25 s); PSRAM memtest off (−0.74 s) — [boot-time-budget](notes/boot-time-budget.md) |
-| 8    | H5 soak                | 1 h no leak / no drop            | 1 h bench soak       | Glyph-cache eviction; PSRAM heap-fragmentation review                                                                                         |
+| Rank | Characteristic         | Target                           | Watched on                          | Verdict / next lever                                                                                                                                                      |
+| ---- | ---------------------- | -------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | H2 region area         | ≤ 1 line per keypress            | on-device refresh log               | ✓ windowed-Y drives only the touched line's band; fallback (larger font) never needed                                                                                     |
+| 2    | H9 heap (Publish)      | ≥ 1 MB PSRAM free at push peak   | `log_push_heap` telemetry           | ✓ run 9: min-ever 4.5 MB after mwindow 64 KB/1.5 MB + odb 1 MB caps; **new watch = internal DRAM** (min-ever ~2.1 KB during TLS send) — §2 ¶                              |
+| 3    | H8 durability          | 100 % (post-confirm power loss)  | dirty journal + boot recovery       | Journal (`/sd/.typoena-dirty`) + `*.tmp` boot-recovery + stranded-commit replay shipped; the physical power-pull test is still owed (v0.9)                                |
+| 4    | H1 Type latency        | ≤ 400 ms (revised from ≤ 200 ms) | refresh log (bench confirm pending) | Typing tier ~100–130 ms projected ✓; **erase/caret tier ~630 ms ✗** — the open lever is a cheaper erase path, not faster typing                                           |
+| 5    | H6 Publish reliability | ≥ 95 % (network up)              | daily `:gp` use                     | Rejected-push → reconcile → replay → push cycle verified on device 2026-07-14; residual risk = stale keep-alive on long marking gaps (avoided via repack, not fixed)      |
+| 6    | H3 cadence             | full every ~64 partials          | `FULL_REFRESH_EVERY = 64`           | ✓ holding; adjust per panel temperature; defer flash to idle ≥ 1 s                                                                                                        |
+| 7    | H4 Boot latency        | ≤ 5 s (cold, to cursor)          | 4258 ms 2026-07-11 ✓                | Held ~4.2 s through the 2026-07-14 restructure (async splash, background walk); v1.0 ≤ 3 s lever left: memtest off (−0.74 s) — [boot-time-budget](notes/boot-time-budget.md) |
+| 8    | H5 soak                | 1 h no leak / no drop            | 1 h real-use soak ✓ 2026-07-11      | Attested; re-run after heap-touching changes (the run-4 per-draw-alloc OOM was exactly this class)                                                                        |
+| 9    | H16 onboarding         | ≤ 10 min (blank card → cursor)   | **unmeasured** — time a fresh run   | Wizard slices 0–5a verified on hardware but never wall-clocked; if over, levers = shallow-clone tuning, device-flow poll cadence, the deferred SoftAP companion           |
 
 The two not-in-MVP rows but already-shaped-by-design:
 
 | — | H13 current | Measured only in v0.1 | bench multimeter | Cell sizing for v0.8 is data-driven, not spec-sheet |
-| — | H11 stacks | Sum ≤ 80 KB | static analysis | Was off-by-2x in [ADR-006] pre-fix — corrected in §7 |
+| — | H11 stacks | Sum ≤ 128 KB (was ≤ 80 KB) | measured: 124 KB explicit (git 96 + walk 16 + USB 4+8) | Target followed the shipped architecture — §2 ∥; re-price before adding threads |
 
 ---
 
@@ -1080,27 +1113,44 @@ Plain-language summary of what we accepted in exchange for what.
 
 | Tradeoff                                        | Got                                                                                                  | Paid                                                                                                                                                  | ADR       |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| std (esp-idf-rs) over no_std (esp-hal)          | Heap, threads, VFS, mbedtls, gitoxide-compatible                                                     | +1 MB binary, +5–10 min builds                                                                                                                        | [ADR-001] |
+| std (esp-idf-rs) over no_std (esp-hal)          | Heap, threads, VFS, mbedtls, room for a full git stack (proved out by libgit2)                       | +1 MB binary, +5–10 min builds                                                                                                                        | [ADR-001] |
 | Custom widget layer over Ratatui                | Dirty-rects aligned to e-ink regions; 200 KB binary back                                             | 500 LoC we own and maintain                                                                                                                           | [ADR-002] |
 | e-ink medium over FSTN / memory LCD / OLED      | Paper aesthetic; 0 W idle persistence; medium enforces writing posture                               | ~200–300 ms typing latency; periodic full-refresh flash (scroll worst-case)                                                                           | [ADR-003] |
-| `gitoxide` over `libgit2-sys`                   | Pure Rust, modular, no FFI cross-compile pain                                                        | Smart-HTTP path is newer; PSRAM profile unproven (spike 7)                                                                                            | [ADR-004] |
-| HTTPS + PAT over OAuth device-flow or SSH       | Simplest auth that `gitoxide` smart-HTTP already supports                                            | Long-lived secret on device; in v0.1 the PAT is compiled into the binary (dev-only target user makes this acceptable); v0.9 moves it to encrypted NVS | [ADR-005] |
+| `libgit2` (`git2`) over `gitoxide` — the [ADR-004] kill-switch, fired 2026-07-06 | Working HTTPS push on-device; mature pack/transport code riding ESP-IDF's mbedTLS                    | FFI + a C build (esp-idf CMake component); two vendored C deltas to maintain (`esp_mbedtls_stream.c` double-free fix + TLS session resumption); an mmap profile that needed hard caps (mwindow, odb) | [ADR-004] |
+| HTTPS + GitHub token over SSH                   | Simplest auth the device transport supports; App device-flow tokens (`ghu_`) ride the same header as a PAT, so wizard/installer sign-in changed nothing in the git path | Long-lived secret on device — now **plaintext in `/sd/typoena.conf`** (both provisioning paths write it; physical custody of the card is the control); encrypted-at-rest is the open [ADR-011]      | [ADR-005], [ADR-011] |
 | `std::thread` over `embassy` or `tokio`         | Boring, debuggable, real stack traces; no exec to tune                                               | ~76 KB total stack across 5 tasks                                                                                                                     | [ADR-006] |
 | FAT-on-SD + LittleFS-on-flash split             | Desktop can read SD; config survives SD reformat                                                     | Two filesystems to manage; FAT's power-loss weakness mitigated by atomic-rename                                                                       | [ADR-007] |
 | Wall power for v0.1, battery deferred           | Measure real draw before sizing the cell                                                             | Tethered MVP; not the final aesthetic                                                                                                                 | [ADR-008] |
 | USB host (TinyUSB) over BLE-HID                 | No radio contention with Wi-Fi during push; keyboard powered from the device                         | One more USB connector on enclosure                                                                                                                   | [ADR-009] |
-| Atomic `Ctrl-G` + auto-timestamp commit message | One key, one outcome; matches the user's existing `gct` workflow; no modal prompt to slow H1 latency | Commit history is timestamp noise; the device may author merge commits the user never sees; reversal would break muscle memory                        | [ADR-010] |
+| Atomic Publish (`:gp`, was `Ctrl-G`) + auto-timestamp commit message | One action, one outcome; matches the user's existing `gct` workflow; no modal prompt to slow H1 latency | Commit history is timestamp noise; the device authors replay commits the user never sees; reversal would break muscle memory                          | [ADR-010] |
+| Splice commit over full index write             | Real-repo Publish exists at all: ~19–24 s vs 611 s / OOM on the index path; dirty-path journal makes it power-pull-safe | Desktop-side edits to the card are never committed by the device — hand-edits on a computer must be pushed from that computer                         | [sync-commit-staging](tradeoff-curves/sync-commit-staging.md) |
+| Media stays in git, never on the card           | Killed `:gl`'s last OOM path; pull/apply touches text only; the repo stays whole for remote readers | Stale card media; phantom `git status` noise if the card is mounted on a computer — never hand-commit from the card                                   | (2026-07-14, `is_media_path`) |
+| Shallow clone + ~30 MB repo gate at onboarding  | First-run clone fits device memory and minutes-scale patience                                        | Repos over the gate are refused at the repo-pick step (libgit2 has no partial clone, so tip media would download even if never written)               | [wizard](v0.9-onboarding-wizard.md) |
+| Installer provisions the card, never flashes    | No USB-flash toolchain in the user path; devices ship pre-flashed; installer stays a small TUI      | Field firmware updates cannot lean on the installer — auto-update becomes a device-side problem (open, macroplan v1.x)                                | [installer/DESIGN.md](../installer/DESIGN.md) |
+| `curl … \| sh` one-liner over app-store/dmg     | Zero-friction start from typoena.dev; checksum-verified download; quarantine handled                | Pipe-to-shell trust ask; macOS-only today; the site and the GitHub release become launch-path infrastructure to keep up                               | (site repo `install.sh`) |
 
 ### Conflicts left explicitly _unresolved_ by v0.1
 
 These are the live tensions we are watching, not deciding harder:
 
-- **[ADR-004] vs H9.** If `gitoxide` cannot keep ≥ 1 MB PSRAM free at push
-  peak, we are committed to switching transports for v0.1, not absorbing
-  the OOM risk.
-- **[ADR-009] vs H6/H13.** If TinyUSB host turns out unstable (spike 4),
-  BLE-HID is the documented fallback — at the cost of Wi-Fi radio
-  contention during push (re-checking H6).
+- **FAT loose-object cost vs H7's v1.0 target.** The convicted residual of
+  Publish latency is FAT's linear directory scans (~0.4 s per loose write
+  against the 256-dir `objects/` fan-out), bounded at ≤ ~2 s per commit and
+  **accepted** for now; the lever (pack-not-loose writes) waits for a perf
+  pass. Until then the ≤ 10 s v1.0 H7 target is not honest for deep paths.
+- **Keep-alive race vs H6.** Run 8's push died on a connection idled out
+  during a long marking gap; repack shrank the gap so run 9 succeeded —
+  the race is *avoided*, not fixed. Durable fix = reconnect-on-stale in the
+  http layer; owed before H6's v1.0 ≥ 99 % is credible.
+- **Token at rest ([ADR-011], open).** Both provisioning paths write the
+  GitHub token plaintext to `/sd/typoena.conf`; physical custody of the
+  card is the only control. Encrypted-at-rest (C15's eFuse key, C11) stays
+  designed-but-unbuilt until the threat model outgrows "solo device in my
+  home."
+- **Onboarding reach vs simplicity.** The wizard types Wi-Fi passwords on
+  the device and the installer is macOS-only; the SoftAP companion webapp
+  (phone-driven hand-off) was chosen over BLE 2026-07-16 and **deferred**.
+  Revisit when a non-Mac, non-patient user actually appears.
 - **[ADR-007] vs H8.** Power loss between FAT rename and dir flush yields
   the previous saved version. We document this as expected behavior; it
   becomes a real bug only if soak testing shows it triggering on routine
@@ -1283,6 +1333,77 @@ These are the live tensions we are watching, not deciding harder:
   ≤ 300 ms ([ADR-003]'s ~200–300 ms floor); ≤ 150 ms sat below what the panel
   can deliver.
 
+- **This file lagged [ADR-004]'s fired kill-switch by ten days (fixed
+  2026-07-16).** Spike 7 fired the kill-switch on 2026-07-06 (gix has no
+  HTTPS push; the shipped git engine is `libgit2`/`git2` as an esp-idf CMake
+  component), and adr.md recorded it in an "Outcome" section — but this doc
+  kept scoring C12 as `gitoxide` and §7 kept "gitoxide over libgit2-sys" as
+  the standing decision. §3 narrative, §4 roof bullets, §5 C12 + read-across,
+  §6 rank-2 fallback, and the §7 row all rewritten to the libgit2 reality.
+  Lesson for the "keep this honest" list: an ADR outcome edit must cascade
+  here the same day.
+- **`Ctrl-G` → `:gp` swept (2026-07-16).** Publish moved off Ctrl-G to the
+  `:gp` ex command (`:sync` → `:gp` rename 2026-07-14); the keymap has no
+  Ctrl-G binding at all. W2's rationale and §7's [ADR-010] row updated, and
+  [ADR-010] itself was amended the same day with an as-shipped Outcome
+  section covering all three of its drifts: the `:gp` trigger, the
+  `Typoena publish — unix <epoch>` message (not ISO-8601), and
+  replay-not-merge on rejected pushes (the "device may author merge
+  commits" consequence never materialised).
+- **Config landed on the card, not in encrypted internal flash
+  (2026-07-16).** [ADR-005]/[ADR-007] planned "v0.9 moves the secret to
+  encrypted LittleFS/NVS with an eFuse key"; v0.9 actually shipped plaintext
+  `/sd/typoena.conf` — deliberately, so the wizard and the macOS installer
+  produce one identical, desktop-inspectable artifact. C11/C15 are therefore
+  still unused, and at-rest protection is the open [ADR-011]. §5's C11
+  bullet and §7's auth row updated; the tension is now explicit in §7's
+  unresolved list instead of being silently mis-described as done-in-v0.9.
+- **H11 stack budget was fiction twice over (2026-07-16).** The ≤ 80 KB
+  target priced a five-thread model (usb/wifi/ui/render/git, 76 KB) that no
+  longer exists: UI and render run on the main task, Wi-Fi is owned by the
+  git thread, and the shipped explicit stacks are git 96 KB + walk 16 KB +
+  USB 4+8 KB = **124 KB**. Target revised to ≤ 128 KB (§2 ∥); §6's row now
+  carries the measured breakdown. The 96 KB git stack is an [ADR-004]
+  consequence the old budget predates.
+- **H1's ~630 ms was the wrong tier (2026-07-16).** The 2026-07-11 footnote
+  presented ~630 ms as "per-keystroke render", but the refresh-latency curve
+  doc shows that figure is the **full-area partial** (deletes, caret moves,
+  splash swap); additive typing rides the windowed-Y partial at ~100–130 ms
+  (projected — bench confirmation still owed from the on-device refresh
+  log). §2 §-footnote rewritten as a two-tier story; perception W1 raised
+  2→3, not higher, until the bench number lands and the erase tier gets a
+  lever.
+- **W15 + H16 added — the companions enter the house (2026-07-16).** The
+  product now includes surfaces that are not the device: the macOS installer
+  (card provisioner), typoena.dev + `install.sh`, the Typoena GitHub App,
+  and the on-device wizard. Their shared user outcome landed as W15 ("a
+  first-time user reaches writing without developer tools", weight 7), their
+  shared characteristic as H16 (onboarding duration, ≤ 10 min, unmeasured),
+  and their parts as C17–C20. Basement Σ recomputed 1557 → 1627 (H12 picks
+  up W15's weak vote, 153 → 160); rel% re-derived. The house deliberately
+  reads H16 as bottom-tier for the daily writing loop — its weight is about
+  product reach, and §6 carries its (unmeasured) budget row.
+- **W14's "no enclosure spec yet" was stale (2026-07-16).** The parametric
+  OpenSCAD case exists (`hardware/case/`, scad + stl + renders); the score
+  stays 2 because portability hinges on [ADR-008]'s battery, not the shell.
+  Rationale corrected.
+- **[ADR-009] TinyUSB tension retired (2026-07-16).** "If TinyUSB turns out
+  unstable, BLE-HID is the fallback" sat in §7's unresolved list since
+  before spike 4; the USB host path has since carried every hardware session
+  for two weeks. Removed from the live-tension list — reopening it would
+  take new evidence, not vigilance.
+- **Companion-side doc drift — flagged and then fixed the same day
+  (2026-07-16).** The site repo's README called `install.sh` a placeholder
+  that "flashes the firmware" — rewritten to the live, checksum-verified,
+  never-flashes reality (and its repo pointer corrected to the
+  `typoena` org). The installer's `DESIGN.md` still cited
+  `installer-v0.1.0` as the release — trued up to the tag-per-release
+  model, latest `installer-v0.4.0`; the GitHub release itself was never
+  lagging (latest-release already served 0.4.0), only the prose.
+  `v0.5-palette-and-multi-file.md`'s header still said "slice 1 of 4" and
+  `v0.6-markdown.md`'s still said slice 5 was remaining — both stamped
+  **DELIVERED 2026-07-12** to match macroplan and the on-device record.
+
 The earlier variance between README's "~12 lines" and product/[ADR-003]'s
 "~11 lines" of "edit area" is now superseded: the side-panel redesign removed
 the top header and bottom status bars (metadata moved into the **side panel**),
@@ -1296,10 +1417,18 @@ README, the product/technical docs, and [ADR-003] are all updated to ~13 lines
 ## How to keep this document honest
 
 - When a new ADR lands, add its components to §5 and re-score any
-  characteristic-row whose dominant component changed.
+  characteristic-row whose dominant component changed. **The same applies
+  when an existing ADR gains an Outcome** (a kill-switch fires, a decision
+  reverses): cascade it here the same day — this doc scored the dead
+  gitoxide option for ten days after the swap.
 - When a spike returns numbers, update §6's "Target" or "Watched on"
   columns — this is the doc that _should_ feel out of date if measured
   reality drifts from estimates.
+- The companion surfaces (installer, typoena.dev, GitHub App, wizard) are
+  in the house as W15 / H16 / C17–C20 but keep their design records in
+  [`../installer/DESIGN.md`](../installer/DESIGN.md) and
+  [`v0.9-onboarding-wizard.md`](v0.9-onboarding-wizard.md); when those ship
+  changes, re-check those rows rather than re-deriving them here.
 - The WHATs (§1) change rarely; the HOWs (§2) change with each release.
   When either changes, re-score the matrix and recompute the basement Σ
   in the §3 diagram; then check the §3 priority list and §4 conflict list
@@ -1315,3 +1444,5 @@ README, the product/technical docs, and [ADR-003] are all updated to ~13 lines
 [ADR-008]: adr.md#adr-008-mvp-power--wall-powered-battery-deferred-to-v08
 [ADR-009]: adr.md#adr-009-keyboard-transport--usb-host-tinyusb
 [ADR-010]: adr.md#adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
+[ADR-011]: adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest
+[ADR-012]: adr.md#adr-012-sd-on-its-own-spi3-host-not-shared-with-the-epd-on-spi2
