@@ -23,10 +23,10 @@ glossary at [`../CONTEXT.md`](../CONTEXT.md).
 
 Format inspired by the classic House of Quality, kept compact. Strength
 weights: **9** strong, **3** medium, **1** weak, blank none. This one file
-owns everything: the House diagram itself (matrix, roof, basement Σ, and the
+owns everything: the House-1 diagram itself (matrix, roof, basement Σ, and the
 guessed competitor perception zone), hoisted to the top (just below); the
 WHAT/HOW catalogues (§1, §2); the narrative reading of the numbers (§3, §4);
-and the downstream sections (§5–§8). (The House was a separate `quality-house.md`
+and the downstream sections (§5–§8), including the Phase-2 house drawn in §5. (The House was a separate `quality-house.md`
 until 2026-07-11, merged into §3 to end the mirror-drift between the two files;
 the diagram was lifted above §1 on 2026-07-11 so the picture leads.)
 
@@ -35,6 +35,14 @@ the diagram was lifted above §1 on 2026-07-11 so the picture leads.)
 ## House of Quality — the diagram
 
 The artifact this whole document builds and reads is shown first: §1's WHATs (rows) × §2's HOWs (columns), scored 9 / 3 / 1 / blank, with the roof correlations (§4), the basement Σ / relative weights, and the right-hand competitive-perception zone. §1–§8 define, prioritise, and read it; the sync rules and a blank practice copy travel with the diagram just below.
+
+This is **House 1** of the classical QFD cascade. **House 2** (HOWs ×
+components, each HOW carrying its basement Σ from here as row importance)
+is drawn in [§5](#5-how--component-mapping-phase-2) beside the matrix it
+mirrors. Houses 3–4 (components × process steps, process × production
+controls) are deliberately absent: a solo-built device has no manufacturing
+process or production plan to deploy into — drawing them would be
+scaffolding, not information.
 
 > **Single source of truth.** The `\foreach` blocks in the diagram restate §1's
 > weights and §2's targets — TikZ can't read the tables, so keep them in sync when
@@ -1162,6 +1170,453 @@ so their votes are fiction until they ship; C15's 0 is the sanity check
 (no shipped characteristic touches it). C18/C20 tie at 567. Recompute this
 row whenever the basement Σ or a cell above changes.
 
+#### The Phase-2 house — the diagram
+
+The same matrix drawn as a house: §2's HOWs as rows (importance = each
+HOW's Phase-1 basement Σ, so the cascade is visible in the left column),
+C1–C20 as columns, and the derived Σ / Rank as the basement. The roof
+carries the component-component correlations that are documented elsewhere
+in this file (each cell's comment names its source); C11/C15's basement
+entries are parenthesised and unranked, as in the table. **The markdown
+matrix above is the source of truth** — re-score there first, then mirror
+here, exactly as the Phase-1 house mirrors §1/§2.
+
+```tikz
+% =====================================================================
+% QFD "House of Quality" preamble
+% =====================================================================
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, shapes.misc, calc, fit, backgrounds}
+
+\newif\ifqfdshowroof          \qfdshowrooftrue
+\newif\ifqfdshowbasement      \qfdshowbasementtrue
+\newif\ifqfdshowcompetitive   \qfdshowcompetitivetrue
+\newif\ifqfdshowlegend        \qfdshowlegendtrue
+\newif\ifqfdshowimportance    \qfdshowimportancetrue
+\newif\ifqfdshowcorrlegend    \qfdshowcorrlegendtrue
+\newif\ifqfdshowevallegend    \qfdshowevallegendtrue
+
+\def\qfdNW{5}
+\def\qfdNH{5}
+\def\qfdWhatW{4.0}
+\def\qfdImpW{0.9}
+\def\qfdCmpW{3}
+\def\qfdHdrH{2.6}
+\def\qfdBasementN{4}
+
+\def\qfdWhatsTitle{Customer needs}
+\def\qfdImpTitle{Imp.\ \%}
+\def\qfdPerceptionTitle{Comparative evaluation}
+\def\qfdPoorLabel{poor}
+\def\qfdExcellentLabel{excellent}
+\def\qfdAltOneLabel{Typoena}
+\def\qfdAltTwoLabel{Competitor A}
+\def\qfdAltThreeLabel{Competitor B}
+\def\qfdRelTitle{Relation}
+\def\qfdCorrTitle{Correlation}
+\def\qfdEvalTitle{Evaluation}
+
+\tikzset{
+  qfdthin/.style ={line width=0.35pt},
+  qfdmed/.style  ={line width=0.7pt},
+  qfdstrong/.style={circle, draw, fill=black,
+                    minimum size=7pt, inner sep=0pt},
+  qfdmod/.style  ={circle, draw,
+                    minimum size=7pt, inner sep=0pt, line width=0.8pt},
+  qfdweak/.style ={regular polygon, regular polygon sides=3, draw,
+                    minimum size=8.5pt, inner sep=0pt, line width=0.7pt},
+  qfdrel/.is choice,
+  qfdrel/S/.style={qfdstrong},
+  qfdrel/M/.style={qfdmod},
+  qfdrel/W/.style={qfdweak},
+  qfdalt1mk/.style={circle, draw, fill=black,
+                    minimum size=6pt, inner sep=0pt, line width=1pt},
+  qfdalt1ln/.style={line width=1.2pt},
+  qfdalt2mk/.style={regular polygon, regular polygon sides=3, draw,
+                    fill=black, minimum size=6pt, inner sep=0pt,
+                    line width=0.7pt},
+  qfdalt2ln/.style={line width=0.7pt, dashed},
+  qfdalt3mk/.style={rectangle, draw, fill=black,
+                    minimum size=5pt, inner sep=0pt, line width=0.7pt},
+  qfdalt3ln/.style={line width=0.7pt, dotted},
+}
+
+\newcommand{\qfdDrawGrid}{%
+  \foreach \c in {1,...,\qfdNHm} \draw[qfdthin] (\c, 0) -- (\c, -\qfdNW);
+  \foreach \r in {1,...,\qfdNWm} \draw[qfdthin] (0, -\r) -- (\qfdNH, -\r);
+  \foreach \r in {1,...,\qfdNWm}
+    \draw[qfdthin] (\qfdLeftEdge, -\r) -- (0, -\r);
+  \ifqfdshowroof
+    \foreach \c in {1,...,\qfdNHm}
+      \draw[qfdthin] (\c, 0) -- (\c, \qfdHdrH);
+  \fi
+  \ifqfdshowcompetitive
+    \foreach \r in {1,...,\qfdNWm}
+      \draw[qfdthin] (\qfdNH, -\r) -- (\qfdNH+\qfdCmpW, -\r);
+  \fi
+  \ifqfdshowbasement
+    \foreach \r in {1,...,\qfdBasementN}
+      \draw[qfdthin] (0, -\qfdNW-\r) -- (\qfdNH, -\qfdNW-\r);
+    \foreach \c in {1,...,\qfdNHm}
+      \draw[qfdthin] (\c, -\qfdNW) -- (\c, -\qfdNW-\qfdBasementN);
+  \fi
+}
+
+\newcommand{\qfdDrawRoof}{%
+  \ifqfdshowroof
+    \foreach \k in {1,...,\qfdNHm} {%
+      \pgfmathsetmacro{\rx}{(\k+\qfdNH)/2}
+      \pgfmathsetmacro{\ry}{\qfdHdrH + (\qfdNH-\k)/2}
+      \pgfmathsetmacro{\lx}{\k/2}
+      \pgfmathsetmacro{\ly}{\qfdHdrH + \k/2}
+      \draw[qfdthin] (\k, \qfdHdrH) -- (\rx, \ry);
+      \draw[qfdthin] (\k, \qfdHdrH) -- (\lx, \ly);
+    }%
+    \draw[qfdmed] (0, \qfdHdrH)
+       -- (\qfdNH/2, \qfdApexY) -- (\qfdNH, \qfdHdrH);
+    \foreach \i in {1,...,\qfdNH}
+      \foreach \k in {1,...,\qfdNH} {%
+        \pgfmathtruncatemacro{\jj}{\i+\k}
+        \ifnum\jj>\qfdNH\relax\else
+          \pgfmathsetmacro{\xx}{\i + \k/2 - 0.5}
+          \pgfmathsetmacro{\yy}{\qfdHdrH + \k/2}
+          \coordinate (C-\i-\jj) at (\xx, \yy);
+        \fi
+      }%
+  \fi
+}
+
+\newcommand{\qfdDrawScale}{%
+  \ifqfdshowcompetitive
+    \foreach \tk in {0,1,2,3,4,5} {%
+      \pgfmathsetmacro{\tx}{\qfdNH + (\tk+0.5)*\qfdCmpW/6}
+      \node[anchor=south, font=\scriptsize] at (\tx, 0.02) {\tk};
+    }%
+    \node[anchor=south, font=\scriptsize\bfseries, align=center,
+          text width=\qfdCmpW cm]
+         at ({\qfdNH + \qfdCmpW/2}, 0.7) {\qfdPerceptionTitle};
+    \node[anchor=north, font=\scriptsize\itshape]
+         at ({\qfdNH + 0.45}, -\qfdNW) {\qfdPoorLabel};
+    \node[anchor=north, font=\scriptsize\itshape]
+         at ({\qfdNH + \qfdCmpW - 0.45}, -\qfdNW) {\qfdExcellentLabel};
+  \fi
+}
+
+\newcommand{\qfdDrawZoneTitles}{%
+  \ifqfdshowimportance
+    \node[rotate=90, anchor=west, font=\footnotesize\bfseries]
+         at ({-\qfdImpW/2}, 0.12) {\qfdImpTitle};
+  \fi
+  \node[font=\scriptsize\bfseries, align=center, text width=\qfdWhatW cm]
+       at ({\qfdLeftEdge + \qfdWhatW/2},
+           {\ifqfdshowroof \qfdHdrH/2 \else 0.6 \fi}) {\qfdWhatsTitle};
+}
+
+\newcommand{\qfdDrawFrames}{%
+  \begin{scope}[qfdmed]
+    \draw (\qfdLeftEdge, 0) rectangle (\qfdNH, -\qfdNW);
+    \ifqfdshowimportance \draw (-\qfdImpW, 0) -- (-\qfdImpW, -\qfdNW); \fi
+    \draw (0, 0) -- (0, -\qfdNW);
+    \ifqfdshowroof
+      \draw (0, 0) rectangle (\qfdNH, \qfdHdrH); \fi
+    \ifqfdshowbasement
+      \draw (0, -\qfdNW) rectangle (\qfdNH, -\qfdNW-\qfdBasementN); \fi
+    \ifqfdshowcompetitive
+      \draw (\qfdNH, 0) rectangle (\qfdNH+\qfdCmpW, -\qfdNW); \fi
+  \end{scope}
+}
+
+\newcommand{\qfdDrawLegend}{%
+  \ifqfdshowlegend
+    \pgfmathsetmacro{\qfdLegX}{%
+      \qfdNH + \ifqfdshowcompetitive \qfdCmpW + 0.7 \else 0.7 \fi}
+    \pgfmathsetmacro{\qfdLegBottom}{%
+      -2.05
+      \ifqfdshowroof    \ifqfdshowcorrlegend - 2.55 \fi \fi
+      \ifqfdshowcompetitive \ifqfdshowevallegend - 2.20 \fi \fi}
+    \pgfmathsetmacro{\qfdLegY}{\qfdHdrH - 0.4}
+    \begin{scope}[shift={(\qfdLegX, \qfdLegY)}]
+      \draw[qfdmed, rounded corners=2pt]
+        (-0.15, 0.4) rectangle (4.5, \qfdLegBottom);
+      \node[anchor=west, font=\footnotesize\bfseries] at (0, 0.1)
+        {\qfdRelTitle};
+      \draw[qfdthin] (0, -0.15) -- (4.35, -0.15);
+      \node[qfdstrong] at (0.22, -0.5)  {};
+        \node[anchor=west] at (0.5, -0.5)  {Strong (9)};
+      \node[qfdmod]    at (0.22, -0.95) {};
+        \node[anchor=west] at (0.5, -0.95) {Medium (3)};
+      \node[qfdweak]   at (0.22, -1.4)  {};
+        \node[anchor=west] at (0.5, -1.4)  {Weak (1)};
+      \ifqfdshowroof \ifqfdshowcorrlegend
+        \node[anchor=west, font=\footnotesize\bfseries] at (0, -2.10)
+          {\qfdCorrTitle};
+        \draw[qfdthin] (0, -2.35) -- (4.35, -2.35);
+        \node[anchor=west] at (0, -2.70) {{$+\!+$}\quad very positive};
+        \node[anchor=west] at (0, -3.05) {{$+$\phantom{$+$}}\quad positive};
+        \node[anchor=west] at (0, -3.40) {{$-$\phantom{$-$}}\quad negative};
+        \node[anchor=west] at (0, -3.75) {{$-\!-$}\quad very negative};
+      \fi \fi
+      \ifqfdshowcompetitive \ifqfdshowevallegend
+        \pgfmathsetmacro{\qfdEvalTop}{%
+          -2.10 \ifqfdshowroof\ifqfdshowcorrlegend - 2.55 \fi\fi}
+        \node[anchor=west, font=\footnotesize\bfseries]
+          at (0, \qfdEvalTop) {\qfdEvalTitle};
+        \pgfmathsetmacro{\qfdEvalSep}{\qfdEvalTop - 0.25}
+        \draw[qfdthin] (0, \qfdEvalSep) -- (4.35, \qfdEvalSep);
+        \pgfmathsetmacro{\qfdLegA}{\qfdEvalTop - 0.55}
+        \draw[qfdalt1ln] (0.05, \qfdLegA) -- (0.45, \qfdLegA);
+          \node[qfdalt1mk] at (0.25, \qfdLegA) {};
+          \node[anchor=west, font=\bfseries] at (0.55, \qfdLegA)
+            {\qfdAltOneLabel};
+        \pgfmathsetmacro{\qfdLegB}{\qfdEvalTop - 0.95}
+        \draw[qfdalt2ln] (0.05, \qfdLegB) -- (0.45, \qfdLegB);
+          \node[qfdalt2mk] at (0.25, \qfdLegB) {};
+          \node[anchor=west] at (0.55, \qfdLegB) {\qfdAltTwoLabel};
+        \pgfmathsetmacro{\qfdLegC}{\qfdEvalTop - 1.35}
+        \draw[qfdalt3ln] (0.05, \qfdLegC) -- (0.45, \qfdLegC);
+          \node[qfdalt3mk] at (0.25, \qfdLegC) {};
+          \node[anchor=west] at (0.55, \qfdLegC) {\qfdAltThreeLabel};
+      \fi \fi
+    \end{scope}
+  \fi
+}
+
+\newenvironment{qfdhouse}{%
+  \begin{tikzpicture}[x=1cm, y=1cm, font=\scriptsize,
+                      line cap=round, line join=round]
+  \ifqfdshowimportance
+    \pgfmathsetmacro{\qfdLeftEdge}{-\qfdWhatW-\qfdImpW}
+  \else
+    \pgfmathsetmacro{\qfdLeftEdge}{-\qfdWhatW}
+  \fi
+  \pgfmathsetmacro{\qfdApexY}{\qfdHdrH + \qfdNH/2}
+  \pgfmathtruncatemacro{\qfdNHm}{\qfdNH - 1}
+  \pgfmathtruncatemacro{\qfdNWm}{\qfdNW - 1}
+  \qfdDrawGrid
+  \qfdDrawRoof
+  \qfdDrawScale
+  \qfdDrawZoneTitles
+}{%
+  \qfdDrawFrames
+  \qfdDrawLegend
+  \end{tikzpicture}%
+}
+
+% --- Dimensions tuned for the Phase-2 house (15 HOWs x 20 components) ---
+\def\qfdNW{15}
+\def\qfdNH{20}
+\def\qfdWhatW{4.6}
+\def\qfdImpW{0.9}
+\def\qfdHdrH{5.0}
+\def\qfdBasementN{2}
+\qfdshowcompetitivefalse
+\qfdshowevallegendfalse
+
+\def\qfdWhatsTitle{Engineering characteristics (H)}
+\def\qfdImpTitle{$\Sigma$}
+
+\begin{document}
+\begin{qfdhouse}
+
+  % ---------- Rows: the HOWs, carried down from the Phase-1 house ----------
+  \pgfmathsetmacro{\qfdWhatTextW}{\qfdWhatW - 0.2}
+  \foreach \r/\t in {%
+    1/{H1 Type latency},
+    2/{H2 Refresh area per keystroke},
+    3/{H3 Full-refresh cadence},
+    4/{H4 Boot latency (cold)},
+    5/{H5 Continuous-typing endurance},
+    6/{H6 Publish reliability},
+    7/{H7 Publish latency},
+    8/{H8 Save durability},
+    9/{H9 Heap headroom (Publish)},
+    10/{H10 Firmware binary size},
+    11/{H11 Total stack budget},
+    12/{H12 Network reconnect time},
+    13/{H13 Idle / typing / push current},
+    14/{H15 Clean release build time},
+    15/{H16 Onboarding duration}%
+  }
+    \node[anchor=west, font=\scriptsize,
+          text width=\qfdWhatTextW cm, align=left]
+      at ({\qfdLeftEdge + 0.1}, {-\r + 0.5}) {\t};
+
+  % ---------- Importance: each HOW's Phase-1 basement Sigma ----------
+  \foreach \r/\w in {1/148, 2/177, 3/144, 4/62, 5/111, 6/134, 7/27, 8/156, 9/193, 10/41, 11/45, 12/160, 13/137, 14/29, 15/63}
+    \node[font=\scriptsize] at ({-\qfdImpW/2}, {-\r + 0.5}) {\w};
+
+  % ---------- Columns: components (rotated titles) ----------
+  \foreach \c/\t in {%
+    1/{C1 ESP32-S3 SoC},
+    2/{C2 std runtime (esp-idf)},
+    3/{C3 Threads + channels},
+    4/{C4 PSRAM allocator},
+    5/{C5 E-ink panel GDEY0579T93},
+    6/{C6 embedded-graphics + driver},
+    7/{C7 Widget / dirty-rect layer},
+    8/{C8 Rope buffer (ropey)},
+    9/{C9 TinyUSB host},
+    10/{C10 FAT on SD (SPI3)},
+    11/{C11 LittleFS (unused)},
+    12/{C12 libgit2 component},
+    13/{C13 mbedTLS},
+    14/{C14 GitHub token auth},
+    15/{C15 eFuse key (unused)},
+    16/{C16 USB-C wall PSU},
+    17/{C17 conf + wizard crates},
+    18/{C18 macOS installer},
+    19/{C19 typoena.dev + install.sh},
+    20/{C20 Typoena GitHub App}%
+  }
+    \node[rotate=90, anchor=west, font=\scriptsize]
+      at ({\c - 0.5}, 0.15) {\t};
+
+  % ---------- Relation matrix (S=9, M=3, W=1) — mirrors the table below ----------
+  % H1 row 1: C1M C2W C3S C4M C5S C6S C7S C8M C9S
+  \node[qfdrel/M] at ({1 - 0.5}, {-1 + 0.5}) {};
+  \node[qfdrel/W] at ({2 - 0.5}, {-1 + 0.5}) {};
+  \node[qfdrel/S] at ({3 - 0.5}, {-1 + 0.5}) {};
+  \node[qfdrel/M] at ({4 - 0.5}, {-1 + 0.5}) {};
+  \node[qfdrel/S] at ({5 - 0.5}, {-1 + 0.5}) {};
+  \node[qfdrel/S] at ({6 - 0.5}, {-1 + 0.5}) {};
+  \node[qfdrel/S] at ({7 - 0.5}, {-1 + 0.5}) {};
+  \node[qfdrel/M] at ({8 - 0.5}, {-1 + 0.5}) {};
+  \node[qfdrel/S] at ({9 - 0.5}, {-1 + 0.5}) {};
+  % H2 row 2: C5S C6S C7S
+  \node[qfdrel/S] at ({5 - 0.5}, {-2 + 0.5}) {};
+  \node[qfdrel/S] at ({6 - 0.5}, {-2 + 0.5}) {};
+  \node[qfdrel/S] at ({7 - 0.5}, {-2 + 0.5}) {};
+  % H3 row 3: C5S C6M C7S
+  \node[qfdrel/S] at ({5 - 0.5}, {-3 + 0.5}) {};
+  \node[qfdrel/M] at ({6 - 0.5}, {-3 + 0.5}) {};
+  \node[qfdrel/S] at ({7 - 0.5}, {-3 + 0.5}) {};
+  % H4 row 4: C1M C2S C3M C4W C5M C10S C11M
+  \node[qfdrel/M] at ({1 - 0.5}, {-4 + 0.5}) {};
+  \node[qfdrel/S] at ({2 - 0.5}, {-4 + 0.5}) {};
+  \node[qfdrel/M] at ({3 - 0.5}, {-4 + 0.5}) {};
+  \node[qfdrel/W] at ({4 - 0.5}, {-4 + 0.5}) {};
+  \node[qfdrel/M] at ({5 - 0.5}, {-4 + 0.5}) {};
+  \node[qfdrel/S] at ({10 - 0.5}, {-4 + 0.5}) {};
+  \node[qfdrel/M] at ({11 - 0.5}, {-4 + 0.5}) {};
+  % H5 row 5: C1M C2M C3M C4S C5W C8S C9S C10M C12M C13M
+  \node[qfdrel/M] at ({1 - 0.5}, {-5 + 0.5}) {};
+  \node[qfdrel/M] at ({2 - 0.5}, {-5 + 0.5}) {};
+  \node[qfdrel/M] at ({3 - 0.5}, {-5 + 0.5}) {};
+  \node[qfdrel/S] at ({4 - 0.5}, {-5 + 0.5}) {};
+  \node[qfdrel/W] at ({5 - 0.5}, {-5 + 0.5}) {};
+  \node[qfdrel/S] at ({8 - 0.5}, {-5 + 0.5}) {};
+  \node[qfdrel/S] at ({9 - 0.5}, {-5 + 0.5}) {};
+  \node[qfdrel/M] at ({10 - 0.5}, {-5 + 0.5}) {};
+  \node[qfdrel/M] at ({12 - 0.5}, {-5 + 0.5}) {};
+  \node[qfdrel/M] at ({13 - 0.5}, {-5 + 0.5}) {};
+  % H6 row 6: C2M C12S C13S C14S
+  \node[qfdrel/M] at ({2 - 0.5}, {-6 + 0.5}) {};
+  \node[qfdrel/S] at ({12 - 0.5}, {-6 + 0.5}) {};
+  \node[qfdrel/S] at ({13 - 0.5}, {-6 + 0.5}) {};
+  \node[qfdrel/S] at ({14 - 0.5}, {-6 + 0.5}) {};
+  % H7 row 7: C3M C4W C10M C12S C13S
+  \node[qfdrel/M] at ({3 - 0.5}, {-7 + 0.5}) {};
+  \node[qfdrel/W] at ({4 - 0.5}, {-7 + 0.5}) {};
+  \node[qfdrel/M] at ({10 - 0.5}, {-7 + 0.5}) {};
+  \node[qfdrel/S] at ({12 - 0.5}, {-7 + 0.5}) {};
+  \node[qfdrel/S] at ({13 - 0.5}, {-7 + 0.5}) {};
+  % H8 row 8: C2M C10S C11S
+  \node[qfdrel/M] at ({2 - 0.5}, {-8 + 0.5}) {};
+  \node[qfdrel/S] at ({10 - 0.5}, {-8 + 0.5}) {};
+  \node[qfdrel/S] at ({11 - 0.5}, {-8 + 0.5}) {};
+  % H9 row 9: C1M C2M C4S C8M C12S C13S
+  \node[qfdrel/M] at ({1 - 0.5}, {-9 + 0.5}) {};
+  \node[qfdrel/M] at ({2 - 0.5}, {-9 + 0.5}) {};
+  \node[qfdrel/S] at ({4 - 0.5}, {-9 + 0.5}) {};
+  \node[qfdrel/M] at ({8 - 0.5}, {-9 + 0.5}) {};
+  \node[qfdrel/S] at ({12 - 0.5}, {-9 + 0.5}) {};
+  \node[qfdrel/S] at ({13 - 0.5}, {-9 + 0.5}) {};
+  % H10 row 10: C2S C3W C6M C7M C8M C9M C12S C13M C17W
+  \node[qfdrel/S] at ({2 - 0.5}, {-10 + 0.5}) {};
+  \node[qfdrel/W] at ({3 - 0.5}, {-10 + 0.5}) {};
+  \node[qfdrel/M] at ({6 - 0.5}, {-10 + 0.5}) {};
+  \node[qfdrel/M] at ({7 - 0.5}, {-10 + 0.5}) {};
+  \node[qfdrel/M] at ({8 - 0.5}, {-10 + 0.5}) {};
+  \node[qfdrel/M] at ({9 - 0.5}, {-10 + 0.5}) {};
+  \node[qfdrel/S] at ({12 - 0.5}, {-10 + 0.5}) {};
+  \node[qfdrel/M] at ({13 - 0.5}, {-10 + 0.5}) {};
+  \node[qfdrel/W] at ({17 - 0.5}, {-10 + 0.5}) {};
+  % H11 row 11: C3S C9M C12M
+  \node[qfdrel/S] at ({3 - 0.5}, {-11 + 0.5}) {};
+  \node[qfdrel/M] at ({9 - 0.5}, {-11 + 0.5}) {};
+  \node[qfdrel/M] at ({12 - 0.5}, {-11 + 0.5}) {};
+  % H12 row 12: C1M C2S C12M C13M
+  \node[qfdrel/M] at ({1 - 0.5}, {-12 + 0.5}) {};
+  \node[qfdrel/S] at ({2 - 0.5}, {-12 + 0.5}) {};
+  \node[qfdrel/M] at ({12 - 0.5}, {-12 + 0.5}) {};
+  \node[qfdrel/M] at ({13 - 0.5}, {-12 + 0.5}) {};
+  % H13 row 13: C1S C3W C5S C9M C10M C16S
+  \node[qfdrel/S] at ({1 - 0.5}, {-13 + 0.5}) {};
+  \node[qfdrel/W] at ({3 - 0.5}, {-13 + 0.5}) {};
+  \node[qfdrel/S] at ({5 - 0.5}, {-13 + 0.5}) {};
+  \node[qfdrel/M] at ({9 - 0.5}, {-13 + 0.5}) {};
+  \node[qfdrel/M] at ({10 - 0.5}, {-13 + 0.5}) {};
+  \node[qfdrel/S] at ({16 - 0.5}, {-13 + 0.5}) {};
+  % H15 row 14: C2S C12S C13M
+  \node[qfdrel/S] at ({2 - 0.5}, {-14 + 0.5}) {};
+  \node[qfdrel/S] at ({12 - 0.5}, {-14 + 0.5}) {};
+  \node[qfdrel/M] at ({13 - 0.5}, {-14 + 0.5}) {};
+  % H16 row 15: C10M C12S C13M C14M C17S C18S C19M C20S
+  \node[qfdrel/M] at ({10 - 0.5}, {-15 + 0.5}) {};
+  \node[qfdrel/S] at ({12 - 0.5}, {-15 + 0.5}) {};
+  \node[qfdrel/M] at ({13 - 0.5}, {-15 + 0.5}) {};
+  \node[qfdrel/M] at ({14 - 0.5}, {-15 + 0.5}) {};
+  \node[qfdrel/S] at ({17 - 0.5}, {-15 + 0.5}) {};
+  \node[qfdrel/S] at ({18 - 0.5}, {-15 + 0.5}) {};
+  \node[qfdrel/M] at ({19 - 0.5}, {-15 + 0.5}) {};
+  \node[qfdrel/S] at ({20 - 0.5}, {-15 + 0.5}) {};
+
+  % ---------- Roof: component-component correlations (documented ones only) ----------
+  \node[font=\scriptsize] at (C-2-12)  {$+$};      % std VFS/net is what lets libgit2 run (ADR-001 proved by ADR-004)
+  \node[font=\scriptsize] at (C-4-12)  {$+$};      % PSRAM absorbs libgit2 mmap working set (capped)
+  \node[font=\scriptsize] at (C-5-7)   {$+\!+$};   % widget dirty-rects aligned to panel regions (ADR-002/003)
+  \node[font=\scriptsize] at (C-10-12) {$-\!-$};   % FAT linear dir scans vs loose objects = the H7 residual
+  \node[font=\scriptsize] at (C-12-13) {$+\!+$};   % libgit2 rides ESP-IDF mbedTLS (vendored stream)
+  \node[font=\scriptsize] at (C-17-20) {$+\!+$};   % wizard signs in through the App device flow
+  \node[font=\scriptsize] at (C-18-19) {$+\!+$};   % install.sh exists to deliver the installer
+  \node[font=\scriptsize] at (C-18-20) {$+\!+$};   % installer ^G = the same App device flow
+
+  % ---------- Basement: derived Sigma / rank ----------
+  \foreach \c/\abs/\rk in {%
+    1/{3255}/{8},
+    2/{4558}/{3},
+    3/{2515}/{11},
+    4/{3269}/{7},
+    5/{5751}/{1},
+    6/{3480}/{6},
+    7/{4344}/{5},
+    8/{2145}/{12},
+    9/{3000}/{9},
+    10/{2976}/{10},
+    11/{(1590)}/{--},
+    12/{5331}/{2},
+    13/{4398}/{4},
+    14/{1395}/{13},
+    15/{(0)}/{--},
+    16/{1233}/{14},
+    17/{608}/{15},
+    18/{567}/{16},
+    19/{189}/{18},
+    20/{567}/{16}%
+  } {
+    \node[font=\scriptsize] at ({\c - 0.5}, {-\qfdNW - 0.5}) {\abs};
+    \node[font=\scriptsize\bfseries]
+      at ({\c - 0.5}, {-\qfdNW - 1.5}) {\rk};
+  }
+
+  % ---------- Basement row labels ----------
+  \foreach \k/\lbl in {1/{$\Sigma$ derived}, 2/{Rank}}
+    \node[anchor=east, font=\scriptsize\itshape]
+      at ({-0.1}, {-\qfdNW - \k + 0.5}) {\lbl};
+
+\end{qfdhouse}
+\end{document}
+```
+
 ### Read across, not down
 
 - **C5/C6/C7** (panel + graphics + widget) are the most leveraged
@@ -1572,6 +2027,16 @@ trigger is a decision being avoided, not deferred.
   `docs/qfd.md` + single `adr.md` layout (anchors are load-bearing;
   renaming buys convention, pays link churn), and the `++/−−` roof glyphs
   (mapped to the classical `◎○×⊗` in §4's legend).
+- **House 2 drawn (2026-07-16).** §5 was titled "Phase 2" but its
+  HOW → component matrix had never been rendered as a house — the doc
+  showed one house and called itself a QFD cascade. The Phase-2 house now
+  sits in §5 (same `qfdhouse` preamble as House 1, 15 HOW rows × 20
+  component columns, Phase-1 Σ as row importance, derived Σ/Rank as
+  basement, and a roof carrying only the component correlations already
+  documented in this file — the C10↔C12 `−−` cell is the FAT-vs-loose-
+  objects residual made visible). Houses 3–4 stay deliberately undrawn
+  (no manufacturing process to deploy into); the reason is recorded at
+  the top of the doc so their absence reads as a decision, not a gap.
 
 The earlier variance between README's "~12 lines" and product/[ADR-003]'s
 "~11 lines" of "edit area" is now superseded: the side-panel redesign removed
@@ -1606,6 +2071,11 @@ README, the product/technical docs, and [ADR-003] are all updated to ~13 lines
   recompute it whenever the basement or a §5 cell changes, and keep
   unbuilt components (today C11, C15) parenthesised and out of the rank —
   scored fiction outranks real components, as the 2026-07-16 pass showed.
+- The Phase-2 house diagram in §5 mirrors the markdown matrix beside it
+  (cells, importance column, basement) the same way the Phase-1 house
+  mirrors §1/§2 — re-score the table first, then the drawing, same day.
+  Its preamble is a copy of House 1's: a style change to one must be
+  pasted into the other.
 - A §6 row is not done when its target is met: the "If we miss it" cell
   must always name a live fallback, and a §7 tension must always carry a
   **Trigger to revisit** — otherwise it is a decision being avoided, not
