@@ -6,11 +6,18 @@ must _achieve_ (engineering characteristics) and what we must _build_
 Surfaces the few targets that dominate the design and the conflicts between
 them. Every decision cell points back to [`adr.md`](adr.md).
 
-Scope: v0.1 MVP — see
-[`v0.1-mvp-product.md`](v0.1-mvp-product.md) for user-facing scope and
-[`v0.1-mvp-technical.md`](v0.1-mvp-technical.md) for implementation —
-with the v0.2–v1.0 trajectory ([README](../README.md),
-[macroplan](macroplan.md)) in mind so we don't paint into a corner. Terminology
+Scope: the shipped device — v0.1 delivered 2026-07-11, v0.5–v0.7 delivered
+2026-07-12/14, v0.9 onboarding in flight (see
+[`v0.1-mvp-product.md`](v0.1-mvp-product.md),
+[`v0.5-palette-and-multi-file.md`](v0.5-palette-and-multi-file.md),
+[`v0.7-search-and-git.md`](v0.7-search-and-git.md),
+[`v0.9-onboarding-wizard.md`](v0.9-onboarding-wizard.md)) — **plus the
+companion products** that now deliver the getting-started outcome: the macOS
+installer ([`../installer/DESIGN.md`](../installer/DESIGN.md)), the
+typoena.dev site with its `install.sh` one-liner, and the Typoena GitHub App
+(device-flow auth shared by installer and on-device wizard). The remaining
+v0.8–v1.0 trajectory ([README](../README.md), [macroplan](macroplan.md)) is
+kept in mind so we don't paint into a corner. Terminology
 (e.g. **Tracked**, **Local**, **Save**, **Publish**) follows the project
 glossary at [`../CONTEXT.md`](../CONTEXT.md).
 
@@ -260,9 +267,9 @@ targets kept; relations + roof + Σ basement left empty for practice), see
   \end{tikzpicture}%
 }
 
-% --- Dimensions tuned for the typewriter QFD (14 W x 15 H) ---
-\def\qfdNW{14}
-\def\qfdNH{14}
+% --- Dimensions tuned for the typewriter QFD (15 W x 15 H) ---
+\def\qfdNW{15}
+\def\qfdNH{15}
 \def\qfdWhatW{4.6}
 \def\qfdImpW{0.7}
 \def\qfdHdrH{5.0}
@@ -327,7 +334,8 @@ targets kept; relations + roof + Σ basement left empty for practice), see
     11/{W11 Multi-day battery life (v0.8 onward)},
     12/{W12 Local-only files coexist with git scope (v0.5+)},
     13/{W13 Typography sets a writing-tool tone},
-    14/{W14 I can carry the device and write away from a desk}%
+    14/{W14 I can carry the device and write away from a desk},
+    15/{W15 A first-time user reaches writing without developer tools}%
   }
     \node[anchor=west, font=\scriptsize,
           text width=\qfdWhatTextW cm, align=left]
@@ -335,7 +343,7 @@ targets kept; relations + roof + Σ basement left empty for practice), see
 
   % ---------- Importance (raw 1-10 weight) ----------
   \foreach \r/\w in {1/10, 2/9, 3/10, 4/7, 5/6, 6/9, 7/8, 8/7,
-                     9/8, 10/5, 11/4, 12/5, 13/7, 14/8}
+                     9/8, 10/5, 11/4, 12/5, 13/7, 14/8, 15/7}
     \node[font=\scriptsize] at ({-\qfdImpW/2}, {-\r + 0.5}) {\w};
 
   % ---------- HOWs (rotated column titles) ----------
@@ -353,7 +361,8 @@ targets kept; relations + roof + Σ basement left empty for practice), see
     11/{H11 Total stack budget},
     12/{H12 Network reconnect time},
     13/{H13 Idle / typing / push current},
-    14/{H15 Clean release build time}%
+    14/{H15 Clean release build time},
+    15/{H16 Onboarding duration}%
   }
     \node[rotate=90, anchor=west, font=\scriptsize]
       at ({\c - 0.5}, 0.15) {\t};
@@ -431,6 +440,10 @@ targets kept; relations + roof + Σ basement left empty for practice), see
   \node[qfdrel/M] at ({12 - 0.5}, {-14 + 0.5}) {};
   \node[qfdrel/S] at ({13 - 0.5}, {-14 + 0.5}) {};
 
+  % W15 row 15: H12W H16S
+  \node[qfdrel/W] at ({12 - 0.5}, {-15 + 0.5}) {};
+  \node[qfdrel/S] at ({15 - 0.5}, {-15 + 0.5}) {};
+
   % ---------- Roof correlations ----------
   \node[font=\scriptsize] at (C-1-2)   {$+\!+$};   % H1-H2 strong reinforce
   \node[font=\scriptsize] at (C-1-3)   {$-$};      % H1-H3 mild conflict
@@ -451,23 +464,25 @@ targets kept; relations + roof + Σ basement left empty for practice), see
   \node[font=\scriptsize] at (C-9-10)  {$-\!-$};   % H9-H10 heap vs binary
   \node[font=\scriptsize] at (C-10-14) {$-\!-$};   % H10-H15 binary vs build
   \node[font=\scriptsize] at (C-11-13) {$-$};      % H11-H13
+  \node[font=\scriptsize] at (C-12-15) {$+$};      % H12-H16 reconnect helps clone
 
   % ---------- Basement: target / abs weight / rel weight % ----------
   \foreach \c/\tgt/\abs/\rel in {%
-    1/{$\leq$400\,ms}/148/10,
+    1/{$\leq$400\,ms}/148/9,
     2/{$\leq$1 line}/177/11,
     3/{1 : 64}/144/9,
     4/{$\leq$5\,s}/62/4,
     5/{$\geq$1\,h}/111/7,
-    6/{$\geq$95\,\%}/134/9,
+    6/{$\geq$95\,\%}/134/8,
     7/{$\leq$30\,s}/27/2,
     8/{100\,\%}/156/10,
     9/{$\geq$1\,MB}/193/12,
     10/{$\leq$2\,MB}/41/3,
-    11/{$\leq$80\,KB}/45/3,
-    12/{$\leq$30\,s}/153/10,
-    13/{obs.}/137/9,
-    14/{$\leq$7\,min}/29/2%
+    11/{$\leq$128\,KB}/45/3,
+    12/{$\leq$30\,s}/160/10,
+    13/{obs.}/137/8,
+    14/{$\leq$7\,min}/29/2,
+    15/{$\leq$10\,min}/63/4%
   } {
     \node[font=\scriptsize] at ({\c - 0.5}, {-\qfdNW - 0.5}) {\tgt};
     \node[font=\scriptsize] at ({\c - 0.5}, {-\qfdNW - 1.5}) {\abs};
@@ -481,13 +496,13 @@ targets kept; relations + roof + Σ basement left empty for practice), see
       at ({-0.1}, {-\qfdNW - \k + 0.5}) {\lbl};
 
   % ---------- Perception zone: 5 products x 14 WHATs (0-5 scores) ----------
-  % Columns: \so=Typoena v0.1 (measured 2026-07-11), \st=reMarkable 2 + Type Folio,
+  % Columns: \so=Typoena shipped (measured through 2026-07-16), \st=reMarkable 2 + Type Folio,
   %          \sf=Freewrite Traveler, \sg=Pomera DM250,
   %          \sh=Freewrite Smart Typewriter.
   % Pass 1: stash each score as a named coordinate so the profile lines
   % below can reuse it without recomputing.
   \foreach \r/\so/\st/\sf/\sg/\sh in {%
-    1/2/1/4/5/3,
+    1/3/1/4/5/3,
     2/5/4/4/2/4,
     3/4/4/2/2/2,
     4/5/2/2/5/2,
@@ -498,9 +513,10 @@ targets kept; relations + roof + Σ basement left empty for practice), see
     9/4/3/2/1/2,
     10/5/4/2/1/2,
     11/1/5/5/4/5,
-    12/3/1/2/3/2,
+    12/4/1/2/3/2,
     13/3/5/2/2/2,
-    14/2/4/5/5/1%
+    14/2/4/5/5/1,
+    15/4/2/3/5/3%
   } {
     \pgfmathsetmacro{\xo}{\qfdNH + (\so + 0.5)*\qfdCmpW/6}
     \pgfmathsetmacro{\xt}{\qfdNH + (\st + 0.5)*\qfdCmpW/6}
@@ -561,7 +577,7 @@ targets kept; relations + roof + Σ basement left empty for practice), see
     \draw[qfdalt1ln] (0.05, -4.80) -- (0.45, -4.80);
       \node[qfdalt1mk] at (0.25, -4.80) {};
       \node[anchor=west, font=\bfseries] at (0.55, -4.80)
-        {Typoena (v0.1 measured)};
+        {Typoena (shipped, measured)};
     \draw[qfdalt2ln] (0.05, -5.25) -- (0.45, -5.25);
       \node[qfdalt2mk] at (0.25, -5.25) {};
       \node[anchor=west] at (0.55, -5.25) {reMarkable 2 + Type Folio};
@@ -603,6 +619,7 @@ What a user (= me) values about the device, with importance weights on a
 | W12 | Local-only file scope coexists with git scope (v0.5+)                              |   5    | [README → scopes](../README.md#vision), [macroplan → v0.5](macroplan.md#v05--file-palette--multi-file--)                           |
 | W13 | Typography sets a writing-tool tone — typewriter or developer editor, never gadget |   7    | [macroplan → v1.0](macroplan.md), [README → UX](../README.md#ux-boundaries-set-by-the-medium)                                      |
 | W14 | I can carry the device and write away from a desk                                  |   8    | [macroplan → v0.8](macroplan.md#v08--power-battery--sleep--), [README → hardware](../README.md#hardware)                           |
+| W15 | A first-time user reaches writing without developer tools                          |   7    | [wizard](v0.9-onboarding-wizard.md) (zero-computer path), [installer](../installer/DESIGN.md) (one-command Mac path)               |
 
 ---
 
@@ -629,8 +646,15 @@ of these functions, or of artifacts they produce.
 | Boot      | power-on → cursor ready                    |
 | Provision | uninitialized device → configured device   |
 
-**Provision** is build-time-only in v0.1 ([ADR-005], [ADR-007]); it
-joins the runtime five from v0.9 onward. Sub-functions referenced
+**Provision** was build-time-only in v0.1 ([ADR-005], [ADR-007]); as of the
+v0.9 wizard (slices 0–5a hardware-verified 2026-07-16,
+[`v0.9-onboarding-wizard.md`](v0.9-onboarding-wizard.md)) it is a runtime
+function with **two peer realisations**: the on-device wizard (keyboard +
+panel + the user's phone — no computer) and the macOS installer
+([`../installer/DESIGN.md`](../installer/DESIGN.md)), which prepares the same
+SD card from a Mac. Both write the same artifact (`/sd/typoena.conf` + a
+cloned `/sd/repo`) and both authenticate through the Typoena GitHub App
+device flow. Sub-functions referenced
 inside HOW names: **Render** (buffer → e-ink frame, inside Type),
 **Reconnect** (network outage → restored, inside Publish).
 
@@ -646,37 +670,68 @@ inside HOW names: **Render** (buffer → e-ink frame, inside Type),
 | H6  | Publish reliability (network up)               |  ↑  | ≥ 95 %                   | ≥ 99 %              |
 | H7  | Publish latency (one file)                     |  ↓  | ≤ 30 s ‡                 | ≤ 10 s ‡            |
 | H8  | Save durability (post-confirm power loss)      |  →  | 100 %                    | 100 %               |
-| H9  | PSRAM heap headroom during Publish             |  ↑  | ≥ 1 MB free at peak      | same                |
+| H9  | Heap headroom during Publish                   |  ↑  | ≥ 1 MB PSRAM free at peak ¶ | same             |
 | H10 | Firmware binary size                           |  ↓  | ≤ 2 MB                   | ≤ 1.5 MB            |
-| H11 | Stack budget across all tasks                  |  ↓  | ≤ 80 KB (sum)            | same                |
+| H11 | Stack budget across all tasks                  |  ↓  | ≤ 128 KB (sum) ∥         | same                |
 | H12 | Network reconnect time (transient outage)      |  ↓  | ≤ 30 s                   | ≤ 10 s              |
 | H13 | Idle / typing / Publish current draw           |  ↓  | measured only            | sized for >2 days   |
 | H15 | Build time (clean, release)                    |  ↓  | ≤ 7 min                  | ≤ 5 min             |
+| H16 | Onboarding duration (blank card → writing cursor) | ↓ | ≤ 10 min (v0.9, unmeasured) | same            |
 
 † **Boot latency, measured 2026-07-11:** cold boot is **4258 ms**, so the ≤ 5 s
 v0.1 target is met. The ≤ 3 s v1.0 target is assessed **marginal-to-unreachable** —
 one ~1.9 s full refresh is unavoidable at cold boot (the `0x26` "previous" bank is
 garbage until the first full paint), an e-ink floor rather than a tuning knob.
-Breakdown + levers: [`notes/boot-time-budget.md`](notes/boot-time-budget.md).
+The 2026-07-14 boot restructure (async splash refresh, palette file-walk moved
+to a background thread) held cursor-ready at ~4.2 s even with the full git
+build and the 1100-file card walk — the walk now lands mid-session instead of
+blocking boot. Breakdown + levers:
+[`notes/boot-time-budget.md`](notes/boot-time-budget.md).
 
-‡ **Publish latency, measured 2026-07-11:** a cold `:sync` is **~16 s** (warm
-**~10 s**), comfortably inside the ≤ 30 s v0.1 target. The ≤ 10 s v1.0 target is
-**marginal** — the warm path meets it, but a cold sync's one-time Wi-Fi assoc
-(~3.6 s) + SNTP (~2–4 s) push it over, and the transport itself (one TLS handshake
+‡ **Publish latency, re-measured on the real repo 2026-07-13/14:** on the
+author's real notes repo (~63 k objects), a cold `:gp` is **~24 s** and a warm
+clean publish **~19 s** — inside the ≤ 30 s v0.1 target, but the earlier toy-repo
+figures (~16 s cold / ~10 s warm, 2026-07-11) turned out not to transfer:
+publish cost scales with repo shape. The mix also inverted: the push leg is
+**5.9 s** (TLS session resumption); the splice-commit dominates at **10.3 s**
+for one depth-4 file, and the convicted residual is **FAT linear directory
+scans** (~0.1 ms/entry, `objects/` fan-out ≈ 256 dirs — see
+[`tradeoff-curves/sync-commit-staging.md`](tradeoff-curves/sync-commit-staging.md)).
+The ≤ 10 s v1.0 target is **not met on deep paths** (root-level warm ≈ 12–13 s);
+the lever is pack-not-loose object writes, deferred to a perf pass. History:
+[`notes/sync-latency.md`](notes/sync-latency.md),
+[`kaizen/real-repo-sync.md`](kaizen/real-repo-sync.md).
 
-- commit + push) is near its floor. Optimistic-retry (push onto the tip first,
-  reconcile only on a rejected push) already cut a whole second handshake. Breakdown
-- levers: [`notes/sync-latency.md`](notes/sync-latency.md).
+§ **Type latency — two tiers, re-read 2026-07-14.** The ~630 ms figure measured
+2026-07-11 is the **full-area partial** (deletes, caret moves, mode flips, the
+splash→editor swap), not the additive typing path: per-keystroke typing rides
+the **windowed-Y partial** (~10 rows), projected at **~100–130 ms** from the
+floor+slope model — inside the ≤ 400 ms target, bench confirmation from the
+on-device refresh log still pending
+([`tradeoff-curves/epd-refresh-latency.md`](tradeoff-curves/epd-refresh-latency.md)).
+The v0.1 target history stands: relaxed from ≤ 200 ms to ≤ 400 ms (the original
+was tighter than [ADR-003]'s own accepted "~200–300 ms" e-ink cost); v1.0 reset
+from ≤ 150 ms to ≤ 300 ms. The open item is now the **erase/caret tier**
+(~630 ms full-area partial per event), not additive typing.
 
-§ **Type latency — revised target, measured 2026-07-11.** Cold per-keystroke
-render (keypress → glyph settled) measures **~630 ms**, so the v0.1 target is
-**relaxed from ≤ 200 ms to ≤ 400 ms**: the original ≤ 200 ms was tighter than
-[ADR-003]'s own accepted "~200–300 ms" e-ink cost and never realistic for this
-panel. Even ≤ 400 ms is unmet (~630 ms exceeds it), so it stays the open v0.1
-latency item; a longer wait is acceptable for now, and usage in the next
-version will settle whether ≤ 400 ms holds. The v1.0 target is reset from
-≤ 150 ms to ≤ 300 ms (the top of [ADR-003]'s accepted ~200–300 ms e-ink cost),
-since ≤ 150 ms sat below what the panel can deliver.
+¶ **Heap during Publish — measured and re-plumbed 2026-07-13.** The ≥ 1 MB
+PSRAM bar is now **met** (min-ever 4.5 MB free on the first real-repo push,
+run 9) — but only after capping libgit2's mmap working set (mwindow
+64 KB/1.5 MB, was 256 KB/4 MB; whole-file `.idx`/midx maps sit **outside** that
+budget) and the odb cache at 1 MB. The learning that renamed this row: PSRAM
+was the wrong sole pool to watch — **internal DRAM** is now the scarcer
+resource (min-ever ~2.1 KB during TLS send; the mbedTLS
+`EXTERNAL_MEM_ALLOC` move and interning the palette file list to one PSRAM
+blob were both forced by internal-DRAM exhaustion). Watched via the
+`log_push_heap` telemetry in `git_sync`.
+
+∥ **Stack budget revised ≤ 80 KB → ≤ 128 KB (2026-07-16).** The old target was
+priced for the pre-libgit2 five-thread guess (76 KB). Shipped reality: git
+thread **96 KB** (libgit2 needs the headroom, [ADR-004] outcome) + USB pumps
+4 + 8 KB + background file-walk 16 KB = **124 KB explicit**; UI/render run on
+the main task and Wi-Fi is owned by the git thread, so there are no separate
+ui/render/wifi stacks. Comfortable in 512 KB SRAM either way; the target
+moved to follow the architecture, not the other way around.
 
 ---
 
@@ -695,21 +750,25 @@ priority list below come from the basement.
 ### Reading the house
 
 - **Importance (left column)** is the raw 1–10 weight from §1, not a normalised
-  %, so adding stays cheap when a WHAT shifts. Sum of weights is 103; treat each
-  unit as ~0.97 % if you want a percentage view.
+  %, so adding stays cheap when a WHAT shifts. Sum of weights is 110; treat each
+  unit as ~0.91 % if you want a percentage view.
 - **Roof** carries the §4 symbols translated into classical QFD glyphs:
   `++` strong reinforcement (`◎`), `+` mild reinforcement (`○`), `−` mild
   conflict (`×`), `−−` strong conflict (`⊗`).
 - **Basement rows** are: v0.1 target → column sum (`Σ` of `weight × strength`) →
-  relative weight as integer % of total (1557). Relative weights round to 100.
+  relative weight as integer % of total (1627). Rounded relative weights sum
+  to ~100 (102 with 15 columns' rounding).
 - **H7, H10, H15** (Publish latency, binary size, build time) sit at the bottom
   of the basement, knowingly-paid costs per §7, not signals to optimise harder.
 
 ### Top engineering priorities (from importance)
 
-1. **H9 — PSRAM heap during push** (193). gitoxide pack + rope + TLS all
+1. **H9 — heap during push** (193). libgit2 pack + rope + TLS all
    share the same arena; [ADR-001] and [ADR-004] trade binary size for ecosystem
-   so this becomes the watched metric. The umbrella typography WHAT (W13)
+   so this became the watched metric — and the watch paid off: the 2026-07-13
+   real-repo push campaign found libgit2's mmap working set as the consumer,
+   capped it (mwindow 64 KB/1.5 MB, odb 1 MB), and shifted the live worry to
+   internal DRAM (see §2 ¶). The umbrella typography WHAT (W13)
    keeps a fixed-size glyph-cache load on top of that arena pressure.
 2. **H2 — partial-refresh region area** (177). Bound how many pixels the
    panel has to flip per keypress; [ADR-003] is the hardware-side answer.
@@ -718,10 +777,12 @@ priority list below come from the basement.
    voter base spans W3 (power-loss correctness), W6 (long sessions),
    W12 (file scopes), and W14 (carrying = unclean shutdowns) — the
    fourth voter is what lifts H8 into the top three by arithmetic alone.
-4. **H12 — network reconnect time** (153). Mobile use is the chief driver
-   (W14 + W2 + W4 + W6); [ADR-005] PAT auth and reconnect backoff own
-   this. Previously below the top six on a stationary v0.1 reading;
-   W14 promotes it.
+4. **H12 — network reconnect time** (160). Mobile use is the chief driver
+   (W14 + W2 + W4 + W6, now joined by W15's clone leg); TLS session
+   resumption (2026-07-14, second vendored delta in
+   `esp_mbedtls_stream.c`) is the shipped answer — it cut the rejected-push
+   reconcile fetch from ~30 s to ~5 s. Previously below the top six on a
+   stationary v0.1 reading; W14 promotes it.
 5. **H1 — Type latency** (148). The single most user-visible number;
    [ADR-002] and [ADR-003] are co-conspirators.
 6. **H3 — full-refresh cadence** (144). The ghosting/flash tradeoff; lives
@@ -734,10 +795,17 @@ acknowledged tradeoff to watched metric. The v0.1 "measured only" target
 gain a second audience — sizing the v0.8 cell against a real portability
 target, not just informing ADR-008's deferral.
 
-H6 (Publish reliability, 134) drops out of the top six. Its ADR ownership
-([ADR-004] gitoxide + [ADR-005] PAT) and spike 7 kill-switch are unchanged
-— the matrix simply reads W14's mobile-use voter as a louder signal for
+H6 (Publish reliability, 134) sits just below the top six. Its ADR ownership
+is [ADR-004] — whose spike-7 kill-switch **fired** (2026-07-06, gix has no
+HTTPS push; the shipped transport is libgit2) — plus [ADR-005] token auth.
+The matrix simply reads W14's mobile-use voter as a louder signal for
 reconnect (H12) than for the Publish transport itself.
+
+H16 (onboarding duration, 63) enters at the bottom of the table rather than
+the top: W15 is its only strong voter, so the house correctly reads it as a
+first-run, once-per-device characteristic — important to the product's reach
+(it is what typoena.dev's "just power it on" sells), not to the daily writing
+loop. Its budget row lives in §6 because it is still unmeasured.
 
 **Why H8 ranks where it does.** Pre-W14, HoQ totals rewarded characteristics
 that touch many WHATs over characteristics that absolutely matter for one WHAT.
@@ -761,11 +829,14 @@ Five products on the 0–5 scale, scored against each WHAT. Reference
 configurations: **reMarkable 2 + Type Folio**, **Freewrite Traveler**,
 **Freewrite Smart Typewriter**, **Pomera DM250** (DM250 has a reflective
 monochrome LCD, not e-ink — flagged in W1 / W8). The Typoena column is the
-shipped v0.1 profile, rebased on measured hardware results and lived use
-(v0.1 delivered 2026-07-11), not the §2 target it was before; the four
-competitors remain single-rater guesses. W1's type latency is now measured at
-~630 ms (2026-07-11), over the revised ≤400 ms H1 target (was ≤200 ms), so its
-score drops 4→2, still sub-second but a visible per-keystroke lag.
+**shipped device as of 2026-07-16** (v0.1 delivered 2026-07-11, v0.5–v0.7
+delivered 2026-07-12/14, v0.9 wizard slices 0–5a hardware-verified), rebased
+on measured hardware results and lived use; the four competitors remain
+single-rater guesses. Three Typoena moves since the 2026-07-11 rebase: W1
+2→3 (the ~630 ms figure turned out to be the erase/caret tier — additive
+typing rides the ~100–130 ms windowed-Y partial, projected, bench confirm
+pending), W12 3→4 (v0.5 multi-file + Local scope shipped on device), and the
+new W15 row (wizard + installer + install.sh one-liner).
 
 Freewrite Traveler scores assume the
 [Sailfish firmware](https://getfreewrite.com/blogs/writing-success/freewrite-sailfish-firmware)
@@ -780,7 +851,7 @@ hackable-Linux 3).
 
 | ID  | WHAT (truncated)                                  | Typoena | reM. | Frw.T | Frw.S | Pom. | Rationale (shortest defensible)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | --- | ------------------------------------------------- | :-----: | :--: | :---: | :---: | :--: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| W1  | Sub-second response to typing                     |    2    |  1   |   4   |   3   |  5   | Typoena type latency measured ~630 ms (2026-07-11) — a visible per-keystroke lag, sub-second but well behind the Freewrites' ~200 ms (v0.1 H1 target relaxed ≤200→≤400 ms, still unmet), so 2 not 4; reMarkable e-ink visibly laggy on a typing-focused device — tested less responsive than Smart Typewriter, and latency is so load-bearing for W1 that it earns a 1 not a 2; both Freewrites post-Sailfish trimmed latency 40–100 % (Frw.T plausibly inside 200 ms; Frw.S still trails by one notch on larger panel); Pomera LCD ~zero. |
+| W1  | Sub-second response to typing                     |    3    |  1   |   4   |   3   |  5   | Typoena additive typing rides the windowed-Y partial, ~100–130 ms projected (2026-07-14 re-read; bench confirm pending) — competitive with the Freewrites — but erase/caret events still pay the ~630 ms full-area partial, so 3 not 4; reMarkable e-ink visibly laggy on a typing-focused device — tested less responsive than Smart Typewriter, and latency is so load-bearing for W1 that it earns a 1 not a 2; both Freewrites post-Sailfish trimmed latency 40–100 % (Frw.T plausibly inside 200 ms; Frw.S still trails by one notch on larger panel); Pomera LCD ~zero. |
 | W2  | Publishing is one deliberate action away          |    5    |  4   |   4   |   4   |  2   | Ctrl-G atomic; reMarkable + Freewrite cloud-sync is one-tap but not git; Pomera = USB/SD copy or QR transfer.                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | W3  | Pulling power never corrupts the file             |    4    |  4   |   2   |   2   |  2   | Typoena: atomic-rename + fsync (round-trip verified 2026-07-11; power-pull test deferred to v0.9). reMarkable journals. Freewrite + Pomera: forum reports of corruption on yank.                                                                                                                                                                                                                                                                                                                                                           |
 | W4  | Provisioning never interrupts writing             |    5    |  2   |   2   |   2   |  5   | Typoena v0.1: build-time config (dev-only). reM/Frw need Wi-Fi + account. Pomera: literally none.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
