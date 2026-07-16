@@ -207,7 +207,7 @@ Blank (training surface):
         \pgfmathsetmacro{\qfdLegA}{\qfdEvalTop - 0.55}
         \draw[qfdalt1ln] (0.05, \qfdLegA) -- (0.45, \qfdLegA);
           \node[qfdalt1mk] at (0.25, \qfdLegA) {};
-          \node[anchor=west, font=\bfseries] at (0.55, \qfdLegA)
+          \node[anchor=west, font=\scriptsize\bfseries] at (0.55, \qfdLegA)
             {\qfdAltOneLabel};
         \pgfmathsetmacro{\qfdLegB}{\qfdEvalTop - 0.95}
         \draw[qfdalt2ln] (0.05, \qfdLegB) -- (0.45, \qfdLegB);
@@ -544,7 +544,7 @@ Row importance is blank: carry your House-1 basement Σ down.
         \pgfmathsetmacro{\qfdLegA}{\qfdEvalTop - 0.55}
         \draw[qfdalt1ln] (0.05, \qfdLegA) -- (0.45, \qfdLegA);
           \node[qfdalt1mk] at (0.25, \qfdLegA) {};
-          \node[anchor=west, font=\bfseries] at (0.55, \qfdLegA)
+          \node[anchor=west, font=\scriptsize\bfseries] at (0.55, \qfdLegA)
             {\qfdAltOneLabel};
         \pgfmathsetmacro{\qfdLegB}{\qfdEvalTop - 0.95}
         \draw[qfdalt2ln] (0.05, \qfdLegB) -- (0.45, \qfdLegB);
@@ -860,7 +860,7 @@ Row importance is blank: carry your House-2 derived Σ down.
         \pgfmathsetmacro{\qfdLegA}{\qfdEvalTop - 0.55}
         \draw[qfdalt1ln] (0.05, \qfdLegA) -- (0.45, \qfdLegA);
           \node[qfdalt1mk] at (0.25, \qfdLegA) {};
-          \node[anchor=west, font=\bfseries] at (0.55, \qfdLegA)
+          \node[anchor=west, font=\scriptsize\bfseries] at (0.55, \qfdLegA)
             {\qfdAltOneLabel};
         \pgfmathsetmacro{\qfdLegB}{\qfdEvalTop - 0.95}
         \draw[qfdalt2ln] (0.05, \qfdLegB) -- (0.45, \qfdLegB);
@@ -1168,7 +1168,7 @@ Row importance is blank: carry your House-3 rel-% down.
         \pgfmathsetmacro{\qfdLegA}{\qfdEvalTop - 0.55}
         \draw[qfdalt1ln] (0.05, \qfdLegA) -- (0.45, \qfdLegA);
           \node[qfdalt1mk] at (0.25, \qfdLegA) {};
-          \node[anchor=west, font=\bfseries] at (0.55, \qfdLegA)
+          \node[anchor=west, font=\scriptsize\bfseries] at (0.55, \qfdLegA)
             {\qfdAltOneLabel};
         \pgfmathsetmacro{\qfdLegB}{\qfdEvalTop - 0.95}
         \draw[qfdalt2ln] (0.05, \qfdLegB) -- (0.45, \qfdLegB);
