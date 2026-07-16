@@ -91,6 +91,64 @@ fn half_page_is_a_noop_in_insert_mode() {
     assert_eq!(e.mode(), Mode::Insert);
 }
 
+// ---- scrolloff / vertical scroll margin ----
+
+/// In `vec!["a"; N]` each display row `r` starts at byte `2*r` (`"a\n"`).
+/// A caret parked in the middle keeps `scroll_margin` rows of context on both
+/// sides.
+#[test]
+fn scroll_margin_keeps_context_above_and_below_the_caret() {
+    let mut e = Editor::with_text(vec!["a"; 40].join("\n"));
+    assert_eq!(e.prefs.scroll_margin, 2); // the shipped default
+    e.caret = 2 * 20; // display row 20, mid-document
+    e.draw(true); // runs adjust_scroll
+    let top = e.scroll_top();
+    let (row, _) = e.caret_rc(&e.layout());
+    assert_eq!(row, 20);
+    assert!(row >= top + 2, "want >=2 rows above; top {top}, row {row}");
+    assert!(
+        row + 2 < top + ROWS,
+        "want >=2 rows below; top {top}, row {row}"
+    );
+}
+
+/// The margin collapses at the top of the buffer — no blank rows above line 0.
+#[test]
+fn scroll_margin_collapses_at_the_top() {
+    let mut e = Editor::with_text(vec!["a"; 40].join("\n"));
+    e.caret = 2 * 20; // scroll away from the top first
+    e.draw(true);
+    assert!(e.scroll_top() > 0);
+    e.caret = 0; // back to line 0
+    e.draw(true);
+    assert_eq!(e.scroll_top(), 0, "no blank rows should sit above line 0");
+}
+
+/// The margin collapses at the end — the last line pins to the bottom row
+/// rather than floating `scroll_margin` rows up with blank space beneath it.
+#[test]
+fn scroll_margin_collapses_at_the_end() {
+    let mut e = Editor::with_text(vec!["a"; 40].join("\n"));
+    e.caret = 2 * 39; // last display row
+    e.draw(true);
+    let lay = e.layout();
+    let (row, _) = e.caret_rc(&lay);
+    assert_eq!(row, e.scroll_top() + ROWS - 1, "last line pinned to the bottom");
+    assert_eq!(e.scroll_top(), lay.len() - ROWS);
+}
+
+/// `scroll_margin = 0` reproduces the old edge-triggered behaviour: a caret
+/// pushed below the window lands flush on the bottom row.
+#[test]
+fn scroll_margin_zero_is_edge_triggered() {
+    let mut e = Editor::with_text(vec!["a"; 40].join("\n"));
+    e.prefs.scroll_margin = 0;
+    e.caret = 2 * 20;
+    e.draw(true);
+    let (row, _) = e.caret_rc(&e.layout());
+    assert_eq!(row, e.scroll_top() + ROWS - 1, "caret flush on the bottom edge");
+}
+
 // ---- Absolute line-number gutter (v0.2) ----
 
 #[test]

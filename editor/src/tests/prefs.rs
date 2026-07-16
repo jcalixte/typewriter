@@ -13,6 +13,7 @@ fn prefs_default_matches_the_documented_defaults() {
     assert!(p.open_last_on_boot);
     assert_eq!(p.theme, "light");
     assert_eq!(p.auto_sync, "10m");
+    assert_eq!(p.scroll_margin, 2);
 }
 
 #[test]
@@ -60,8 +61,17 @@ fn prefs_to_toml_round_trips_through_parse() {
         open_last_on_boot: false,
         theme: "dark".into(),
         auto_sync: "5m".into(),
+        scroll_margin: 3,
     };
     assert_eq!(Prefs::parse(&p.to_toml()), p);
+}
+
+#[test]
+fn prefs_parse_reads_scroll_margin_and_keeps_default_on_junk() {
+    assert_eq!(Prefs::parse("scroll_margin = 0\n").scroll_margin, 0);
+    assert_eq!(Prefs::parse("scroll_margin = 4\n").scroll_margin, 4);
+    // A non-numeric value leaves the key at its default rather than 0.
+    assert_eq!(Prefs::parse("scroll_margin = lots\n").scroll_margin, 2);
 }
 
 #[test]

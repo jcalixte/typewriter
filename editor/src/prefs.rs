@@ -47,6 +47,13 @@ pub struct Prefs {
     /// the periodic push that reads it rides v0.7/v0.8, so cycling it changes the
     /// stored/displayed value but triggers nothing yet.
     pub auto_sync: String,
+    /// Rows of context [`adjust_scroll`](Editor::adjust_scroll) keeps above and
+    /// below the caret (vim's `scrolloff`). `0` restores the old edge-triggered
+    /// behaviour; `2` is the default for the 13-row panel. The margin collapses at
+    /// the buffer's first and last line (no blank rows past the ends) and is capped
+    /// at `(ROWS - 1) / 2` so it can never squeeze the caret out. Honoured in
+    /// Normal/Insert/Visual; View-mode viewport nav is unaffected.
+    pub scroll_margin: usize,
 }
 
 impl Default for Prefs {
@@ -58,6 +65,7 @@ impl Default for Prefs {
             open_last_on_boot: true,
             theme: "light".into(),
             auto_sync: "10m".into(),
+            scroll_margin: 2,
         }
     }
 }
@@ -101,6 +109,11 @@ impl Prefs {
                 }
                 "theme" => p.theme = val.trim_matches('"').to_string(),
                 "auto_sync" => p.auto_sync = val.trim_matches('"').to_string(),
+                "scroll_margin" => {
+                    if let Ok(n) = val.parse::<usize>() {
+                        p.scroll_margin = n;
+                    }
+                }
                 _ => {}
             }
         }
@@ -120,13 +133,15 @@ impl Prefs {
              line_numbers = {}\n\
              open_last_on_boot = {}\n\
              theme = \"{}\"\n\
-             auto_sync = \"{}\"\n",
+             auto_sync = \"{}\"\n\
+             scroll_margin = {}\n",
             self.save_on_idle,
             self.format_on_save,
             self.line_numbers,
             self.open_last_on_boot,
             self.theme,
             self.auto_sync,
+            self.scroll_margin,
         )
     }
 }

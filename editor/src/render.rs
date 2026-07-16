@@ -204,8 +204,16 @@ impl Editor {
         }
     }
 
-    /// Move the viewport so the caret stays visible (Normal/Insert), or just
-    /// clamp it to the content (View).
+    /// Move the viewport so the caret stays visible (Normal/Insert/Visual), or
+    /// just clamp it to the content (View).
+    ///
+    /// Keeps [`Prefs::scroll_margin`] rows of context above and below the caret
+    /// (vim's `scrolloff`). The margin is capped at `(ROWS - 1) / 2` so it can
+    /// never squeeze the caret off a short panel, and it **collapses at both
+    /// ends of the buffer**: `saturating_sub` lets the caret sit on the first
+    /// rows, and the final clamp to `total - ROWS` keeps the last line pinned to
+    /// the bottom rather than showing blank rows past it. `scroll_margin == 0`
+    /// reproduces the old edge-triggered behaviour exactly.
     pub(crate) fn adjust_scroll(&mut self, caret_row: usize, total: usize) {
         match self.mode {
             Mode::View => {
@@ -215,10 +223,17 @@ impl Editor {
                 }
             }
             _ => {
-                if caret_row < self.scroll_top {
-                    self.scroll_top = caret_row;
-                } else if caret_row >= self.scroll_top + ROWS {
-                    self.scroll_top = caret_row + 1 - ROWS;
+                let margin = self.prefs.scroll_margin.min((ROWS - 1) / 2);
+                if caret_row < self.scroll_top + margin {
+                    self.scroll_top = caret_row.saturating_sub(margin);
+                } else if caret_row + margin >= self.scroll_top + ROWS {
+                    self.scroll_top = (caret_row + margin + 1).saturating_sub(ROWS);
+                }
+                // Never scroll past the buffer's end: collapses the bottom margin
+                // near EOF so the last line sits on the bottom row, not above it.
+                let max = total.saturating_sub(ROWS);
+                if self.scroll_top > max {
+                    self.scroll_top = max;
                 }
             }
         }
