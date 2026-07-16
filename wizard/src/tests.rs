@@ -384,9 +384,16 @@ fn all_screens_draw() {
     w.event(Event::CloneDone);
     w.draw_into(&mut f); // done
 
-    // The reset menu is its own screen (only reached via `:setup`).
-    let s = Wizard::setup(full_conf());
-    s.draw_into(&mut f);
+    // The reset menu and its confirm/progress screens (only reached via `:setup`).
+    let mut s = Wizard::setup(full_conf(), true);
+    s.draw_into(&mut f); // reset menu
+    s.key(Key::Down); // GitHub
+    s.key(Key::Down); // Factory reset
+    s.key(Key::Enter); // → confirm screen
+    s.draw_into(&mut f); // ConfirmWipe (dirty warning shown)
+    type_str(&mut s, "erase");
+    s.key(Key::Enter); // → Wiping
+    s.draw_into(&mut f); // Wiping
 }
 
 /// A fully-provisioned conf, as `:setup` would be handed at boot.
@@ -404,11 +411,12 @@ fn full_conf() -> conf::Conf {
 
 #[test]
 fn setup_menu_done_finishes_without_touching_conf() {
-    let mut w = Wizard::setup(full_conf());
+    let mut w = Wizard::setup(full_conf(), false);
     // Opens on the menu, nothing pending (waits for a choice).
     assert_eq!(w.pending(), None);
-    // Down to "Done" (row 2), Enter → Finish, no WriteConf (backing out is
-    // harmless — nothing was changed).
+    // Down to "Done" (row 3, below the new Factory-reset row), Enter → Finish,
+    // no WriteConf (backing out is harmless — nothing was changed).
+    w.key(Key::Down);
     w.key(Key::Down);
     w.key(Key::Down);
     assert_eq!(w.key(Key::Enter), vec![Effect::Finish]);
@@ -416,7 +424,7 @@ fn setup_menu_done_finishes_without_touching_conf() {
 
 #[test]
 fn setup_menu_wifi_reruns_scan_then_returns_to_menu() {
-    let mut w = Wizard::setup(full_conf());
+    let mut w = Wizard::setup(full_conf(), false);
     // Row 0 = Wi-Fi → rescan.
     assert_eq!(w.key(Key::Enter), vec![Effect::ScanWifi]);
     w.event(Event::WifiScan(vec!["NewNet".into()]));
@@ -431,7 +439,8 @@ fn setup_menu_wifi_reruns_scan_then_returns_to_menu() {
     // linear sign-in step), because the token is already set.
     let fx = w.event(Event::WifiOk);
     assert!(matches!(fx.as_slice(), [Effect::WriteConf(_)]), "got {fx:?}");
-    // Back on the menu: Done finishes.
+    // Back on the menu: Done (row 3) finishes.
+    w.key(Key::Down);
     w.key(Key::Down);
     w.key(Key::Down);
     assert_eq!(w.key(Key::Enter), vec![Effect::Finish]);
@@ -439,7 +448,7 @@ fn setup_menu_wifi_reruns_scan_then_returns_to_menu() {
 
 #[test]
 fn setup_menu_reauth_updates_token_then_returns_to_menu() {
-    let mut w = Wizard::setup(full_conf());
+    let mut w = Wizard::setup(full_conf(), false);
     // Row 1 = GitHub account → device flow.
     w.key(Key::Down);
     assert_eq!(w.key(Key::Enter), vec![Effect::StartAuth]);
@@ -457,6 +466,70 @@ fn setup_menu_reauth_updates_token_then_returns_to_menu() {
     // on to the repo pick (the repo is unchanged).
     assert!(matches!(fx.as_slice(), [Effect::WriteConf(c)] if c.token == "ghu_new"), "got {fx:?}");
     assert_eq!(w.pending(), None); // on the menu, waiting
+}
+
+/// Navigate the reset menu to the factory-reset confirmation screen.
+fn to_confirm_wipe(dirty: bool) -> Wizard {
+    let mut w = Wizard::setup(full_conf(), dirty);
+    w.key(Key::Down); // GitHub account
+    w.key(Key::Down); // Factory reset (row 2)
+    assert!(w.key(Key::Enter).is_empty(), "opening confirm emits no effect");
+    assert_eq!(w.pending(), None); // waits for the typed word
+    w
+}
+
+#[test]
+fn factory_reset_confirms_then_emits_wipe() {
+    let mut w = to_confirm_wipe(false);
+    // A wrong word does not wipe — it stays on the confirm screen.
+    type_str(&mut w, "nope");
+    assert!(w.key(Key::Enter).is_empty(), "wrong word must not wipe");
+    // Clear it and type the real word (case-insensitive) → the wipe fires.
+    w.key(Key::DeleteLine);
+    type_str(&mut w, "ERASE");
+    assert_eq!(w.key(Key::Enter), vec![Effect::FactoryReset]);
+}
+
+#[test]
+fn factory_reset_esc_returns_to_menu() {
+    let mut w = to_confirm_wipe(false);
+    type_str(&mut w, "er");
+    w.key(Key::Escape); // cancel back to the menu (on the Factory-reset row)
+    // Proof we're back on the menu: Down lands on Done, Enter finishes.
+    w.key(Key::Down);
+    assert_eq!(w.key(Key::Enter), vec![Effect::Finish]);
+}
+
+#[test]
+fn factory_reset_backspace_past_empty_cancels() {
+    let mut w = to_confirm_wipe(false);
+    // Nothing typed yet: the first Backspace cancels back to the menu.
+    assert!(w.key(Key::Backspace).is_empty());
+    w.key(Key::Down); // menu row 3 = Done
+    assert_eq!(w.key(Key::Enter), vec![Effect::Finish]);
+}
+
+#[test]
+fn factory_reset_confirm_warns_louder_when_dirty() {
+    // The dirty warning line is drawn only when the card carries unpublished
+    // work — the two renders must differ.
+    let clean = to_confirm_wipe(false);
+    let dirty = to_confirm_wipe(true);
+    let (mut fc, mut fd) = (Frame::new_white(), Frame::new_white());
+    clean.draw_into(&mut fc);
+    dirty.draw_into(&mut fd);
+    assert_ne!(fc.bytes(), fd.bytes(), "dirty confirm must show an extra warning");
+}
+
+#[test]
+fn wipe_failed_returns_to_menu_with_notice() {
+    let mut w = to_confirm_wipe(false);
+    type_str(&mut w, "erase");
+    assert_eq!(w.key(Key::Enter), vec![Effect::FactoryReset]);
+    // The driver reports a failed delete → back on the menu to retry.
+    assert!(w.event(Event::WipeFailed("FR_DENIED".into())).is_empty());
+    w.key(Key::Down); // row 3 = Done
+    assert_eq!(w.key(Key::Enter), vec![Effect::Finish]);
 }
 
 #[test]

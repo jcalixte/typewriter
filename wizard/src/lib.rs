@@ -60,6 +60,10 @@ pub enum Effect {
     Clone { full_name: String },
     /// Persist this conf atomically (unlink + tmp + rename).
     WriteConf(conf::Conf),
+    /// Factory reset: erase the card back to blank state (repo, local scratch,
+    /// conf, markers) and reboot into first boot. The driver runs the wipe and
+    /// restarts; only a failure comes back (`WipeFailed`).
+    FactoryReset,
     /// Wizard finished — fall through to the normal boot path.
     Finish,
 }
@@ -92,6 +96,10 @@ pub enum Event {
     CloneProgress(String),
     CloneDone,
     CloneFailed(String),
+    /// The factory-reset wipe failed (a delete errored). The driver reboots on
+    /// success (a wiped card can't return to a menu), so only failure reports
+    /// back — the wizard shows it on the reset menu to retry.
+    WipeFailed(String),
 }
 
 /// The wizard's current screen.
@@ -141,9 +149,18 @@ enum Screen {
     AllSet,
     /// `:setup` entry (reset mode): pick what to change. Linear first-boot has
     /// no menu — it walks Wi-Fi → sign-in → repo. Reset needs a chooser so you
-    /// can jump to just the Wi-Fi (or account) step. Each sub-flow returns here
-    /// when it completes; `Done` finishes.
+    /// can jump to just the Wi-Fi (or account) step, or wipe. Each sub-flow
+    /// returns here when it completes; `Done` finishes.
     SetupMenu { sel: usize },
+    /// Factory-reset confirmation (reached from the reset menu). Erasing the
+    /// card is unrecoverable — `/sd/local` scratch has no remote copy — so the
+    /// user types the confirmation word before the wipe runs. Enter with the
+    /// right word emits [`Effect::FactoryReset`]; Esc / Backspace-past-empty
+    /// cancels back to the menu.
+    ConfirmWipe { typed: String },
+    /// Shown while [`Effect::FactoryReset`] runs; the driver updates `progress`
+    /// through [`Wizard::set_wiping`] as it deletes, then reboots.
+    Wiping { progress: String },
 }
 
 /// How the wizard was entered. First boot walks the steps linearly; `:setup`
@@ -154,10 +171,15 @@ enum Mode {
     Setup,
 }
 
-/// The reset menu's rows, in display order (see [`Screen::SetupMenu`]).
-/// Repo-switch and factory-reset are a later slice; this pass covers the
-/// non-destructive changes.
-const SETUP_ITEMS: usize = 3;
+/// The reset menu's rows, in display order (see [`Screen::SetupMenu`]):
+/// Wi-Fi (0), GitHub account (1), Factory reset (2), Done (3). Repo-switch is
+/// a later slice (5c).
+const SETUP_ITEMS: usize = 4;
+/// Menu row that opens the factory-reset confirmation.
+const SETUP_WIPE_ROW: usize = 2;
+
+/// The word the user must type to confirm a factory reset (case-insensitive).
+const WIPE_WORD: &str = "erase";
 
 /// A transient error shown on the current screen (join failed, auth failed…).
 /// Cleared on the next keystroke.
@@ -176,6 +198,11 @@ pub struct Wizard {
     /// First boot walks the steps linearly; `:setup` shows the reset menu and
     /// each completed sub-flow returns to it.
     mode: Mode,
+    /// Whether the card carries unpublished work (a non-empty `.typoena-dirty`
+    /// journal, read by the driver at construction). Only meaningful in reset
+    /// mode: the factory-reset confirmation warns louder when it's set — the
+    /// wipe would discard notes that never reached the remote.
+    dirty: bool,
 }
 
 impl Wizard {
@@ -210,21 +237,36 @@ impl Wizard {
             notice: None,
             show_pass: true,
             mode: Mode::FirstBoot,
+            // First boot / power-pull resume provisions the card — there is no
+            // unpublished work relative to a not-yet-chosen repo.
+            dirty: false,
         }
     }
 
     /// `:setup` reset entry: prefilled from the current conf, opening on the
     /// reset menu so the user can change just Wi-Fi or the account without
     /// re-walking the whole flow. Each completed sub-flow returns to the menu;
-    /// `Done` hands the (possibly changed) conf back to the boot path.
-    pub fn setup(c: conf::Conf) -> Wizard {
+    /// `Done` hands the (possibly changed) conf back to the boot path. `dirty`
+    /// is the card's unpublished-work state (the driver reads the journal) —
+    /// it only sharpens the factory-reset warning.
+    pub fn setup(c: conf::Conf, dirty: bool) -> Wizard {
         Wizard {
             conf: c,
             screen: Screen::SetupMenu { sel: 0 },
             notice: None,
             show_pass: true,
             mode: Mode::Setup,
+            dirty,
         }
+    }
+
+    /// Drive the [`Screen::Wiping`] progress line from the driver while the
+    /// factory-reset delete runs (it blocks the main task, so there is no
+    /// event round-trip — the driver repaints between delete steps).
+    pub fn set_wiping(&mut self, progress: &str) {
+        self.screen = Screen::Wiping {
+            progress: progress.to_string(),
+        };
     }
 
     /// The effect the wizard needs executed *right now* to leave its current
@@ -471,12 +513,58 @@ impl Wizard {
                             self.screen = Screen::AuthStarting;
                             self.pending().into_iter().collect()
                         }
+                        SETUP_WIPE_ROW => {
+                            // Factory reset — confirm before erasing anything.
+                            self.screen = Screen::ConfirmWipe {
+                                typed: String::new(),
+                            };
+                            vec![]
+                        }
                         // Done — hand the (possibly changed) conf back.
                         _ => vec![Effect::Finish],
                     }
                 }
                 _ => vec![],
             },
+            Screen::ConfirmWipe { typed } => match k {
+                Key::Char(c) if !c.is_control() => {
+                    typed.push(c);
+                    vec![]
+                }
+                Key::Backspace => {
+                    // Backspace past an empty field cancels back to the menu.
+                    if typed.pop().is_none() {
+                        self.screen = Screen::SetupMenu {
+                            sel: SETUP_WIPE_ROW,
+                        };
+                    }
+                    vec![]
+                }
+                Key::DeleteWord | Key::DeleteLine => {
+                    typed.clear();
+                    vec![]
+                }
+                Key::Enter => {
+                    if typed.trim().eq_ignore_ascii_case(WIPE_WORD) {
+                        self.screen = Screen::Wiping {
+                            progress: String::from("erasing the card"),
+                        };
+                        vec![Effect::FactoryReset]
+                    } else {
+                        self.notice = Some(format!("type \"{WIPE_WORD}\" to confirm"));
+                        vec![]
+                    }
+                }
+                Key::Escape => {
+                    self.screen = Screen::SetupMenu {
+                        sel: SETUP_WIPE_ROW,
+                    };
+                    vec![]
+                }
+                _ => vec![],
+            },
+            // The wipe runs on the driver and reboots; keys do nothing.
+            Screen::Wiping { .. } => vec![],
         }
     }
 
@@ -596,6 +684,16 @@ impl Wizard {
                 self.notice = Some(format!("clone failed: {reason}"));
                 self.screen = Screen::RepoLoading;
                 self.pending().into_iter().collect()
+            }
+            Event::WipeFailed(reason) => {
+                // A partial wipe still reads as unconfigured at boot, so the
+                // conf is deleted last; a mid-wipe failure here means little
+                // was lost. Back to the menu with the reason so it can retry.
+                self.notice = Some(format!("reset failed: {reason}"));
+                self.screen = Screen::SetupMenu {
+                    sel: SETUP_WIPE_ROW,
+                };
+                vec![]
             }
         }
     }
@@ -785,6 +883,7 @@ impl Wizard {
                 let items = [
                     format!("Wi-Fi network  ({})", or_unset(&self.conf.wifi_ssid)),
                     format!("GitHub account  ({})", or_unset(&self.conf.gh_user)),
+                    "Factory reset - erase this card".to_string(),
                     "Done - back to writing".to_string(),
                 ];
                 for (i, text) in items.iter().enumerate() {
@@ -802,6 +901,35 @@ impl Wizard {
                     }
                 }
                 hint(f, "up/down move - Enter selects");
+            }
+            Screen::ConfirmWipe { typed } => {
+                line(f, 0, "Factory reset", ink);
+                line(f, 2, "  This erases EVERYTHING on the card:", ink);
+                line(f, 3, "    - your notes repo", ink);
+                line(f, 4, "    - local scratch (/sd/local) - no remote copy", ink);
+                line(f, 5, "    - Wi-Fi + GitHub sign-in", ink);
+                if self.dirty {
+                    line(
+                        f,
+                        6,
+                        "  Unpublished notes will be LOST - :gp first to keep them.",
+                        ink,
+                    );
+                }
+                let prompt = format!("  Type \"{WIPE_WORD}\" to confirm: ");
+                let row = 7;
+                line(f, row, &format!("{prompt}{typed}"), ink);
+                // Caret after the typed word.
+                let x = 10 + (prompt.chars().count() + typed.chars().count()) as i32 * 10;
+                let _ = Rectangle::new(Point::new(x, 8 + row * 24), Size::new(10, 20))
+                    .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+                    .draw(f);
+                hint(f, "Enter confirms - Esc cancels");
+            }
+            Screen::Wiping { progress } => {
+                line(f, 0, "Erasing the card", ink);
+                line(f, 2, &format!("  {progress}..."), ink);
+                hint(f, "this can take a minute - do not power off");
             }
         }
         if let Some(n) = &self.notice {

@@ -85,9 +85,11 @@ pub fn run(
     modem: &mut Modem,
 ) -> Result<conf::Conf> {
     // `:setup` opens the reset menu prefilled from the card conf; first boot /
-    // power-pull resume walks the steps linearly from the first unmet one.
+    // power-pull resume walks the steps linearly from the first unmet one. The
+    // dirty flag (unpublished-work journal) only sharpens the factory-reset
+    // warning, so it's read once at construction.
     let mut wiz = if setup {
-        Wizard::setup(start)
+        Wizard::setup(start, storage.has_dirty())
     } else {
         Wizard::resume(start)
     };
@@ -250,6 +252,33 @@ pub fn run(
                             wiz.event(Event::CloneFailed("clone worker is gone".into())),
                         );
                         dirty = true;
+                    }
+                }
+                Effect::FactoryReset => {
+                    // Erase the card, then reboot into first boot. The repo
+                    // delete is minutes on FAT, so paint each coarse stage —
+                    // the panel isn't frozen silently. Safe across a power-pull
+                    // mid-wipe: the repo goes first and the conf last, so the
+                    // next boot still reads unconfigured and re-enters here.
+                    log::info!("wizard: factory reset — erasing the card");
+                    let result = {
+                        let mut paint = |line: &str| {
+                            wiz.set_wiping(line);
+                            wiz.draw_into(&mut frame);
+                            let _ = epd.display_frame_partial_window(frame.bytes(), 0, HEIGHT);
+                        };
+                        storage.factory_reset(&mut paint)
+                    };
+                    match result {
+                        Ok(()) => {
+                            log::info!("wizard: factory reset complete — rebooting");
+                            unsafe { esp_idf_svc::sys::esp_restart() };
+                        }
+                        Err(e) => {
+                            log::warn!("wizard: factory reset failed: {e:#}");
+                            queue.extend(wiz.event(Event::WipeFailed(format!("{e:#}"))));
+                            dirty = true;
+                        }
                     }
                 }
                 Effect::Finish => return Ok(wiz.conf().clone()),
