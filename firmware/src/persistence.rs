@@ -445,6 +445,75 @@ impl Storage {
         }
     }
 
+    /// Factory reset (wizard `Effect::FactoryReset`): erase the card back to a
+    /// blank-card state — the git working copy, the local scratch, the device
+    /// conf, the TLS trust store, and every `.typoena-*` marker. `progress`
+    /// gets a coarse line per stage for the panel; the repo delete is minutes
+    /// on FAT-over-SPI (~1100 files). The caller reboots after: the next boot
+    /// sees an unconfigured card and runs the first-boot wizard.
+    ///
+    /// Order is load-bearing for power-loss safety. The repo tree is removed
+    /// **first** and the conf **last**, so a power-pull at any point still
+    /// reads as unconfigured at boot (repo missing, or a required conf field
+    /// gone) and re-enters the wizard — never a normal boot pointing at a
+    /// half-erased card.
+    pub fn factory_reset(&self, progress: &mut dyn FnMut(&str)) -> Result<()> {
+        progress("erasing your notes");
+        Self::remove_tree(Path::new(REPO_DIR)).context("erasing the repo")?;
+        progress("erasing local scratch");
+        Self::remove_tree(Path::new(LOCAL_DIR)).context("erasing local scratch")?;
+        progress("clearing settings");
+        // ca.pem is git_sync's embedded trust store (written on the SD root); a
+        // blank card should not carry it. The markers are card infrastructure.
+        for p in [CONF_PATH, "/sd/ca.pem", DIRTY_JOURNAL, LAST_FILE, SETUP_MARKER] {
+            match fs::remove_file(p) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e).with_context(|| format!("removing {p}")),
+            }
+        }
+        // Drop the in-RAM dirty set too, so nothing lingers if the caller does
+        // not reboot immediately.
+        *self.dirty.borrow_mut() = Dirty::default();
+        Ok(())
+    }
+
+    /// `fs::remove_dir_all` replacement for FAT. std's version trusts the
+    /// dirent file type, and the prebuilt std decodes esp-idf's DT constants
+    /// with the generic-unix table (files read as fifos, directories as char
+    /// devices — the same story as the palette walk in main.rs). It therefore
+    /// `unlink`s subdirectories, which FatFS refuses with FR_DENIED when
+    /// they're non-empty. Decode the type the same both-tables way and recurse
+    /// ourselves. A missing `dir` is success (idempotent). Mirrors the proven
+    /// `remove_tree` in the `sd_bench` / `git_sync` binaries.
+    fn remove_tree(dir: &Path) -> Result<()> {
+        use std::os::unix::fs::FileTypeExt;
+        let entries = match fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e).with_context(|| format!("read_dir {}", dir.display())),
+        };
+        let children: Vec<_> = entries
+            .flatten()
+            .filter_map(|e| e.file_type().ok().map(|t| (e.path(), t)))
+            .collect();
+        for (path, ftype) in children {
+            let is_dir = if ftype.is_dir() || ftype.is_char_device() {
+                true
+            } else if ftype.is_file() || ftype.is_fifo() {
+                false
+            } else {
+                fs::metadata(&path)?.is_dir()
+            };
+            if is_dir {
+                Self::remove_tree(&path)?;
+            } else {
+                fs::remove_file(&path).with_context(|| format!("unlink {}", path.display()))?;
+            }
+        }
+        fs::remove_dir(dir).with_context(|| format!("rmdir {}", dir.display()))
+    }
+
     /// Unlink a file under `/sd` (`:delete`). Tolerates a missing target — an
     /// already-gone file is a success, so the call is idempotent. Also clears a
     /// stray `{path}.tmp` best-effort, so a crash-interrupted save can't leave the
