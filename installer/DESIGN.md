@@ -30,14 +30,16 @@ needs **no repo checkout and no Rust toolchain** — just the card.
 ## Phase pipeline (the wizard)
 
 1. **Preflight** — a mounted card + git present. Advisory; warnings don't block.
-2. **Configure** — collect Wi-Fi SSID/pass, git remote, GitHub user, GitHub
-   token, and commit identity. Pre-fill via the derive ladder (below); the
-   token comes from **Sign in with GitHub** (^G, device flow) or a pasted PAT.
-   The remote accepts shorthand — `you/notes`, `you/notes.git`,
+2. **Configure** — collect Wi-Fi SSID/pass, GitHub user, GitHub token, git
+   remote, and commit identity (the remote field sits **after** user + token so
+   a bare repo name can complete against the now-known username). Pre-fill via
+   the derive ladder (below); the token comes from **Sign in with GitHub** (^G,
+   device flow) or a pasted PAT. The remote accepts shorthand — a bare `notes`
+   (→ `https://github.com/<gh_user>/notes.git`), `you/notes`, `you/notes.git`,
    `github.com/you/notes`, and SSH pastes (`git@host:…`, `ssh://…`) all expand
-   to the canonical HTTPS clone URL (`expand_remote_url`, live "→ will use …"
-   hint under the field); the conf and the clone only ever see the expanded
-   form, since the device's libgit2 is HTTPS-only.
+   to the canonical HTTPS clone URL (`expand_remote_url_with_user`, live
+   "→ will use …" hint under the field); the conf and the clone only ever see
+   the expanded form, since the device's libgit2 is HTTPS-only.
 3. **SD card** — pick the card (refuse on ambiguity), `git clone` the remote
    onto `/repo`, seed `.typoena.toml` + snippets if absent, write
    `typoena.conf`, strip `._*`, eject.

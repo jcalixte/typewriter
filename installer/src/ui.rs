@@ -655,8 +655,9 @@ fn field_hint(f: Field) -> Option<&'static str> {
             Some("^K fills this from your Keychain for the current SSID (may prompt macOS).")
         }
         Field::RemoteUrl => Some(
-            "Your notes repo — you/notes is enough (expands to \
-             https://github.com/you/notes.git); full URLs and other hosts work too.",
+            "Your notes repo — just the name is enough (notes → \
+             https://github.com/<you>/notes.git); you/notes, full URLs, and \
+             other hosts work too.",
         ),
         _ => None,
     }
@@ -899,6 +900,23 @@ mod tests {
         assert!(
             s.contains("https://github.com/you/notes.git"),
             "the user must see what the shorthand becomes:\n{s}"
+        );
+    }
+
+    #[test]
+    fn bare_repo_name_shows_its_user_completion_live() {
+        let mut app = App::new();
+        app.step = Step::Configure;
+        app.focus = Field::ALL
+            .iter()
+            .position(|&f| f == Field::RemoteUrl)
+            .unwrap();
+        app.config.gh_user = "you".into();
+        app.config.remote_url = "notes".into();
+        let s = screen(&app);
+        assert!(
+            s.contains("https://github.com/you/notes.git"),
+            "a bare name must show the username it completes against:\n{s}"
         );
     }
 

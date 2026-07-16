@@ -8,20 +8,23 @@ use std::process::Command;
 pub enum Field {
     WifiSsid,
     WifiPass,
-    RemoteUrl,
     GhUser,
     Pat,
+    RemoteUrl,
     AuthorName,
     AuthorEmail,
 }
 
 impl Field {
+    // The remote URL comes after the GitHub user + token on purpose: a bare repo
+    // name (`notes`) is completed against the username, so it must be filled
+    // first (^G fills both) for the shorthand to resolve.
     pub const ALL: [Field; 7] = [
         Field::WifiSsid,
         Field::WifiPass,
-        Field::RemoteUrl,
         Field::GhUser,
         Field::Pat,
+        Field::RemoteUrl,
         Field::AuthorName,
         Field::AuthorEmail,
     ];
@@ -133,9 +136,10 @@ impl Config {
     }
 
     /// The remote as the device needs it: the typed value expanded from any
-    /// accepted shorthand to a full HTTPS clone URL.
+    /// accepted shorthand to a full HTTPS clone URL. A bare repo name is
+    /// completed against the GitHub username field.
     pub fn remote(&self) -> String {
-        expand_remote_url(&self.remote_url)
+        expand_remote_url_with_user(&self.remote_url, &self.gh_user)
     }
 
     /// Render the `typoena.conf` body — written to the card by the SD step.
@@ -160,9 +164,19 @@ impl Config {
     }
 }
 
+/// Expand remote-URL shorthand to the canonical HTTPS clone URL, with no known
+/// GitHub user — a bare repo name can't be completed and is returned as typed.
+/// Prefer [`expand_remote_url_with_user`] where a username is available.
+pub fn expand_remote_url(input: &str) -> String {
+    expand_remote_url_with_user(input, "")
+}
+
 /// Expand remote-URL shorthand to the canonical HTTPS clone URL. The device's
 /// libgit2 speaks HTTPS only, so everything funnels there:
 ///
+/// - `notes`                 → `https://github.com/<gh_user>/notes.git` when a
+///   GitHub username is known (returned as typed otherwise, so the clone fails
+///   loudly rather than guessing an owner)
 /// - `you/notes`             → `https://github.com/you/notes.git`
 /// - `you/notes.git`         → `https://github.com/you/notes.git`
 /// - `github.com/you/notes`  → `https://github.com/you/notes.git` (any host)
@@ -171,10 +185,7 @@ impl Config {
 /// - `ssh://git@host[:port]/you/notes` → `https://host/you/notes.git` (the ssh
 ///   port is dropped; it isn't the web port)
 /// - full `http(s)://…` URLs pass through untouched.
-///
-/// Inputs with no `/` at all can't be a repo path — returned as typed so the
-/// clone fails loudly rather than guessing.
-pub fn expand_remote_url(input: &str) -> String {
+pub fn expand_remote_url_with_user(input: &str, gh_user: &str) -> String {
     let s = input.trim().trim_end_matches('/');
     if s.starts_with("https://") || s.starts_with("http://") {
         return s.to_string();
@@ -192,6 +203,12 @@ pub fn expand_remote_url(input: &str) -> String {
         }
     }
     if !s.contains('/') {
+        // A bare repo name: complete it against the GitHub user if we know one
+        // (`notes` → `https://github.com/you/notes.git`); otherwise leave it be.
+        let user = gh_user.trim();
+        if !s.is_empty() && !user.is_empty() {
+            return format!("https://github.com/{user}/{}", ensure_dot_git(s));
+        }
         return s.to_string();
     }
     // A dotted first segment reads as a host (`github.com/you/notes`); a plain
@@ -395,9 +412,48 @@ mod tests {
     }
 
     #[test]
-    fn hopeless_input_is_left_as_typed() {
+    fn bare_repo_name_is_completed_against_the_github_user() {
+        assert_eq!(
+            expand_remote_url_with_user("notes", "you"),
+            "https://github.com/you/notes.git"
+        );
+        assert_eq!(
+            expand_remote_url_with_user("notes.git", "you"),
+            "https://github.com/you/notes.git"
+        );
+        // Config::remote() feeds the username in; it must complete a bare name.
+        let cfg = Config {
+            remote_url: "notes".into(),
+            gh_user: "you".into(),
+            ..Config::default()
+        };
+        assert_eq!(cfg.remote(), "https://github.com/you/notes.git");
+    }
+
+    #[test]
+    fn bare_name_without_a_user_is_left_as_typed() {
+        // No username to complete against — leave it so the clone fails loudly
+        // rather than guessing an owner.
+        assert_eq!(expand_remote_url_with_user("notes", ""), "notes");
+        assert_eq!(expand_remote_url_with_user("notes", "  "), "notes");
         assert_eq!(expand_remote_url("notes"), "notes");
         assert_eq!(expand_remote_url(""), "");
+        // An empty remote never becomes a URL, even with a user.
+        assert_eq!(expand_remote_url_with_user("", "you"), "");
+    }
+
+    #[test]
+    fn a_known_user_never_overrides_an_explicit_owner_or_url() {
+        // The two-segment and full-URL forms are already unambiguous — the
+        // username must not hijack them.
+        assert_eq!(
+            expand_remote_url_with_user("someone/notes", "you"),
+            "https://github.com/someone/notes.git"
+        );
+        assert_eq!(
+            expand_remote_url_with_user("https://github.com/someone/notes.git", "you"),
+            "https://github.com/someone/notes.git"
+        );
     }
 
     #[test]
