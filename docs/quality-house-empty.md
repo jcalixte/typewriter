@@ -243,9 +243,9 @@ Blank (training surface):
   \end{tikzpicture}%
 }
 
-% --- Dimensions tuned for the typewriter QFD (15 W x 15 H) ---
-\def\qfdNW{15}
-\def\qfdNH{15}
+% --- Dimensions tuned for the typewriter QFD (16 W x 16 H) ---
+\def\qfdNW{16}
+\def\qfdNH{16}
 \def\qfdWhatW{4.6}
 \def\qfdImpW{0.7}
 \def\qfdHdrH{5.0}
@@ -278,7 +278,8 @@ Blank (training surface):
     12/{W12 Local-only files coexist with git scope (v0.5+)},
     13/{W13 Typography sets a writing-tool tone},
     14/{W14 I can carry the device and write away from a desk},
-    15/{W15 A first-time user reaches writing without developer tools}%
+    15/{W15 A first-time user reaches writing without developer tools},
+    16/{W16 Any file, action, or edit point one motion away}%
   }
     \node[anchor=west, font=\scriptsize,
           text width=\qfdWhatTextW cm, align=left]
@@ -286,7 +287,7 @@ Blank (training surface):
 
   % ---------- Importance (raw 1-10 weight) ----------
   \foreach \r/\w in {1/10, 2/9, 3/10, 4/7, 5/6, 6/9, 7/8, 8/7,
-                     9/8, 10/5, 11/4, 12/5, 13/7, 14/8, 15/7}
+                     9/8, 10/5, 11/4, 12/5, 13/7, 14/8, 15/7, 16/10}
     \node[font=\scriptsize] at ({-\qfdImpW/2}, {-\r + 0.5}) {\w};
 
   % ---------- HOWs (rotated column titles) ----------
@@ -305,7 +306,8 @@ Blank (training surface):
     12/{H12 Network reconnect time},
     13/{H13 Idle / typing / push current},
     14/{H15 Clean release build time},
-    15/{H16 Onboarding duration}%
+    15/{H16 Onboarding duration},
+    16/{H17 Reach cost (keystrokes)}%
   }
     \node[rotate=90, anchor=west, font=\scriptsize]
       at ({\c - 0.5}, 0.15) {\t};
@@ -343,7 +345,8 @@ Blank (training surface):
     12/{$\leq$30\,s},
     13/{obs.},
     14/{$\leq$7\,min},
-    15/{$\leq$10\,min}%
+    15/{$\leq$10\,min},
+    16/{$\leq$6 keys}%
   }
     \node[font=\scriptsize] at ({\c - 0.5}, {-\qfdNW - 0.5}) {\tgt};
 
@@ -580,8 +583,8 @@ Row importance is blank: carry your House-1 basement Σ down.
   \end{tikzpicture}%
 }
 
-% --- Dimensions (15 rows x 20 columns) ---
-\def\qfdNW{15}
+% --- Dimensions (16 rows x 20 columns) ---
+\def\qfdNW{16}
 \def\qfdNH{20}
 \def\qfdWhatW{4.6}
 \def\qfdImpW{0.9}
@@ -613,7 +616,8 @@ Row importance is blank: carry your House-1 basement Σ down.
     12/{H12 Network reconnect time},
     13/{H13 Idle / typing / push current},
     14/{H15 Clean release build time},
-    15/{H16 Onboarding duration}%
+    15/{H16 Onboarding duration},
+    16/{H17 Reach cost (keystrokes)}%
   }
     \node[anchor=west, font=\scriptsize,
           text width=\qfdWhatTextW cm, align=left]
