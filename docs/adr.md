@@ -493,6 +493,31 @@ retry). Failure surfaces as a single retry-able outcome in the status line.
   semantics of `Ctrl-G` and break the user's muscle memory. Hard-to-reverse
   by design.
 
+### Outcome — as shipped (recorded 2026-07-16)
+
+The user contract held — one deliberate action, auto-message, atomic outcome,
+no prompt — but three mechanics drifted from the letter of this ADR as the
+implementation matured:
+
+- **The trigger is the `:gp` ex command, not `Ctrl-G`.** Publish shipped as
+  `:sync`, renamed `:gp` on 2026-07-14 to pair with `:gl` (pull); the palette
+  exposes it as `> publish`. The keymap has no `Ctrl-G` binding at all. The
+  muscle-memory lock-in argument transferred intact to the ex command.
+- **The commit message is `Typoena publish — unix <epoch>`**
+  (`git_sync.rs`), not the ISO-8601 string this ADR specified. Same
+  contract (device-authored timestamp noise, zero prompts), different
+  format; nothing downstream parses it.
+- **Rejected pushes replay, they don't merge.** The decision text said
+  "`pull --no-edit` then retry" (merge commits); the shipped path fetches
+  and re-splices the device's commit onto the remote tip — **no merge
+  commits**, so the "device may author merge commits" consequence above
+  never materialised. [`CONTEXT.md`](../CONTEXT.md#user-facing-actions)
+  documents the replay model.
+
+Heading and anchor kept for link stability;
+[qfd.md §8](qfd.md#8-inconsistencies-spotted-and-fixed) records when the
+drift was caught.
+
 ---
 
 ## ADR-011: Credential provisioning — how the PAT reaches the device and is protected at rest
