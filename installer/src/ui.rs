@@ -15,7 +15,7 @@ use crate::config::Field;
 use crate::preflight::Status;
 
 /// One frame of the braille spinner for the given tick.
-fn spinner(tick: u64) -> char {
+pub(crate) fn spinner(tick: u64) -> char {
     const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     FRAMES[(tick as usize) % FRAMES.len()]
 }

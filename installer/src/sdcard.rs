@@ -89,7 +89,7 @@ pub fn detect_cards() -> Vec<Card> {
         .collect()
 }
 
-fn is_removable(info: &str) -> bool {
+pub(crate) fn is_removable(info: &str) -> bool {
     // Test the VALUE of each key, not the whole line: the label "Removable
     // Media" itself contains "Removable", so a line-substring test matches every
     // disk — including the internal boot volume (found on real hardware, 07-14).
@@ -100,7 +100,7 @@ fn is_removable(info: &str) -> bool {
         || val("Device Location") == "External"
 }
 
-fn field(info: &str, key: &str) -> Option<String> {
+pub(crate) fn field(info: &str, key: &str) -> Option<String> {
     info.lines().find_map(|l| {
         let rest = l.trim().strip_prefix(key)?.trim_start();
         let val = rest.strip_prefix(':')?.trim();
@@ -276,7 +276,7 @@ fn is_access_denied(seg: &str) -> bool {
 
 /// Feed each `\r`- or `\n`-delimited segment of `reader` to `on_segment`.
 /// git's progress volume is small (kilobytes of text), so byte-wise is fine.
-fn split_cr_lf(reader: impl Read, mut on_segment: impl FnMut(&str)) {
+pub(crate) fn split_cr_lf(reader: impl Read, mut on_segment: impl FnMut(&str)) {
     let mut buf: Vec<u8> = Vec::new();
     for b in BufReader::new(reader).bytes().map_while(Result::ok) {
         if b == b'\r' || b == b'\n' {

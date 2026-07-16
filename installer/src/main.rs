@@ -4,6 +4,7 @@ mod config;
 mod preflight;
 mod sdcard;
 mod ui;
+mod wipe;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -23,6 +24,26 @@ fn main() -> anyhow::Result<()> {
     // Read-only: list the removable cards the SD step would offer.
     if args.iter().any(|a| a == "--list-cards") {
         return list_cards();
+    }
+    // Full-card reformat TUI: pick a card, confirm, erase to blank FAT32, eject.
+    // Usage: --wipe [volume] [--label NAME]   (backs the firmware `just wipe`).
+    if args.iter().any(|a| a == "--wipe") {
+        let mut label = "TYPOENA".to_string();
+        let mut volume: Option<String> = None;
+        let mut it = args.iter().skip(1);
+        while let Some(a) = it.next() {
+            match a.as_str() {
+                "--label" => {
+                    if let Some(v) = it.next() {
+                        label = v.clone();
+                    }
+                }
+                s if s.starts_with("--") => {} // --wipe and any other flags
+                s if volume.is_none() => volume = Some(s.to_string()),
+                _ => {}
+            }
+        }
+        return wipe::run(volume, label);
     }
     // Verify the (optionally wipe +) clone + config-write path without a card
     // (clones to a temp dir, no eject).

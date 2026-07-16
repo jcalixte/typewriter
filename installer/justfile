@@ -24,6 +24,12 @@ list-cards:
 dry-run remote *args:
     cargo run -- --dry-run-sd {{remote}} {{args}}
 
+# reformat a removable card to a blank FAT32 volume (interactive TUI; needs a
+# TTY). Pick the card, confirm the erase, watch it stream. Backs firmware's
+# `just wipe`. usage: just wipe [volume] [--label NAME]
+wipe *args:
+    cargo run -- --wipe {{args}}
+
 # compile (release)
 build:
     cargo build --release
