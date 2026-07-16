@@ -254,6 +254,27 @@ pub fn run(
                         dirty = true;
                     }
                 }
+                Effect::DeleteRepo => {
+                    // Repo switch (slice 5c): erase the current /sd/repo before
+                    // the new clone. Runs here on the main task — the clone
+                    // worker can't reach the !Send Storage. Blocks minutes on
+                    // FAT; the "removing the old repo" line is already on the
+                    // panel (painted before this effect ran). On failure, drop
+                    // the queued WriteConf + Clone and report it: the wizard
+                    // falls back to the pick list with disk truth cleared.
+                    log::info!("wizard: repo switch — removing the old /sd/repo");
+                    match storage.wipe_repo() {
+                        Ok(()) => log::info!("wizard: old repo removed"),
+                        Err(e) => {
+                            log::warn!("wizard: repo delete failed: {e:#}");
+                            queue.clear();
+                            queue.extend(wiz.event(Event::CloneFailed(format!(
+                                "removing the old repo: {e:#}"
+                            ))));
+                            dirty = true;
+                        }
+                    }
+                }
                 Effect::FactoryReset => {
                     // Erase the card, then reboot into first boot. The repo
                     // delete is minutes on FAT, so paint each coarse stage —

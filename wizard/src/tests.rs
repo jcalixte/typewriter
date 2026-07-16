@@ -387,13 +387,25 @@ fn all_screens_draw() {
     // The reset menu and its confirm/progress screens (only reached via `:setup`).
     let mut s = Wizard::setup(full_conf(), true);
     s.draw_into(&mut f); // reset menu
-    s.key(Key::Down); // GitHub
-    s.key(Key::Down); // Factory reset
+    s.key(Key::Down); // GitHub (row 1)
+    s.key(Key::Down); // Notes repo (row 2)
+    s.key(Key::Down); // Factory reset (row 3)
     s.key(Key::Enter); // → confirm screen
     s.draw_into(&mut f); // ConfirmWipe (dirty warning shown)
     type_str(&mut s, "erase");
     s.key(Key::Enter); // → Wiping
     s.draw_into(&mut f); // Wiping
+
+    // The repo-switch confirmation (reset mode, clean card so the switch isn't
+    // gated): Notes repo → list → pick a different repo → confirm.
+    let mut r = Wizard::setup(full_conf(), false);
+    r.key(Key::Down); // GitHub
+    r.key(Key::Down); // Notes repo
+    r.key(Key::Enter); // → RepoLoading
+    r.event(Event::Repos(repos()));
+    type_str(&mut r, "dotfiles"); // filter to a different repo
+    r.key(Key::Enter); // → ConfirmRepoSwitch
+    r.draw_into(&mut f); // ConfirmRepoSwitch
 }
 
 /// A fully-provisioned conf, as `:setup` would be handed at boot.
@@ -414,8 +426,9 @@ fn setup_menu_done_finishes_without_touching_conf() {
     let mut w = Wizard::setup(full_conf(), false);
     // Opens on the menu, nothing pending (waits for a choice).
     assert_eq!(w.pending(), None);
-    // Down to "Done" (row 3, below the new Factory-reset row), Enter → Finish,
-    // no WriteConf (backing out is harmless — nothing was changed).
+    // Down to "Done" (row 4: Wi-Fi, GitHub, Notes repo, Factory reset, Done),
+    // Enter → Finish, no WriteConf (backing out is harmless — nothing changed).
+    w.key(Key::Down);
     w.key(Key::Down);
     w.key(Key::Down);
     w.key(Key::Down);
@@ -439,7 +452,8 @@ fn setup_menu_wifi_reruns_scan_then_returns_to_menu() {
     // linear sign-in step), because the token is already set.
     let fx = w.event(Event::WifiOk);
     assert!(matches!(fx.as_slice(), [Effect::WriteConf(_)]), "got {fx:?}");
-    // Back on the menu: Done (row 3) finishes.
+    // Back on the menu: Done (row 4) finishes.
+    w.key(Key::Down);
     w.key(Key::Down);
     w.key(Key::Down);
     w.key(Key::Down);
@@ -471,8 +485,9 @@ fn setup_menu_reauth_updates_token_then_returns_to_menu() {
 /// Navigate the reset menu to the factory-reset confirmation screen.
 fn to_confirm_wipe(dirty: bool) -> Wizard {
     let mut w = Wizard::setup(full_conf(), dirty);
-    w.key(Key::Down); // GitHub account
-    w.key(Key::Down); // Factory reset (row 2)
+    w.key(Key::Down); // GitHub account (row 1)
+    w.key(Key::Down); // Notes repo (row 2)
+    w.key(Key::Down); // Factory reset (row 3)
     assert!(w.key(Key::Enter).is_empty(), "opening confirm emits no effect");
     assert_eq!(w.pending(), None); // waits for the typed word
     w
@@ -503,9 +518,10 @@ fn factory_reset_esc_returns_to_menu() {
 #[test]
 fn factory_reset_backspace_past_empty_cancels() {
     let mut w = to_confirm_wipe(false);
-    // Nothing typed yet: the first Backspace cancels back to the menu.
+    // Nothing typed yet: the first Backspace cancels back to the menu (on the
+    // Factory-reset row 3); Down lands on Done (row 4).
     assert!(w.key(Key::Backspace).is_empty());
-    w.key(Key::Down); // menu row 3 = Done
+    w.key(Key::Down);
     assert_eq!(w.key(Key::Enter), vec![Effect::Finish]);
 }
 
@@ -526,10 +542,138 @@ fn wipe_failed_returns_to_menu_with_notice() {
     let mut w = to_confirm_wipe(false);
     type_str(&mut w, "erase");
     assert_eq!(w.key(Key::Enter), vec![Effect::FactoryReset]);
-    // The driver reports a failed delete → back on the menu to retry.
+    // The driver reports a failed delete → back on the menu (Factory-reset row
+    // 3) to retry; Down lands on Done (row 4).
     assert!(w.event(Event::WipeFailed("FR_DENIED".into())).is_empty());
-    w.key(Key::Down); // row 3 = Done
+    w.key(Key::Down);
     assert_eq!(w.key(Key::Enter), vec![Effect::Finish]);
+}
+
+/// Reset menu → Notes repo (clean card) → the repo pick list loaded.
+fn to_setup_repo_pick() -> Wizard {
+    let mut w = Wizard::setup(full_conf(), false);
+    w.key(Key::Down); // GitHub account (row 1)
+    w.key(Key::Down); // Notes repo (row 2)
+    assert_eq!(w.key(Key::Enter), vec![Effect::FetchRepos]);
+    w.event(Event::Repos(repos()));
+    w
+}
+
+#[test]
+fn setup_repo_switch_dirty_guard_refuses() {
+    // Unpublished work on the card: a switch (which deletes the working copy)
+    // must refuse rather than lose it. Stays on the menu, nothing pending.
+    let mut w = Wizard::setup(full_conf(), true);
+    w.key(Key::Down); // GitHub
+    w.key(Key::Down); // Notes repo
+    assert!(w.key(Key::Enter).is_empty(), "a dirty card must not start a switch");
+    assert_eq!(w.pending(), None); // still on the menu, no FetchRepos
+}
+
+#[test]
+fn setup_repo_switch_clean_lists_repos() {
+    let mut w = Wizard::setup(full_conf(), false);
+    w.key(Key::Down); // GitHub
+    w.key(Key::Down); // Notes repo
+    assert_eq!(w.key(Key::Enter), vec![Effect::FetchRepos]);
+}
+
+#[test]
+fn setup_repo_switch_same_repo_is_noop() {
+    // Re-choosing the repo already on the card doesn't delete or re-clone it.
+    let mut w = to_setup_repo_pick();
+    type_str(&mut w, "you/notes"); // the current repo (matches conf.remote_url)
+    assert!(w.key(Key::Enter).is_empty(), "same repo must not clone");
+    assert_eq!(w.pending(), None); // back on the menu, no delete/clone
+    assert_eq!(w.conf().remote_url, "https://github.com/you/notes.git"); // untouched
+}
+
+#[test]
+fn setup_repo_switch_esc_cancels() {
+    let mut w = to_setup_repo_pick();
+    type_str(&mut w, "dotfiles");
+    w.key(Key::Enter); // → ConfirmRepoSwitch
+    assert!(w.key(Key::Escape).is_empty(), "Esc cancels the switch");
+    assert_eq!(w.pending(), None); // back on the menu
+    assert_eq!(w.conf().remote_url, "https://github.com/you/notes.git"); // not committed
+}
+
+#[test]
+fn setup_repo_pick_esc_returns_to_menu() {
+    // Browsing the repo list, then Esc without picking → back to the menu.
+    let mut w = to_setup_repo_pick();
+    assert!(w.key(Key::Escape).is_empty());
+    assert_eq!(w.pending(), None);
+    w.key(Key::Down); // Factory reset (row 3)
+    w.key(Key::Down); // Done (row 4)
+    assert_eq!(w.key(Key::Enter), vec![Effect::Finish]);
+}
+
+#[test]
+fn setup_repo_switch_different_repo_confirms_then_clones() {
+    let mut w = to_setup_repo_pick();
+    type_str(&mut w, "dotfiles"); // a different repo
+    // Picking it opens the confirmation (no effect yet — a switch is destructive).
+    assert!(w.key(Key::Enter).is_empty(), "a switch is confirmed first");
+    // Confirm → delete the old tree, persist the new conf, clone the new tip.
+    let fx = w.key(Key::Enter);
+    assert_eq!(fx.len(), 3);
+    assert_eq!(fx[0], Effect::DeleteRepo);
+    match &fx[1] {
+        Effect::WriteConf(c) => {
+            assert_eq!(c.remote_url, "https://github.com/you/dotfiles.git");
+        }
+        other => panic!("expected WriteConf, got {other:?}"),
+    }
+    assert_eq!(fx[2], Effect::Clone { full_name: "you/dotfiles".into() });
+    // Clone done → back to the reset menu (like the other sub-flows), conf written.
+    let fx = w.event(Event::CloneDone);
+    assert!(matches!(fx.as_slice(), [Effect::WriteConf(_)]), "got {fx:?}");
+    assert_eq!(w.pending(), None); // on the menu
+
+    // The switched repo is now the on-disk one: re-picking it no-ops.
+    assert_eq!(w.key(Key::Enter), vec![Effect::FetchRepos]); // Notes repo row again
+    w.event(Event::Repos(repos()));
+    type_str(&mut w, "dotfiles");
+    assert!(w.key(Key::Enter).is_empty(), "the new repo is now on disk");
+    assert_eq!(w.pending(), None);
+}
+
+#[test]
+fn setup_repo_switch_failed_clone_avoids_noop_trap() {
+    // A switch whose clone fails already deleted the old tree, so the card has
+    // no valid repo. Re-picking the *same* target must switch again (delete +
+    // clone), never no-op back onto a repo that isn't there.
+    let mut w = to_setup_repo_pick();
+    type_str(&mut w, "dotfiles");
+    w.key(Key::Enter); // → ConfirmRepoSwitch
+    let fx = w.key(Key::Enter); // confirm
+    assert_eq!(fx[0], Effect::DeleteRepo);
+    // Clone fails → back to the pick list.
+    assert_eq!(w.event(Event::CloneFailed("TLS".into())), vec![Effect::FetchRepos]);
+    w.event(Event::Repos(repos()));
+    // Re-pick the very repo we were switching to: NOT on disk, so a fresh switch.
+    type_str(&mut w, "dotfiles");
+    assert!(w.key(Key::Enter).is_empty(), "→ confirm, not a menu no-op");
+    let fx = w.key(Key::Enter); // confirm again → the switch effects
+    assert_eq!(fx[0], Effect::DeleteRepo);
+    assert_eq!(fx.last(), Some(&Effect::Clone { full_name: "you/dotfiles".into() }));
+}
+
+#[test]
+fn setup_done_refused_when_switch_incomplete() {
+    // After a failed switch (no working copy on disk), Done must refuse — it
+    // would boot a card whose repo is missing. The user must finish a clone.
+    let mut w = to_setup_repo_pick();
+    type_str(&mut w, "dotfiles");
+    w.key(Key::Enter); // → ConfirmRepoSwitch
+    w.key(Key::Enter); // confirm → effects
+    w.event(Event::CloneFailed("TLS".into())); // repo deleted, clone failed
+    w.event(Event::Repos(repos())); // land in the pick list
+    w.key(Key::Escape); // Esc back to the menu (repo_on_disk is now None)
+    w.key(Key::Down); // Factory reset (row 3)
+    w.key(Key::Down); // Done (row 4)
+    assert!(w.key(Key::Enter).is_empty(), "Done must refuse with no working copy");
 }
 
 #[test]

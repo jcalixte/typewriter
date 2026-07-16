@@ -58,6 +58,12 @@ pub enum Effect {
     /// Shallow-clone `full_name` to /sd/repo (init + fetch depth 1 +
     /// apply_tree_diff empty→tip), seeding defaults after.
     Clone { full_name: String },
+    /// `:setup` repo switch (slice 5c): erase the current `/sd/repo` before the
+    /// new clone. Runs on the main task via `remove_tree` (the clone worker
+    /// can't reach the `!Send` `Storage`); emitted *before* `WriteConf` so a
+    /// power-pull once the tree is gone re-enters the wizard rather than booting
+    /// a repo that disagrees with the conf.
+    DeleteRepo,
     /// Persist this conf atomically (unlink + tmp + rename).
     WriteConf(conf::Conf),
     /// Factory reset: erase the card back to blank state (repo, local scratch,
@@ -161,6 +167,13 @@ enum Screen {
     /// Shown while [`Effect::FactoryReset`] runs; the driver updates `progress`
     /// through [`Wizard::set_wiping`] as it deletes, then reboots.
     Wiping { progress: String },
+    /// `:setup` repo-switch confirmation (reached from the reset menu's repo
+    /// row when a *different* repo is picked). A switch deletes the working copy
+    /// and re-downloads the new one (minutes), so it's confirmed first — but
+    /// with a plain Enter/Esc, not the typed word [`Screen::ConfirmWipe`] needs:
+    /// the mandatory dirty guard already guarantees nothing unpublished is lost.
+    /// `new_url` is the target's expanded remote, committed to the conf on Enter.
+    ConfirmRepoSwitch { full_name: String, new_url: String },
 }
 
 /// How the wizard was entered. First boot walks the steps linearly; `:setup`
@@ -172,11 +185,12 @@ enum Mode {
 }
 
 /// The reset menu's rows, in display order (see [`Screen::SetupMenu`]):
-/// Wi-Fi (0), GitHub account (1), Factory reset (2), Done (3). Repo-switch is
-/// a later slice (5c).
-const SETUP_ITEMS: usize = 4;
+/// Wi-Fi (0), GitHub account (1), Notes repo (2), Factory reset (3), Done (4).
+const SETUP_ITEMS: usize = 5;
+/// Menu row that opens the repo switch (slice 5c).
+const SETUP_REPO_ROW: usize = 2;
 /// Menu row that opens the factory-reset confirmation.
-const SETUP_WIPE_ROW: usize = 2;
+const SETUP_WIPE_ROW: usize = 3;
 
 /// The word the user must type to confirm a factory reset (case-insensitive).
 const WIPE_WORD: &str = "erase";
@@ -203,6 +217,13 @@ pub struct Wizard {
     /// mode: the factory-reset confirmation warns louder when it's set — the
     /// wipe would discard notes that never reached the remote.
     dirty: bool,
+    /// The remote of the repo actually cloned on the card, `None` when there is
+    /// no valid working copy (first boot, or a switch whose clone failed).
+    /// Distinct from `conf.remote_url`, which the switch commits *before* the
+    /// clone confirms: the "same repo re-chosen = no-op" check keys off this
+    /// (disk truth), so a re-pick after a failed switch is treated as a fresh
+    /// switch rather than a no-op onto a repo that isn't there. Reset-mode only.
+    repo_on_disk: Option<String>,
 }
 
 impl Wizard {
@@ -240,6 +261,8 @@ impl Wizard {
             // First boot / power-pull resume provisions the card — there is no
             // unpublished work relative to a not-yet-chosen repo.
             dirty: false,
+            // No confirmed clone yet; the repo-switch no-op check is reset-only.
+            repo_on_disk: None,
         }
     }
 
@@ -250,6 +273,11 @@ impl Wizard {
     /// is the card's unpublished-work state (the driver reads the journal) —
     /// it only sharpens the factory-reset warning.
     pub fn setup(c: conf::Conf, dirty: bool) -> Wizard {
+        // :setup is only reached from a normally-booted, configured card, so the
+        // repo on disk matches the conf's remote — seed the switch no-op check
+        // with it (empty only on a malformed conf, which the boot gate wouldn't
+        // have let past into setup mode anyway).
+        let repo_on_disk = (!c.remote_url.trim().is_empty()).then(|| c.remote_url.clone());
         Wizard {
             conf: c,
             screen: Screen::SetupMenu { sel: 0 },
@@ -257,6 +285,7 @@ impl Wizard {
             show_pass: true,
             mode: Mode::Setup,
             dirty,
+            repo_on_disk,
         }
     }
 
@@ -472,8 +501,27 @@ impl Wizard {
                                 ));
                             } else {
                                 let full_name = r.full_name.clone();
-                                self.conf.remote_url =
+                                let new_url =
                                     conf::expand_remote_url(&format!("github.com/{full_name}"));
+                                if setup {
+                                    // Re-choosing the repo already on the card:
+                                    // no-op, keep the working copy + dirty journal
+                                    // (spec: same-repo = no re-clone). Keyed off
+                                    // disk truth, so a re-pick after a failed
+                                    // switch (repo_on_disk cleared) still switches.
+                                    if self.repo_on_disk.as_deref() == Some(new_url.as_str()) {
+                                        self.screen = Screen::SetupMenu {
+                                            sel: SETUP_REPO_ROW,
+                                        };
+                                        return vec![];
+                                    }
+                                    // A different repo — confirm the delete + reclone.
+                                    self.screen =
+                                        Screen::ConfirmRepoSwitch { full_name, new_url };
+                                    return vec![];
+                                }
+                                // First boot: persist the remote and clone now.
+                                self.conf.remote_url = new_url;
                                 self.screen = Screen::Cloning {
                                     progress: String::from("starting clone"),
                                 };
@@ -483,6 +531,13 @@ impl Wizard {
                                 ];
                             }
                         }
+                    }
+                    // Reset mode: back out of the switch without touching the repo.
+                    // (First boot must pick a repo to proceed, so Escape is inert.)
+                    Key::Escape if setup => {
+                        self.screen = Screen::SetupMenu {
+                            sel: SETUP_REPO_ROW,
+                        };
                     }
                     _ => {}
                 }
@@ -513,6 +568,21 @@ impl Wizard {
                             self.screen = Screen::AuthStarting;
                             self.pending().into_iter().collect()
                         }
+                        SETUP_REPO_ROW => {
+                            // Switch repos. The dirty guard is mandatory: the
+                            // switch deletes the working copy, so any unpublished
+                            // note must be pushed first (a wipe would lose it).
+                            if self.dirty {
+                                self.notice = Some(
+                                    "publish first (:gp) - a repo switch discards unpublished notes"
+                                        .into(),
+                                );
+                                vec![]
+                            } else {
+                                self.screen = Screen::RepoLoading;
+                                self.pending().into_iter().collect()
+                            }
+                        }
                         SETUP_WIPE_ROW => {
                             // Factory reset — confirm before erasing anything.
                             self.screen = Screen::ConfirmWipe {
@@ -520,8 +590,18 @@ impl Wizard {
                             };
                             vec![]
                         }
-                        // Done — hand the (possibly changed) conf back.
-                        _ => vec![Effect::Finish],
+                        // Done — hand the (possibly changed) conf back. Refuse if
+                        // a switch left the card without a working copy (its clone
+                        // failed): finishing would boot a repo that isn't there.
+                        _ => {
+                            if self.repo_on_disk.is_none() {
+                                self.notice =
+                                    Some("finish the repo setup first - retry the clone".into());
+                                vec![]
+                            } else {
+                                vec![Effect::Finish]
+                            }
+                        }
                     }
                 }
                 _ => vec![],
@@ -565,6 +645,31 @@ impl Wizard {
             },
             // The wipe runs on the driver and reboots; keys do nothing.
             Screen::Wiping { .. } => vec![],
+            Screen::ConfirmRepoSwitch { full_name, new_url } => match k {
+                Key::Enter => {
+                    // Confirmed. Commit the new remote to the conf, then emit the
+                    // switch: delete the old tree, persist the conf, clone the new
+                    // tip. Delete precedes the conf write so a power-pull once the
+                    // tree is gone re-enters the wizard (see `Effect::DeleteRepo`).
+                    let full_name = full_name.clone();
+                    self.conf.remote_url = new_url.clone();
+                    self.screen = Screen::Cloning {
+                        progress: String::from("removing the old repo"),
+                    };
+                    vec![
+                        Effect::DeleteRepo,
+                        Effect::WriteConf(self.conf.clone()),
+                        Effect::Clone { full_name },
+                    ]
+                }
+                Key::Escape | Key::Backspace => {
+                    self.screen = Screen::SetupMenu {
+                        sel: SETUP_REPO_ROW,
+                    };
+                    vec![]
+                }
+                _ => vec![],
+            },
         }
     }
 
@@ -675,10 +780,26 @@ impl Wizard {
                 vec![]
             }
             Event::CloneDone => {
-                self.screen = Screen::AllSet;
+                // The new working copy is on the card — record its remote so a
+                // re-pick of the same repo no-ops, and (reset mode) so Done knows
+                // the switch completed. First boot ends on the terminal screen;
+                // a reset-mode switch returns to the menu like the other sub-flows.
+                self.repo_on_disk = Some(self.conf.remote_url.clone());
+                if self.mode == Mode::Setup {
+                    self.notice = Some("notes repo switched".into());
+                    self.screen = Screen::SetupMenu {
+                        sel: SETUP_REPO_ROW,
+                    };
+                } else {
+                    self.screen = Screen::AllSet;
+                }
                 vec![Effect::WriteConf(self.conf.clone())]
             }
             Event::CloneFailed(reason) => {
+                // No valid working copy now (a reset-mode switch already deleted
+                // the old tree) — clear disk truth so a re-pick switches afresh
+                // instead of no-oping onto a repo that isn't there.
+                self.repo_on_disk = None;
                 // Back to the pick list so a different (e.g. smaller) repo can
                 // be chosen; the failed half-clone is the driver's to clean.
                 self.notice = Some(format!("clone failed: {reason}"));
@@ -880,9 +1001,15 @@ impl Wizard {
                 let or_unset = |s: &str| {
                     if s.trim().is_empty() { "not set".to_string() } else { s.to_string() }
                 };
+                let repo = if self.conf.remote_url.trim().is_empty() {
+                    "not set".to_string()
+                } else {
+                    repo_display(&self.conf.remote_url)
+                };
                 let items = [
                     format!("Wi-Fi network  ({})", or_unset(&self.conf.wifi_ssid)),
                     format!("GitHub account  ({})", or_unset(&self.conf.gh_user)),
+                    format!("Notes repo  ({repo})"),
                     "Factory reset - erase this card".to_string(),
                     "Done - back to writing".to_string(),
                 ];
@@ -931,6 +1058,16 @@ impl Wizard {
                 line(f, 2, &format!("  {progress}..."), ink);
                 hint(f, "this can take a minute - do not power off");
             }
+            Screen::ConfirmRepoSwitch { full_name, .. } => {
+                // conf.remote_url still names the *current* repo here — it's
+                // committed to the target only on Enter (leaving this screen).
+                line(f, 0, "Switch notes repo", ink);
+                line(f, 2, &format!("  From: {}", repo_display(&self.conf.remote_url)), ink);
+                line(f, 3, &format!("  To:   {full_name}"), ink);
+                line(f, 5, "  This deletes the current copy and re-downloads it.", ink);
+                line(f, 6, "  Your notes are all published, so nothing is lost.", ink);
+                hint(f, "Enter switches - Esc cancels");
+            }
         }
         if let Some(n) = &self.notice {
             let _ = Text::with_baseline(
@@ -973,6 +1110,21 @@ fn draw_qr(f: &mut Frame, text: &str, x0: i32, y0: i32, box_px: i32) {
                 .draw(f);
             }
         }
+    }
+}
+
+/// `owner/name` for a menu/summary line, pulled from a stored remote URL
+/// (`https://host/owner/name.git` → `owner/name`). Falls back to the raw
+/// string when it has no path to split (an odd conf), never panics.
+fn repo_display(remote_url: &str) -> String {
+    let s = remote_url.trim().trim_end_matches('/');
+    let s = s.strip_suffix(".git").unwrap_or(s);
+    let mut segs = s.rsplit('/');
+    match (segs.next(), segs.next()) {
+        (Some(name), Some(owner)) if !name.is_empty() && !owner.is_empty() => {
+            format!("{owner}/{name}")
+        }
+        _ => s.to_string(),
     }
 }
 
