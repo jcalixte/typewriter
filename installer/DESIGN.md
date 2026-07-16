@@ -91,10 +91,11 @@ it.
 
 ## Open items (not blocking the current slices)
 
-- ~~**Hosting**~~ — RESOLVED: public GitHub release on `typoena/typewriter`
-  (`installer-v0.1.0`; originally released under `jcalixte/typewriter`, repo
-  transferred to the org 2026-07-15); `install.sh` pulls from
-  `releases/latest/download`.
+- ~~**Hosting**~~ — RESOLVED: public GitHub releases on `typoena/typewriter`,
+  one per `installer-v*` tag (latest `installer-v0.4.0`, 2026-07-15; the first,
+  `installer-v0.1.0`, shipped under `jcalixte/typewriter` before the repo moved
+  to the org 2026-07-15); `install.sh` pulls `releases/latest/download`, so
+  cutting a tag is the whole deploy.
 - **Non-macOS** — Linux/Windows later; slice work is macOS-first.
 - **Clone target** — cloning ~hundreds of MB directly onto FAT via a reader;
   measure, and fall back to clone-to-temp-then-copy if it's too slow.
@@ -141,8 +142,9 @@ it.
 
 4. **install.sh + release/hosting** — DONE 2026-07-14. Universal macOS binary
    (lipo arm64+x86_64, stripped) published as a public GitHub release on
-   the firmware repo (now `typoena/typewriter`), tag `installer-v0.1.0`, with a
-   `.sha256` sidecar.
+   the firmware repo (now `typoena/typewriter`), first tag `installer-v0.1.0`,
+   with a `.sha256` sidecar; every `installer-v*` tag since re-releases the
+   same way (latest `installer-v0.4.0`).
    `typoena.dev/install.sh` (in the [[typoena-site]] repo): Darwin guard → curl
    binary + sidecar from `releases/latest/download` → `shasum -c` verify → `exec
    … </dev/tty`. Verified end-to-end (mirror, live release, full typoena.dev
