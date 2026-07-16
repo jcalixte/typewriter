@@ -277,6 +277,36 @@ fn qr_renders_modules() {
     assert_eq!(smear, 0);
 }
 
+/// Tab toggles password visibility: it never types a tab into the password,
+/// and the rendered field actually changes between cleartext and mask.
+#[test]
+fn tab_toggles_password_reveal() {
+    let mut w = Wizard::first_boot();
+    type_str(&mut w, "MyNet");
+    w.key(Key::Enter); // onto the password field
+    type_str(&mut w, "abc");
+    assert_eq!(w.conf().wifi_pass, "abc");
+
+    // Default is shown. Snapshot, hide with Tab, snapshot again.
+    let mut shown = Frame::new_white();
+    w.draw_into(&mut shown);
+    assert!(w.key(Key::Char('\t')).is_empty()); // Tab is not text…
+    assert_eq!(w.conf().wifi_pass, "abc"); // …and leaves the password alone
+    let mut hidden = Frame::new_white();
+    w.draw_into(&mut hidden);
+    assert_ne!(
+        shown.bytes(),
+        hidden.bytes(),
+        "hiding the password must change the render"
+    );
+
+    // Toggling back reproduces the cleartext render exactly.
+    w.key(Key::Char('\t'));
+    let mut reshown = Frame::new_white();
+    w.draw_into(&mut reshown);
+    assert_eq!(shown.bytes(), reshown.bytes());
+}
+
 /// Every screen renders without panicking (layout arithmetic guard).
 #[test]
 fn all_screens_draw() {

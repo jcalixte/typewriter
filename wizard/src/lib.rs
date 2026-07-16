@@ -134,6 +134,11 @@ pub struct Wizard {
     conf: conf::Conf,
     screen: Screen,
     notice: Notice,
+    /// Whether the Wi-Fi password is shown in cleartext (Tab toggles). Defaults
+    /// to shown: entering a long random key blind under `*` is the real setup
+    /// pain, the device is held still during a one-time setup, and its secrets
+    /// live in cleartext on the card anyway (physical custody is the control).
+    show_pass: bool,
 }
 
 impl Wizard {
@@ -166,6 +171,7 @@ impl Wizard {
             conf: c,
             screen,
             notice: None,
+            show_pass: true,
         }
     }
 
@@ -188,6 +194,16 @@ impl Wizard {
     /// completion is `WriteConf` + the next step's request).
     pub fn key(&mut self, k: Key) -> Vec<Effect> {
         self.notice = None;
+        // Tab toggles password visibility while editing Wi-Fi. Handled here,
+        // ahead of the `&mut self.screen` match, so it can touch `show_pass`
+        // without fighting that borrow. Tab was already dropped as a control
+        // char on every other screen, so this is a no-op there.
+        if k == Key::Char('\t') {
+            if matches!(self.screen, Screen::WifiEdit { .. }) {
+                self.show_pass = !self.show_pass;
+            }
+            return vec![];
+        }
         match &mut self.screen {
             Screen::WifiEdit { field } => {
                 let f = if *field == 0 {
@@ -427,10 +443,14 @@ impl Wizard {
         match &self.screen {
             Screen::WifiEdit { field } => {
                 line(f, 0, "Welcome to Typoena - Wi-Fi", ink);
-                let mask: String = "*".repeat(self.conf.wifi_pass.chars().count());
+                let pw = if self.show_pass {
+                    self.conf.wifi_pass.clone()
+                } else {
+                    "*".repeat(self.conf.wifi_pass.chars().count())
+                };
                 let (a, b) = (
                     format!("  Network:  {}", self.conf.wifi_ssid),
-                    format!("  Password: {mask}"),
+                    format!("  Password: {pw}"),
                 );
                 line(f, 2, &a, ink);
                 line(f, 3, &b, ink);
@@ -447,9 +467,16 @@ impl Wizard {
                 )
                 .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
                 .draw(f);
+                let tab_hint = if *field == 1 && self.show_pass {
+                    " - Tab hides pw"
+                } else if *field == 1 {
+                    " - Tab shows pw"
+                } else {
+                    ""
+                };
                 hint(
                     f,
-                    "type - Enter next - empty password = open network",
+                    &format!("type - Enter next{tab_hint} - empty = open network"),
                 );
             }
             Screen::WifiTesting => {
