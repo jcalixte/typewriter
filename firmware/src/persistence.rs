@@ -478,6 +478,17 @@ impl Storage {
         Ok(())
     }
 
+    /// Erase just the git working copy — the `:setup` repo-switch delete phase
+    /// (v0.9 slice 5c). Removes `/sd/repo` with the FAT-safe [`Storage::remove_tree`],
+    /// leaving the conf, `/sd/local`, and the markers in place. Idempotent (a
+    /// missing repo is success), so a retry after a partial delete is safe. The
+    /// caller only reaches here past the wizard's mandatory dirty guard, so
+    /// nothing unpublished is lost. Minutes on FAT (~1100 files) — the wizard
+    /// shows a progress line while it runs.
+    pub fn wipe_repo(&self) -> Result<()> {
+        Self::remove_tree(Path::new(REPO_DIR)).context("removing the old repo")
+    }
+
     /// `fs::remove_dir_all` replacement for FAT. std's version trusts the
     /// dirent file type, and the prebuilt std decodes esp-idf's DT constants
     /// with the generic-unix table (files read as fifos, directories as char
