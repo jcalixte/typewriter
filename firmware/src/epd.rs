@@ -31,6 +31,21 @@ const CTRL_BYTES: usize = CTRL_BYTES_W * HEIGHT as usize; // 50 * 272 = 13600
 /// Max bytes per SPI transfer; matches the DMA size configured in `main`.
 const SPI_CHUNK: usize = 4096;
 
+/// EXPERIMENT (2026-07-17): temperature value written to the `0x1A` register
+/// before each *partial* update, to test whether a hotter OTP LUT shortens the
+/// ~543 ms partial-waveform floor. The partial's `0x22 ← 0xFF` reloads temp+LUT
+/// from this register every refresh; `init()` already leaves it at `[0x64,0x00]`
+/// (~100), which is the shipping baseline — so `Some([0x64,0x00])` is the
+/// control and higher values sweep for a faster-indexed LUT.
+///
+/// This is NOT a custom/authored waveform (still a factory OTP LUT, just a
+/// different temperature index), so the DC-balance/longevity risks of the
+/// `0x32` path don't apply — the only cost is ghosting if a hot LUT under-drives
+/// at room temperature. Fully reversible: set to `None` to restore the honest
+/// behaviour (register left at init's `[0x64,0x00]`, no per-partial rewrite).
+/// Results log: docs/tradeoff-curves/epd-refresh-latency.md.
+const PARTIAL_TEMP: Option<[u8; 2]> = Some([0x7F, 0x00]);
+
 pub struct Epd<'d> {
     spi: SpiBusDriver<'d, SpiDriver<'d>>,
     dc: PinDriver<'d, Output>,
@@ -262,8 +277,15 @@ impl<'d> Epd<'d> {
         self.data(&[0x80])?; // VCOM
         self.cmd(0x21)?; // display update control 1
         self.data(&[0x00, 0x10])?; // RED normal, cascade
+        if let Some(temp) = PARTIAL_TEMP {
+            // EXPERIMENT: override the LUT temperature index for this partial.
+            // The 0x22←0xFF kick below includes load-temp + load-LUT, so this
+            // takes effect on the very next activation. See PARTIAL_TEMP.
+            self.cmd(0x1A)?; // write to temperature register
+            self.data(&temp)?;
+        }
         self.cmd(0x22)?; // display update control 2
-        self.data(&[0xFF])?; // partial update
+        self.data(&[0xFF])?; // partial update (incl. load-temp + load-LUT)
         self.cmd(0x20)?; // master activation
         self.wait_while_busy(2000)?; // partial is well under the full ~2.2 s
         Ok(())
