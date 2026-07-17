@@ -63,13 +63,50 @@ impl Frame {
     /// on the host (the preview) as it does through the `Epd` driver at boot.
     /// `main.rs` shows this once at startup, before the editor opens.
     pub fn splash() -> Self {
+        let mut f = Self::new_white();
+        f.draw_badge();
+        f
+    }
+
+    /// The `:reboot` offboarding screen: the same circle + wordmark as
+    /// [`splash`](Self::splash) with a "restarting..." subtitle. Painted with a
+    /// blocking full refresh just before `esp_restart()`, so the bistable panel
+    /// holds it across the whole reboot and the badge simply carries over into
+    /// the boot splash — the restart reads as one continuous motion, not a freeze.
+    pub fn reboot() -> Self {
+        let mut f = Self::new_white();
+        f.draw_badge();
+
+        // One line below the badge: the circle bottom sits at HEIGHT/2 + 100 =
+        // 236 px, leaving room for a FONT_10X20 line in the 36 px clearance.
+        let char_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+        let text_style = TextStyleBuilder::new()
+            .alignment(Alignment::Center)
+            .baseline(Baseline::Middle)
+            .build();
+        Text::with_text_style(
+            "restarting...",
+            Point::new(WIDTH as i32 / 2, HEIGHT as i32 - 18),
+            char_style,
+            text_style,
+        )
+        .draw(&mut f)
+        .unwrap();
+
+        f
+    }
+
+    /// Draw the Typoena badge — the "typoena" wordmark centred inside a stroked
+    /// circle — onto this frame. Shared by [`splash`](Self::splash) and
+    /// [`reboot`](Self::reboot) so the boot and restart screens are pixel-identical
+    /// bar the subtitle, keeping a `:reboot` visually seamless into boot.
+    fn draw_badge(&mut self) {
         // Badge sized to leave a comfortable margin inside the 272 px panel
         // height (diameter 200 → 36 px clear top and bottom).
         const WORDMARK: &str = "typoena";
         const CIRCLE_DIAMETER: u32 = 200;
         const STROKE_WIDTH: u32 = 4;
 
-        let mut f = Self::new_white();
         let center = Point::new(WIDTH as i32 / 2, HEIGHT as i32 / 2);
 
         let stroke = PrimitiveStyleBuilder::new()
@@ -78,7 +115,7 @@ impl Frame {
             .build();
         Circle::with_center(center, CIRCLE_DIAMETER)
             .into_styled(stroke)
-            .draw(&mut f)
+            .draw(self)
             .unwrap(); // Frame's DrawTarget error is Infallible
 
         // Centre the wordmark on the panel centre in both axes, so it sits in
@@ -89,10 +126,8 @@ impl Frame {
             .baseline(Baseline::Middle)
             .build();
         Text::with_text_style(WORDMARK, center, char_style, text_style)
-            .draw(&mut f)
+            .draw(self)
             .unwrap();
-
-        f
     }
 
     pub fn bytes(&self) -> &[u8] {

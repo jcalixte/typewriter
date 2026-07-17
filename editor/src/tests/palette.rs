@@ -389,6 +389,18 @@ fn setup_palette_command_requests_the_wizard() {
 }
 
 #[test]
+fn reboot_palette_command_requests_a_restart() {
+    // `> reboot` fuzzy-ranks the Reboot action first; Enter (clean buffer) closes
+    // the palette and queues the restart effect.
+    let mut e = palette_type(&["/sd/repo/notes.md"], ">reboot");
+    let matches = e.palette_command_matches();
+    assert_eq!(PALETTE_CMDS[matches[0]], PaletteCmd::Reboot);
+    e.handle(Key::Enter);
+    assert_eq!(e.mode(), Mode::Normal); // one-shot closes the palette
+    assert_eq!(kinds(&e.take_effects()), vec![Kind::Reboot]);
+}
+
+#[test]
 fn running_a_command_toggles_the_pref_live_and_queues_a_save_prefs() {
     // >line<Enter> flips line_numbers off, in-core, and asks the host to persist.
     let mut e = palette_type(&["/sd/repo/notes.md"], ">line");

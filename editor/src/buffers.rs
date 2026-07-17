@@ -145,6 +145,35 @@ impl Editor {
         });
     }
 
+    /// Queue a save for every dirty resident buffer that has a name — active and
+    /// parked alike — as the `:reboot` pre-flight. Returns `false` *without
+    /// queuing anything* if any dirty buffer is the unnamed scratch buffer: it has
+    /// nowhere to persist (`:w` posts "no file name" for it), so the caller refuses
+    /// the reboot rather than lose it silently on the restart. The active buffer
+    /// routes through [`write_active`](Self::write_active) so it formats exactly
+    /// like `:w`; parked buffers reuse the evict-time [`Effect::Save`] verbatim —
+    /// they were formatted when last active and are deliberately not reflowed here,
+    /// the same reason eviction never reflows a file the user can't see.
+    pub(crate) fn try_save_all_dirty(&mut self) -> bool {
+        let unnamed_dirty = (self.dirty && self.path.is_empty())
+            || self.parked.iter().any(|b| b.dirty && b.path.is_empty());
+        if unnamed_dirty {
+            return false;
+        }
+        if self.dirty {
+            self.write_active();
+        }
+        for i in 0..self.parked.len() {
+            if self.parked[i].dirty {
+                let path = self.parked[i].path.clone();
+                let scope = self.parked[i].scope;
+                let contents = self.parked[i].text.clone();
+                self.requests.push(Effect::Save { path, scope, contents });
+            }
+        }
+        true
+    }
+
     /// Switch the active buffer to `path`. If it is already resident (parked),
     /// restore that copy with its caret/scroll/undo intact — no disk read. If it
     /// is not resident, queue an [`Effect::Load`]; the host reads the file and

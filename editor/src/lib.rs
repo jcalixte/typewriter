@@ -143,6 +143,13 @@ pub enum Effect {
     /// (prefilled from the card conf). Only queued when no buffer has unsaved
     /// edits ([`any_dirty`](Editor::any_dirty)) — the reboot would lose them.
     Setup,
+    /// `:reboot` (or a software reboot button) — cleanly restart the device.
+    /// Unlike [`Setup`](Effect::Setup) this needs no marker and no radio hand-off:
+    /// the host paints the branded splash and calls `esp_restart()`. The editor
+    /// auto-saves every named dirty buffer in the same batch first (queued ahead
+    /// of this, so the host flushes them before the reset); a dirty *unnamed*
+    /// scratch buffer has nowhere to save and blocks the reboot instead.
+    Reboot,
     /// Focus mode (Pomodoro): begin — or, after a break, restart — a focus
     /// block. The host starts its silent monotonic block timer and snapshots the
     /// word count for the session stats. Queued by `:focus` (turning the session
@@ -1009,6 +1016,7 @@ impl Editor {
             "gp" => self.run_publish(),
             "gl" => self.requests.push(Effect::Pull),
             "setup" => self.request_setup(),
+            "reboot" => self.request_reboot(),
             "focus" => self.toggle_focus(),
             "focusdebug" => self.toggle_focus_debug(),
             _ => {}
@@ -1024,6 +1032,22 @@ impl Editor {
             return;
         }
         self.requests.push(Effect::Setup);
+    }
+
+    /// `:reboot` (or a software reboot button) — ask the host to restart. The
+    /// restart drops the in-RAM buffers, so it first auto-saves every *named*
+    /// dirty buffer ([`try_save_all_dirty`](Self::try_save_all_dirty)); those
+    /// [`Save`](Effect::Save)s are queued ahead of [`Reboot`](Effect::Reboot), so
+    /// the host flushes them to the card before it resets. A dirty *unnamed*
+    /// scratch buffer has nowhere to save to, so it blocks the reboot with a
+    /// notice instead of losing the text — unlike a button that silently no-ops,
+    /// this at least says why nothing happened.
+    pub(crate) fn request_reboot(&mut self) {
+        if !self.try_save_all_dirty() {
+            self.set_notice("unnamed buffer - name it first");
+            return;
+        }
+        self.requests.push(Effect::Reboot);
     }
 
     fn reset_pending(&mut self) {

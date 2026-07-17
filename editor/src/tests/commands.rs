@@ -51,6 +51,41 @@ fn setup_command_is_refused_with_unsaved_changes() {
 }
 
 #[test]
+fn reboot_command_requests_a_restart_when_clean() {
+    // A fresh clean buffer → `:reboot` asks the host to restart, nothing to save.
+    assert_eq!(kinds(&command("reboot").1), vec![Kind::Reboot]);
+}
+
+#[test]
+fn reboot_command_autosaves_a_dirty_buffer_then_restarts() {
+    // A named dirty buffer → `:reboot` saves it first, then restarts. The Save is
+    // queued ahead of the Reboot so the host flushes it to the card before reset.
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    e.handle(Key::Char('i'));
+    send(&mut e, "hi");
+    e.handle(Key::Escape);
+    ex(&mut e, "reboot");
+    assert_eq!(kinds(&e.take_effects()), vec![Kind::Save, Kind::Reboot]);
+}
+
+#[test]
+fn reboot_command_refuses_an_unsaved_unnamed_buffer() {
+    // The unnamed scratch buffer (empty path) has nowhere to save to, so `:reboot`
+    // blocks with a notice and queues nothing rather than lose the text on reset.
+    let mut e = Editor::with_text(String::new());
+    e.handle(Key::Char('i'));
+    send(&mut e, "hi");
+    e.handle(Key::Escape);
+    ex(&mut e, "reboot");
+    assert!(e.take_effects().is_empty(), "unnamed dirty :reboot must queue nothing");
+    assert!(
+        e.notice.as_deref().unwrap_or_default().contains("unnamed"),
+        "expected an unnamed-buffer notice, got {:?}",
+        e.notice
+    );
+}
+
+#[test]
 fn gp_formats_the_buffer_before_publishing() {
     // fmt → save → commit → push: `:gp` runs :fmt in-core first (default on).
     let mut e = Editor::with_file(

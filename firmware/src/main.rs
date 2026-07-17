@@ -451,6 +451,19 @@ fn main() -> anyhow::Result<()> {
                         #[cfg(not(feature = "git"))]
                         ed.set_notice(":setup needs the full firmware");
                     }
+                    Effect::Reboot => {
+                        // Clean restart (`:reboot`). No marker or radio hand-off
+                        // like `:setup` needs — just paint the branded splash (the
+                        // same circle+wordmark the panel boots back to, plus a
+                        // "restarting..." line) so the reboot reads as intentional
+                        // rather than a frozen frame. The editor already refused if
+                        // anything was unsaved. Blocking full refresh so the frame
+                        // is on the bistable panel before the reset fires; it then
+                        // carries over the whole reboot into the boot splash.
+                        log::info!(":reboot — restarting");
+                        let _ = epd.display_frame(Frame::reboot().bytes());
+                        unsafe { esp_idf_svc::sys::esp_restart() };
+                    }
                     Effect::FocusStart => {
                         // Begin (or, after a break, restart) a focus block: start
                         // the silent monotonic timer and snapshot the word count

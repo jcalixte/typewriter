@@ -139,6 +139,32 @@ fn a_dirty_parked_buffer_is_saved_when_evicted() {
 }
 
 #[test]
+fn reboot_autosaves_every_dirty_resident_buffer() {
+    // Dirty the active buffer and a parked one, then `:reboot` saves both (active
+    // first, then parked) ahead of the restart — the fan-out loses nothing.
+    let mut e = Editor::with_file("/sd/repo/a.md".into(), Scope::Tracked, "A".into());
+    e.handle(Key::Char('i'));
+    e.handle(Key::Char('!'));
+    e.handle(Key::Escape); // A dirty
+    e.install_loaded("/sd/repo/b.md".into(), Scope::Tracked, "B".into()); // parks A(dirty)
+    e.handle(Key::Char('i'));
+    e.handle(Key::Char('!'));
+    e.handle(Key::Escape); // B (now active) dirty
+    e.take_effects(); // discard anything queued during setup
+    ex(&mut e, "reboot");
+    let effs = e.take_effects();
+    assert_eq!(kinds(&effs), vec![Kind::Save, Kind::Save, Kind::Reboot]);
+    let saved: Vec<&str> = effs
+        .iter()
+        .filter_map(|ef| match ef {
+            Effect::Save { path, .. } => Some(path.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(saved, vec!["/sd/repo/b.md", "/sd/repo/a.md"]);
+}
+
+#[test]
 fn a_clean_parked_buffer_is_dropped_silently_on_eviction() {
     let mut e = Editor::with_file("/sd/repo/a.md".into(), Scope::Tracked, "A".into());
     // A is never edited (clean); filling past ≤3 must evict it without a Save.

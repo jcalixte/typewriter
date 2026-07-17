@@ -32,6 +32,7 @@ pub(crate) enum PaletteCmd {
     Format,
     Publish,
     Setup,
+    Reboot,
     SaveOnIdle,
     FormatOnSave,
     LineNumbers,
@@ -58,7 +59,9 @@ impl PaletteCmd {
     fn kind(self) -> CmdKind {
         match self {
             PaletteCmd::NewFile => CmdKind::Param,
-            PaletteCmd::Format | PaletteCmd::Publish | PaletteCmd::Setup => CmdKind::OneShot,
+            PaletteCmd::Format | PaletteCmd::Publish | PaletteCmd::Setup | PaletteCmd::Reboot => {
+                CmdKind::OneShot
+            }
             _ => CmdKind::Toggle,
         }
     }
@@ -66,11 +69,12 @@ impl PaletteCmd {
 
 /// The palette command list, in display order (empty `>` query shows them all):
 /// the actions first, the settings after.
-pub(crate) const PALETTE_CMDS: [PaletteCmd; 11] = [
+pub(crate) const PALETTE_CMDS: [PaletteCmd; 12] = [
     PaletteCmd::NewFile,
     PaletteCmd::Format,
     PaletteCmd::Publish,
     PaletteCmd::Setup,
+    PaletteCmd::Reboot,
     PaletteCmd::SaveOnIdle,
     PaletteCmd::FormatOnSave,
     PaletteCmd::LineNumbers,
@@ -319,6 +323,7 @@ impl Editor {
             PaletteCmd::Format => "format".to_string(),
             PaletteCmd::Publish => "publish".to_string(),
             PaletteCmd::Setup => "setup...".to_string(),
+            PaletteCmd::Reboot => "reboot".to_string(),
             PaletteCmd::SaveOnIdle => format!("save on idle: {}", on(self.prefs.save_on_idle)),
             PaletteCmd::FormatOnSave => format!("format on save: {}", on(self.prefs.format_on_save)),
             PaletteCmd::LineNumbers => format!("line numbers: {}", on(self.prefs.line_numbers)),
@@ -372,6 +377,7 @@ impl Editor {
                     }
                     PaletteCmd::Publish => self.run_publish(),
                     PaletteCmd::Setup => self.request_setup(),
+                    PaletteCmd::Reboot => self.request_reboot(),
                     _ => {}
                 }
             }
@@ -434,7 +440,11 @@ impl Editor {
             // Actions, not prefs: palette_run_command routes them away, so we never
             // arrive here. Return before the SavePrefs/notice below rather than
             // panicking the firmware on a would-be routing bug.
-            PaletteCmd::NewFile | PaletteCmd::Format | PaletteCmd::Publish | PaletteCmd::Setup => {
+            PaletteCmd::NewFile
+            | PaletteCmd::Format
+            | PaletteCmd::Publish
+            | PaletteCmd::Setup
+            | PaletteCmd::Reboot => {
                 debug_assert!(false, "cycle_pref called with a non-toggle command");
                 return;
             }
