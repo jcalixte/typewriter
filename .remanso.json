@@ -3,9 +3,13 @@
     "Arvo",
     "Intel One Mono",
     "Geist Mono",
+    "Lora",
     "Space Mono",
+    "Playfair Display",
     "PT Serif",
-    "IBM Plex Serif"
+    "IBM Plex Serif",
+    "Outfit",
+    "Yuyu"
   ],
   "fontSize": "15pt",
   "pageWidth": "640px",
