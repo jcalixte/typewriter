@@ -44,6 +44,19 @@ const CURSOR_DEBOUNCE_MS: u128 = 2000;
 /// to fire during a mid-sentence pause.
 const IDLE_SAVE_MS: u128 = 1500;
 
+/// Focus mode (Pomodoro) block length: 25 minutes of writing before the rest
+/// card drops. Silent — never shown as a live countdown (an e-ink no-go, and
+/// the whole point). See docs/v0.7.5-focus-mode.md.
+const FOCUS_LEN_MS: u128 = 25 * 60 * 1000;
+/// The same 25 on a **seconds** clock, for the `:focusdebug` time-base
+/// ([`Editor::focus_debug`]) — makes the whole cycle testable in seconds.
+const FOCUS_DEBUG_LEN_MS: u128 = 25 * 1000;
+/// Grace past the block length: if the writer never pauses (so the pause-gated
+/// drop can't fire), force the break this long after it comes due, and the
+/// debug equivalent.
+const FOCUS_GRACE_MS: u128 = 2 * 60 * 1000;
+const FOCUS_DEBUG_GRACE_MS: u128 = 2 * 1000;
+
 fn main() -> anyhow::Result<()> {
     // Required once before any esp-idf-svc call; some runtime patches
     // only link if this symbol is referenced. See esp-idf-template#71.
@@ -256,6 +269,14 @@ fn main() -> anyhow::Result<()> {
     // does a full refresh to re-establish both RAM banks, since a partial that
     // died mid-transfer may have left them inconsistent.
     let mut force_full = false;
+    // Focus mode (Pomodoro): `Some(start)` while a session is active — the
+    // block's monotonic start (no wall clock needed). It stays Some through the
+    // Rest break too; the due-check below is gated on `mode != Rest`, not this.
+    // `None` when the session is off. `focus_words0` is the word count at the
+    // block's start, for the "words this block" figure. Driven by the
+    // FocusStart/FocusStop effects.
+    let mut focus_start: Option<Instant> = None;
+    let mut focus_words0: usize = 0;
 
     // Keyboard attach/detach state drives the panel's disconnect flag; seed it
     // (and the word-count snapshot) before the first render.
@@ -313,10 +334,20 @@ fn main() -> anyhow::Result<()> {
     loop {
         // Drain all queued keystrokes (type-ahead absorbed during a refresh),
         // apply them, then do a single refresh for the batch.
+        let prev_mode = ed.mode(); // to detect leaving the Rest curtain below
         let mut keys = 0;
         while let Some(k) = usb_kbd::next_key() {
+            let was_rest = ed.mode() == Mode::Rest;
             ed.handle(k);
             keys += 1;
+            // Leaving the rest curtain (Ctrl-C / q / Esc) drops the rest of this
+            // batch: a keyboard bump that triggered the exit can't then poke the
+            // editor, so one accidental touch only ever lands you on a clean
+            // Normal screen, never an edit.
+            if was_rest && ed.mode() != Mode::Rest {
+                while usb_kbd::next_key().is_some() {}
+                break;
+            }
         }
 
         // Service the host-side effects the batch queued, in order. A file open
@@ -420,6 +451,14 @@ fn main() -> anyhow::Result<()> {
                         #[cfg(not(feature = "git"))]
                         ed.set_notice(":setup needs the full firmware");
                     }
+                    Effect::FocusStart => {
+                        // Begin (or, after a break, restart) a focus block: start
+                        // the silent monotonic timer and snapshot the word count
+                        // for the rest card. See docs/v0.7.5-focus-mode.md.
+                        focus_start = Some(Instant::now());
+                        focus_words0 = ed.word_count();
+                    }
+                    Effect::FocusStop => focus_start = None,
                 }
             }
         }
@@ -440,6 +479,43 @@ fn main() -> anyhow::Result<()> {
         last_kbd = kbd;
 
         if keys == 0 {
+            // Focus mode: a running block that has reached its length drops the
+            // rest card at the next typing pause — never mid-keystroke — or at a
+            // grace cap if the writer never pauses. The break is a FULL refresh:
+            // the curtain is a deliberate, unmissable state change, and the clean
+            // flash avoids ghosting the big black/white swap. Skipped once Rest
+            // is already showing. The elapsed check is a single one-shot
+            // threshold, not a per-second repaint (no live countdown exists).
+            if let Some(start) = focus_start {
+                if ed.mode() != Mode::Rest {
+                    let (len, grace, div) = if ed.focus_debug() {
+                        (FOCUS_DEBUG_LEN_MS, FOCUS_DEBUG_GRACE_MS, 1000u128)
+                    } else {
+                        (FOCUS_LEN_MS, FOCUS_GRACE_MS, 60_000u128)
+                    };
+                    let el = start.elapsed().as_millis();
+                    let paused = last_activity.elapsed().as_millis() >= CURSOR_DEBOUNCE_MS;
+                    if el >= len && (paused || el >= len + grace) {
+                        let words = ed.word_count().saturating_sub(focus_words0);
+                        ed.enter_rest(words, (el / div) as u32);
+                        ed.draw_into(&mut back, true);
+                        let t0 = Instant::now();
+                        if let Err(e) = epd.display_frame(back.bytes()) {
+                            log::warn!("rest-card refresh FAILED ({e}); full refresh next");
+                            force_full = true;
+                            continue;
+                        }
+                        partials_since_full = 0;
+                        log::info!(
+                            "focus: rest after {el} ms ({words} words); {} ms",
+                            t0.elapsed().as_millis()
+                        );
+                        std::mem::swap(&mut shown, &mut back);
+                        cursor_shown = true;
+                        continue;
+                    }
+                }
+            }
             // A finished git operation reports its outcome here (it ran on the
             // git thread while we idled). Show it in the snackbar with a silent
             // full-area partial — no keystroke will arrive to trigger a repaint.
@@ -508,6 +584,12 @@ fn main() -> anyhow::Result<()> {
                     }
                 };
                 ed.set_notice(notice);
+                // Behind the rest curtain the panel is masked: keep the state
+                // settlement above but defer the repaint — the notice shows when
+                // the writer presses `c` and the editor repaints normally.
+                if ed.mode() == Mode::Rest {
+                    continue;
+                }
                 ed.draw_into(&mut back, true);
                 if let Err(e) = epd.display_frame_partial_window(back.bytes(), 0, epd::HEIGHT) {
                     log::warn!("sync-notice repaint FAILED ({e}); full refresh next");
@@ -642,6 +724,12 @@ fn main() -> anyhow::Result<()> {
         let prev_scroll = ed.scroll_top();
         ed.draw_into(&mut back, insert_cursor_on);
         let scrolled = ed.scroll_top() != prev_scroll;
+
+        // Leaving the rest curtain (c/q/Esc) swaps a full-screen card back to the
+        // editor: force a clean full refresh so the big ink change doesn't ghost.
+        if prev_mode == Mode::Rest && ed.mode() != Mode::Rest {
+            force_full = true;
+        }
 
         // Only the rows that changed since the last shown frame need updating.
         let Some((y0, y1)) = changed_rows(shown.bytes(), back.bytes()) else {

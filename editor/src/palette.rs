@@ -193,8 +193,9 @@ impl Editor {
             // Esc, or Cmd-P again, closes the palette.
             Key::Escape | Key::Palette => self.close_palette(),
             // Redo has no meaning here; Cmd-S is handled in `handle` before
-            // dispatch (unreachable here, but the match must be exhaustive).
-            Key::Redo | Key::Save => {}
+            // dispatch; Ctrl-C is a focus-break key. All no-ops in the palette
+            // (unreachable/inert here, but the match must be exhaustive).
+            Key::Redo | Key::Save | Key::FocusContinue | Key::FocusQuit => {}
         }
     }
 
@@ -234,8 +235,10 @@ impl Editor {
             }
             Key::Escape | Key::Palette => self.close_palette(),
             // No list to move over in this step; Cmd-S is handled upstream in
-            // `handle` (unreachable here, but the match must be exhaustive).
-            Key::Up | Key::Down | Key::HalfPageUp | Key::HalfPageDown | Key::Redo | Key::Save => {}
+            // `handle`, Ctrl-C is a focus-break key (both inert here, but the
+            // match must be exhaustive).
+            Key::Up | Key::Down | Key::HalfPageUp | Key::HalfPageDown | Key::Redo | Key::Save
+            | Key::FocusContinue | Key::FocusQuit => {}
         }
     }
 

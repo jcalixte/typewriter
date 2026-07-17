@@ -52,6 +52,14 @@ pub enum Key {
     /// Ctrl+P — move up: one line in Normal/View (vim `CTRL-P` ≡ `k`), or one row
     /// in the file palette. Ignored in Insert.
     Up,
+    /// Ctrl+C — leave the focus-mode break (Pomodoro rest): continue to the next
+    /// block. A deliberate chord (not the bare letter) so an idle keypress can't
+    /// end a break by accident. Meaningful only in `Rest`; ignored elsewhere.
+    FocusContinue,
+    /// Ctrl+Q — quit the focus session from the break. A chord like
+    /// [`FocusContinue`](Key::FocusContinue), since ending the whole session is
+    /// the more consequential exit. Meaningful only in `Rest`; ignored elsewhere.
+    FocusQuit,
     /// Caps Lock tapped on its own. A no-op for now; groundwork for a future
     /// vim-style normal mode.
     Escape,
@@ -165,6 +173,8 @@ fn translate(usage: u8, shift: bool, ctrl: bool, cmd: bool) -> Option<Key> {
         0x13 if cmd => return Some(Key::Palette), // Cmd+P, file palette
         0x16 if cmd => return Some(Key::Save),   // Cmd+S, save (like :w)
         0x11 if ctrl => return Some(Key::Down), // Ctrl+N, move down (vim CTRL-N)
+        0x06 if ctrl => return Some(Key::FocusContinue), // Ctrl+C, continue the focus break
+        0x14 if ctrl => return Some(Key::FocusQuit),     // Ctrl+Q, quit the focus session
         _ => {}
     }
 

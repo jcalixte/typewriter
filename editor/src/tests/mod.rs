@@ -20,6 +20,7 @@ mod prefs;
 mod snippets;
 mod search;
 mod pull;
+mod focus;
 
 pub(crate) use crate::*;
 
@@ -63,6 +64,8 @@ enum Kind {
     Delete,
     SavePrefs,
     Setup,
+    FocusStart,
+    FocusStop,
 }
 
 fn kinds(effects: &[Effect]) -> Vec<Kind> {
@@ -76,6 +79,8 @@ fn kinds(effects: &[Effect]) -> Vec<Kind> {
             Effect::Delete { .. } => Kind::Delete,
             Effect::SavePrefs { .. } => Kind::SavePrefs,
             Effect::Setup => Kind::Setup,
+            Effect::FocusStart => Kind::FocusStart,
+            Effect::FocusStop => Kind::FocusStop,
         })
         .collect()
 }

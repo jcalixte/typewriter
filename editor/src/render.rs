@@ -296,6 +296,19 @@ impl Editor {
     /// background `:gp` push has taken the heap to the floor — a failed
     /// framebuffer alloc aborts the whole app (the 2026-07-13 OOM).
     pub fn draw_into(&mut self, out: &mut Frame, cursor_on: bool) {
+        // The focus-mode break masks the whole screen: draw the rest card
+        // instead of the editor, then apply the theme flip so a dark theme turns
+        // the white card into the black one. Nothing else (layout, scroll,
+        // panel) runs — the buffer stays hidden behind the curtain.
+        if self.mode == Mode::Rest {
+            let mut f = std::mem::replace(out, Frame::empty());
+            self.draw_rest_card(&mut f);
+            if self.prefs.theme == "dark" {
+                f.invert();
+            }
+            *out = f;
+            return;
+        }
         let lay = self.layout();
         let (crow, ccol) = self.caret_rc(&lay);
         self.adjust_scroll(crow, lay.len());
@@ -536,6 +549,22 @@ impl Editor {
             .unwrap();
         }
 
+        // Focus-mode marker: a quiet indicator that a Pomodoro session is
+        // running, one row above the mode line. `(s)` while the debug time-base
+        // is on. (During the break the rest card masks the panel entirely, so
+        // this only ever shows in a focus block, never in Rest.)
+        if self.pomodoro_on {
+            let label = if self.focus_debug { "· focus (s)" } else { "· focus" };
+            Text::with_baseline(
+                label,
+                Point::new(PANEL_X, HEIGHT as i32 - 3 * PANEL_CH),
+                style,
+                Baseline::Top,
+            )
+            .draw(f)
+            .unwrap();
+        }
+
         // Mode indicator + pending count/operator echo at the panel's bottom-
         // left. In Command mode the ':' line (bottom strip) takes over instead.
         // All event-driven — never repaints per keystroke.
@@ -547,6 +576,9 @@ impl Editor {
                 Mode::VisualLine => "V-LINE",
                 Mode::View => "VIEW",
                 Mode::Palette => "PALETTE",
+                // Rest masks the panel (draw_into early-returns), so this is
+                // never reached; listed for exhaustiveness.
+                Mode::Rest => "REST",
                 Mode::Command => unreachable!(),
             };
             let mut s = format!("-- {name} --");
@@ -575,6 +607,36 @@ impl Editor {
             )
             .draw(f)
             .unwrap();
+        }
+    }
+
+    /// The focus-mode **rest card** ([`Mode::Rest`]): a full-screen curtain that
+    /// masks the editor during a Pomodoro break. Centred, body font. Painted
+    /// black-on-white here; the caller's dark-theme invert turns it into the
+    /// black card. Three lines — a `Rest` title, the finished block's
+    /// `words · minutes`, and the `Ctrl-C continue · Ctrl-Q quit` hint (both are
+    /// deliberate chords so a stray key can't end the break). Kept to Latin-9
+    /// glyphs (the `·` is 0xB7, in the font; no em-dash, which isn't) so no
+    /// extra-glyph overlay is needed.
+    pub(crate) fn draw_rest_card(&self, f: &mut Frame) {
+        f.clear_white();
+        let style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+        let (words, mins) = self.rest_stats.unwrap_or((0, 0));
+        let lines = [
+            "Rest".to_string(),
+            format!("{words} words · {mins} min"),
+            "Ctrl-C continue  ·  Ctrl-Q quit".to_string(),
+        ];
+        // Vertically centre the three body-font rows; horizontally centre each.
+        let block_h = lines.len() as i32 * CH;
+        let mut y = (HEIGHT as i32 - block_h) / 2;
+        for line in &lines {
+            let w = line.chars().count() as i32 * CW;
+            let x = (WIDTH as i32 - w) / 2;
+            Text::with_baseline(line, Point::new(x, y), style, Baseline::Top)
+                .draw(f)
+                .unwrap();
+            y += CH;
         }
     }
 

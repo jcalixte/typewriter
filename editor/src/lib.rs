@@ -76,6 +76,12 @@ pub enum Mode {
     /// opens it, Esc (or `Cmd-P` again) cancels back to Normal. See
     /// [`Editor::palette_key`].
     Palette,
+    /// Focus-mode break (Pomodoro rest): a full-screen card masks the editor
+    /// and every key is swallowed but `c` (start the next focus block) and
+    /// `q`/`Esc` (end the session). Entered by the host on the silent 25-min
+    /// block timer via [`Editor::enter_rest`] — there is no way to *type* into
+    /// Rest, so it never touches the hidden buffer.
+    Rest,
 }
 
 /// Which of the two file scopes ([`CONTEXT.md`]) a buffer belongs to. Fixed at
@@ -137,6 +143,14 @@ pub enum Effect {
     /// (prefilled from the card conf). Only queued when no buffer has unsaved
     /// edits ([`any_dirty`](Editor::any_dirty)) — the reboot would lose them.
     Setup,
+    /// Focus mode (Pomodoro): begin — or, after a break, restart — a focus
+    /// block. The host starts its silent monotonic block timer and snapshots the
+    /// word count for the session stats. Queued by `:focus` (turning the session
+    /// on) and by `c` in [`Mode::Rest`] (continuing to the next block).
+    FocusStart,
+    /// Focus mode: end the session. The host stops the block timer. Queued by
+    /// `:focus` (turning it off) and by `q`/`Esc` in [`Mode::Rest`].
+    FocusStop,
 }
 
 
@@ -284,6 +298,22 @@ pub struct Editor {
     /// [`refresh_stats`](Self::refresh_stats) on the typing pause — the same
     /// throttle as the word count — so the panel hint never repaints per keystroke.
     snippet_hint: Option<String>,
+    /// Focus mode (Pomodoro) session active. Orthogonal to [`mode`](Self::mode):
+    /// during a focus block you keep editing in Normal/Insert/Visual, and this
+    /// only drives the side-panel `focus` marker and gates the `:focus` toggle.
+    /// The break itself is [`Mode::Rest`]. RAM-only — a session never survives a
+    /// reboot. The block *timer* lives host-side (it needs a monotonic clock the
+    /// pure core can't read); the host drives it via [`Effect::FocusStart`] /
+    /// [`Effect::FocusStop`].
+    pomodoro_on: bool,
+    /// Words and minutes of the just-finished block, shown on the [`Mode::Rest`]
+    /// card. Set by [`enter_rest`](Self::enter_rest) (the host computes them),
+    /// cleared on leaving Rest. `None` outside Rest.
+    rest_stats: Option<(usize, u32)>,
+    /// Debug time-base: the host runs the focus block on a 25-**second** clock
+    /// instead of 25 minutes, so the whole cycle is testable in seconds. Toggled
+    /// by `:focusdebug`; the panel marker shows `(s)` while it is on.
+    focus_debug: bool,
 }
 
 
@@ -327,6 +357,9 @@ impl Editor {
             snippets: Vec::new(),
             snippet_stops: Vec::new(),
             snippet_hint: None,
+            pomodoro_on: false,
+            rest_stats: None,
+            focus_debug: false,
         }
     }
 
@@ -455,8 +488,9 @@ impl Editor {
         self.snippets = snippets.0;
     }
 
-    /// Whitespace-delimited word count of the whole buffer.
-    fn word_count(&self) -> usize {
+    /// Whitespace-delimited word count of the whole buffer. Public so the host
+    /// can snapshot it at a focus block's start and diff it for the rest card.
+    pub fn word_count(&self) -> usize {
         self.text.split_whitespace().count()
     }
 
@@ -465,6 +499,15 @@ impl Editor {
     /// drained by [`take_effects`](Self::take_effects); ordinary keys queue
     /// nothing.
     pub fn handle(&mut self, key: Key) {
+        // Rest (the focus-mode break) is a full-screen modal: swallow every key
+        // but `c`/`q`/`Esc`, resolved before the Cmd+S, notice-clear, and `.`
+        // machinery so a break key can't save, dismiss a snackbar, or record a
+        // repeatable change. The only ways out are back through `rest_key`.
+        if self.mode == Mode::Rest {
+            self.rest_key(key);
+            return;
+        }
+
         // Cmd+S — an explicit save from any mode, mirroring `:w`, resolved
         // before mode dispatch so it never changes mode nor gets recorded for
         // `.` (returns early). It is guarded by the dirty flag: a clean buffer
@@ -516,6 +559,8 @@ impl Editor {
             Mode::View => self.view_key(key),
             Mode::Command => self.command_key(key),
             Mode::Palette => self.palette_key(key),
+            // Resolved before dispatch (above); listed for exhaustiveness.
+            Mode::Rest => self.rest_key(key),
         }
 
         // A snippet tab-stop session lives only in Insert. Leaving Insert — Esc,
@@ -616,7 +661,8 @@ impl Editor {
             // gestures — Normal/View only. In Insert they're a no-op rather than
             // yanking the caret off the text you're typing. Redo (Ctrl-r) is
             // likewise ignored here.
-            Key::HalfPageDown | Key::HalfPageUp | Key::Redo | Key::Down | Key::Up => {}
+            Key::HalfPageDown | Key::HalfPageUp | Key::Redo | Key::Down | Key::Up
+            | Key::FocusContinue | Key::FocusQuit => {}
             // Cmd-S is resolved in `handle` before mode dispatch (so it saves
             // without leaving Insert); unreachable here, but the match is
             // exhaustive.
@@ -963,6 +1009,8 @@ impl Editor {
             "gp" => self.run_publish(),
             "gl" => self.requests.push(Effect::Pull),
             "setup" => self.request_setup(),
+            "focus" => self.toggle_focus(),
+            "focusdebug" => self.toggle_focus_debug(),
             _ => {}
         }
     }
@@ -1020,6 +1068,78 @@ impl Editor {
                 self.open_palette();
             }
             _ => {}
+        }
+    }
+
+    // --- Focus mode (Pomodoro) ---------------------------------------------
+
+    /// Whether a focus session is running (drives the panel `focus` marker).
+    pub fn pomodoro_on(&self) -> bool {
+        self.pomodoro_on
+    }
+
+    /// Whether the debug (seconds-not-minutes) time-base is on. The host reads
+    /// this to scale the block length and the displayed figure.
+    pub fn focus_debug(&self) -> bool {
+        self.focus_debug
+    }
+
+    /// `:focus` — toggle the focus session. On starts a block
+    /// ([`Effect::FocusStart`]); off ends it ([`Effect::FocusStop`]). Only
+    /// reachable outside Rest (Rest swallows `:`), so it never fights the break.
+    fn toggle_focus(&mut self) {
+        self.pomodoro_on = !self.pomodoro_on;
+        if self.pomodoro_on {
+            self.requests.push(Effect::FocusStart);
+            self.set_notice("focus on");
+        } else {
+            self.requests.push(Effect::FocusStop);
+            self.set_notice("focus off");
+        }
+    }
+
+    /// `:focusdebug` — flip the debug time-base (25 **seconds** per block, so the
+    /// whole cycle is testable in seconds). Independent of whether a session is
+    /// running; the host picks up the new base on its next timer check. Queues no
+    /// effect — the host reads [`focus_debug`](Self::focus_debug) directly.
+    fn toggle_focus_debug(&mut self) {
+        self.focus_debug = !self.focus_debug;
+        self.set_notice(if self.focus_debug { "focus: debug (s)" } else { "focus: normal" });
+    }
+
+    /// Drop the Rest curtain: the host calls this when a running block reaches
+    /// its length at a typing pause. `words`/`mins` are the finished block's
+    /// stats (computed host-side from the monotonic clock and the word-count
+    /// delta) and are shown on the card. The session stays on — `c` starts the
+    /// next block, `q`/`Esc` ends it (see [`rest_key`](Self::rest_key)). Ends any
+    /// in-progress change recording / snippet session, like leaving Insert would.
+    pub fn enter_rest(&mut self, words: usize, mins: u32) {
+        self.rest_stats = Some((words, mins));
+        self.mode = Mode::Rest;
+        self.dot_recording = None;
+        self.snippet_stops.clear();
+    }
+
+    /// Dispatch a key in [`Mode::Rest`]. The break masks the whole screen, so
+    /// only the two chords do anything: `Ctrl-C` continues to the next block and
+    /// `Ctrl-Q` quits the session. Every other key — including a bare `c`/`q`
+    /// and `Esc` — is swallowed, so no idle keypress can end a break or a
+    /// session, and the reader can't edit the hidden buffer. Both exits are
+    /// chords on purpose (a stray single key is too easy behind the curtain).
+    fn rest_key(&mut self, key: Key) {
+        match key {
+            Key::FocusContinue => {
+                self.mode = Mode::Normal;
+                self.rest_stats = None;
+                self.requests.push(Effect::FocusStart); // next block
+            }
+            Key::FocusQuit => {
+                self.mode = Mode::Normal;
+                self.rest_stats = None;
+                self.pomodoro_on = false;
+                self.requests.push(Effect::FocusStop);
+            }
+            _ => {} // swallowed — no editing behind the curtain
         }
     }
 
