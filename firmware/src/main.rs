@@ -186,15 +186,6 @@ fn main() -> anyhow::Result<()> {
     log::info!("prefs: {prefs:?}");
     let (boot_path, boot_scope, saved) = boot_note(&mut epd, &storage, &prefs);
 
-    // Feed the file palette (Ctrl-P) from a background walk. Enumerating
-    // /sd/repo + /sd/local takes seconds on a big tree (4.3 s at 1098 files,
-    // readdir-over-SPI bound) and the palette is not needed to type, so it
-    // must not hold up the first editor frame. The list lands on `walk_rx` and
-    // the idle branch of the main loop feeds it to the editor; until then the
-    // palette shows recents only. A pull re-feeds it the same way.
-    let (walk_tx, walk_rx) = std::sync::mpsc::channel::<String>();
-    spawn_file_walk(walk_tx.clone());
-
     // Spawn the dedicated git thread — the `:gp` publish transport. It owns
     // the Wi-Fi stack (brought up lazily on the first `:gp`, so the radio
     // stays off until you publish) and parks on `git_tx` until signalled; the
@@ -303,6 +294,21 @@ fn main() -> anyhow::Result<()> {
     let total_ms = unsafe { esp_idf_svc::sys::esp_log_timestamp() };
     let app_ms = (unsafe { esp_idf_svc::sys::esp_timer_get_time() } / 1000) as u32;
     log::info!("boot: cursor ready — {total_ms} ms since power-on ({app_ms} ms app-side)");
+
+    // Feed the file palette (Ctrl-P) from a background walk — spawned only now,
+    // AFTER the first editor frame is on the panel. Enumerating /sd/repo +
+    // /sd/local takes seconds on a big tree (readdir-over-SPI bound) and the
+    // palette isn't needed to type. Spawned earlier (pre-render), the walk
+    // thread monopolized the FatFS volume lock and starved the main task's own
+    // boot SD reads — the synchronous snippets load blocked ~5.4 s behind it
+    // (2026-07-17 trace: cursor-ready 4.2 s → 7.3 s, and the 240 MHz CPU made
+    // it worse by tightening the walk's readdir loop). By here every
+    // critical-path read (prefs, note, snippets) and the first paint are done,
+    // so the walk finally runs off the hot path. The list lands on `walk_rx`;
+    // the idle branch feeds it to the editor (recents-only until then). A pull
+    // re-feeds it the same way.
+    let (walk_tx, walk_rx) = std::sync::mpsc::channel::<String>();
+    spawn_file_walk(walk_tx.clone());
 
     loop {
         // Drain all queued keystrokes (type-ahead absorbed during a refresh),

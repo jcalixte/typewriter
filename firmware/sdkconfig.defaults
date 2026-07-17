@@ -91,3 +91,29 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 # see components/libgit2/esp_mbedtls_stream.c). TLS buffers are CPU-only data,
 # so PSRAM is safe; the handshake is network-bound, not memory-bandwidth-bound.
 CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+
+# --- Boot time (2026-07-17) ---
+# Three defaults that cost ~1.1 s of cold boot for no behavioural change on this
+# board. Cursor-ready was ~4.16 s (git build); target is ≤3 s (v1.0). Measure
+# with the "cursor ready — N ms since power-on" line (esp_log_timestamp, main.rs)
+# — esp_timer misses the ~1.4 s pre-app slice these levers live in.
+
+# Skip the boot-time PSRAM integrity scan (~0.74 s, quantified at main.rs:301).
+# It exists to catch a bad PSRAM part; this is a soldered, known-good
+# WROOM-1-N16R8 octal module, so the scan is dead weight paid on every boot.
+# SPIRAM_BOOT_INIT stays on — the pool is still brought up, just not walked.
+CONFIG_SPIRAM_MEMTEST=n
+
+# Run the CPU at 240 MHz (default is 160). Doesn't touch the EPD waveform (that
+# is BUSY-pin bound), but speeds the .data/.rodata copy and all app-side init,
+# and every keystroke/refresh at runtime. Costs a little more power.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# Silence the 2nd-stage bootloader (default INFO=3) for images that flash our
+# OWN bootloader (OTA / production). INERT on the `cargo run` / `just flash` dev
+# path: espflash injects its prebuilt bootloader (compile-time "Nov 26 2025" in
+# the boot log, verified 2026-07-17), so its INFO lines still spool over UART at
+# 115200 during dev regardless of this flag — it would need an espflash-level
+# override to bite there. Kept so the production bootloader is quiet by default.
+# App-level logging (LOG_DEFAULT_LEVEL) is untouched either way.
+CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
