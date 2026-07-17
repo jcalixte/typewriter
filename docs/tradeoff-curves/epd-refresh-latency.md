@@ -125,6 +125,7 @@ below — this table is the standing menu; the log records what each flash showe
 | ------------------------------------ | ----------------- | ------------- | ------------------------------------------------------------ | ----------------------------------------- |
 | Custom partial LUT via `0x32`        | **yes — authored** | **Yes — the only lever that does.** ~100–200 ms reported on similar panels | ghosting, DC balance/longevity, temperature, no reference waveform — [postmortem](../postmortems/2026-07-16-gate-scan-spike-refuted.md) | parked ("touching the LUT")               |
 | SPI clock 4 → 20 MHz                 | no                | full-area only — measured **−122 ms** (~693→~571 ms, now ≈ windowed); typing flat | signal integrity — 20 MHz clean in test but at panel ceiling on jumpers | **shipped 2026-07-17** — see log            |
+| `set_ram_area` settle delay 2 → 0 ms | no                | **yes — the typing path**: windowed **−70 ms** (~565→~495), full-area −44 ms | too-short latch would garble bands / add ghosting — panel clean, user-attested | **shipped 2026-07-17** — `delay_ms(2)` was a whole `vTaskDelay(1)` tick; see log |
 | ~~Async partial + deferred bank resync~~ | no — pure firmware | no — frees the editor loop during BUSY, not the eye | bank-toggle ordering (this panel is treacherous — [postmortem](../postmortems/2026-07-16-partial-refresh-bank-toggle.md)) | **closed 2026-07-17** — not worth it post-20 MHz (see below) |
 | ~~Temperature-select (`0x1A` sweep)~~ | no | no — flat at every value | — | **closed 2026-07-17** — not a lever (see log) |
 | ~~Gate-scan restriction (`0x01`/`0x0F`)~~ | no | — | **refuted + hazard**: MUX-independent timing, mirrors the panel (OTP gate config, write-only) | closed — never write these registers      |
@@ -257,15 +258,15 @@ and nothing else, exactly as modelled. Panel clean, no glitches.
 > 4 MHz ref (~693 full-area), not the canonical baseline. Cross-session
 > absolute-ms comparisons in this doc carry ±~10 %.
 
-At the shipped 20 MHz the full-area path is ~571 ms ≈ the windowed ~565 ms, so
-the SPI cost of a full-panel repaint is spent — what remains (~28 ms over the
-~543 ms canonical waveform) is the fixed overhead both paths share (the
-`FreeRtos::delay_ms(2)` calls in `set_ram_area`, command framing) plus
-session-drift. The delay floor turned out to be a *smaller* share than the
-10 MHz residual suggested — the 10→20 MHz step cut full-area SPI excess from
-~62 ms to ~6 ms, well past linear. Those fixed `set_ram_area` delays (~12–16 ms
-per full-area refresh) are the only remaining non-waveform lever, and they'd
-help *both* paths equally — a separate micro-optimization if ever worth it.
+At 20 MHz the full-area path was ~571 ms ≈ the windowed ~565 ms, so the SPI cost
+of a full-panel repaint is spent. The remaining non-waveform term was the 8
+`FreeRtos::delay_ms(2)` calls in `set_ram_area` — and those turned out to be the
+*largest* remaining lever, not a rounding error: at a 10 ms tick, `delay_ms(2)`
+rounds up to `vTaskDelay(1)` and blocks to the next tick boundary, so it cost
+0–10 ms each, not 2 ms. Removing them (next section) took windowed to ~495 ms and
+full-area to ~527 ms. After that, both paths sit within ~1 tick of the ~543 ms
+canonical partial waveform — the LUT floor — and there is no cheap lever left
+short of authoring a custom `0x32` LUT.
 
 **Power is not a factor in the clock choice.** Dynamic power scales with
 frequency (`P ≈ C·V²·f`) but a faster clock finishes in proportionally less
@@ -276,4 +277,46 @@ which is set by the LUT and wholly independent of SPI clock. The energy levers
 are *fewer/shorter refreshes* (custom LUT frames, lower full-refresh cadence),
 not the bus rate; device-level draw is dominated by Wi-Fi/TLS during `:gp` and
 the CPU/PSRAM regardless.
+
+### Experiment log — `set_ram_area` settle delay
+
+**What it tests.** `set_ram_area` ends with a `FreeRtos::delay_ms` after latching
+the RAM-window address. A single partial refresh calls it 8× (3 `write_frame_bank`
+× 2 controllers, plus 2 in `update_part`), on both the windowed and full-area
+paths alike — the only non-waveform term that touches the typing path too. GxEPD2
+doesn't settle per window write, so it's probably unneeded. Knob: `RAM_SETTLE_MS`
+in [`epd.rs`](../../firmware/src/epd.rs).
+
+**The trap: `delay_ms(2)` was never 2 ms.** At `CONFIG_FREERTOS_HZ = 100` the tick
+is 10 ms, and `esp-idf-hal`'s `TickType::new_millis` *rounds up*, so `delay_ms(2)`
+compiles to `vTaskDelay(1)` — one tick. `vTaskDelay(1)` blocks to the *next tick
+boundary*, so from a random phase it sleeps **0–10 ms (avg ~5 ms), not 2 ms**.
+Eight of them per refresh is **0–80 ms, ~40 ms average** — which is why removing
+them bought far more than the "~16 ms" a literal 2 ms would have.
+
+**How to run.** Set the delay, flash, type, read `windowed refresh #N … ms`;
+watch for corrupted/missing bands or new ghosting (a too-short latch would show
+as wrong pixels in a band). Sweep 2 → 0.
+
+| `RAM_SETTLE_MS` | Windowed (20-row) ms | Full-area (272) ms | Panel integrity | Verdict | Date |
+| ------------- | -------------------: | -----------------: | --------------- | ------- | ---- |
+| 2 ms (original) | ~565 | ~571 | clean | control (at 20 MHz SPI) | 2026-07-17 |
+| **0 ms** | **~495** | **~527** | log healthy (36 refreshes, tight timings, no error-recovery full refresh) + **panel clean, user-attested** (no missing/garbled bands while typing) | **SHIPPED — −70 ms windowed / −44 ms full-area** | 2026-07-17 |
+| _(1 ms if 0 corrupts)_ | not needed | not needed | — | 0 ms was clean | — |
+
+**Result: 0 ms shipped.** Windowed typing ~565 → ~495 ms, full-area ~571 → ~527 ms,
+across 36 refreshes with a healthy log (tight timings, no crash, no error-recovery
+full refresh) and a **user-attested clean panel** — no missing or garbled bands
+while typing. Band corruption (the acute failure mode of a too-short latch) is the
+thing the eye catches immediately; cumulative ghosting is subtler but is cleared by
+the periodic full refresh (`FULL_REFRESH_EVERY = 64`), with `RAM_SETTLE_MS = 1` (a
+full 10 ms tick) as the fallback if it ever creeps up. The drop lands squarely
+inside the
+8 × `vTaskDelay(1)` = 0–80 ms ceiling the tick math predicts, so the attribution is
+sound even though the control is a prior flash (see the session-variance note; a
+within-flash A/B would tighten it but the mechanism already brackets the result).
+The settle was cargo-cult — an e-ink controller latches its RAM-window address when
+the SPI transaction completes; there is nothing to wait for. This stacks on the
+20 MHz SPI bump: per-keystroke windowed is now **~495 ms**, essentially the bare
+partial waveform.
 

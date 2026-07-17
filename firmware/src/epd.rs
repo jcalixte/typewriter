@@ -43,6 +43,7 @@ const SPI_CHUNK: usize = 4096;
 /// `0x32` path don't apply — the only cost is ghosting if a hot LUT under-drives
 /// at room temperature. Fully reversible: set to `None` to restore the honest
 /// behaviour (register left at init's `[0x64,0x00]`, no per-partial rewrite).
+///
 /// Results log: docs/tradeoff-curves/epd-refresh-latency.md.
 ///
 /// CLOSED 2026-07-17: swept hot `[0x7F,0x00]` and cold `[0x19,0x00]` against the
@@ -53,6 +54,17 @@ const SPI_CHUNK: usize = 4096;
 /// (honest baseline, no per-partial register write); the scaffolding stays only
 /// so the closed result is self-documenting next to the driver.
 const PARTIAL_TEMP: Option<[u8; 2]> = None;
+
+/// Settle delay after each RAM-window set in `set_ram_area`. A partial refresh
+/// issues 8 of these (both windowed and full-area paths). The original port slept
+/// `delay_ms(2)` here — but at `CONFIG_FREERTOS_HZ = 100` that rounds *up* to
+/// `vTaskDelay(1)`, one 10 ms tick, blocking to the next tick boundary: 0–10 ms
+/// each, not 2 ms. Eight per refresh cost ~40 ms average. Shipped at 0 on
+/// 2026-07-17 (verified clean, −70 ms windowed / −44 ms full-area): an e-ink
+/// controller latches the RAM-window address when the SPI transaction completes,
+/// so there is nothing to wait for. Raise to 1 (a full tick) only if band
+/// corruption/ghosting ever appears. Log: docs/tradeoff-curves/epd-refresh-latency.md.
+const RAM_SETTLE_MS: u32 = 0;
 
 pub struct Epd<'d> {
     spi: SpiBusDriver<'d, SpiDriver<'d>>,
@@ -221,7 +233,9 @@ impl<'d> Epd<'d> {
                 self.data(&[ye[0], ye[1]])?;
             }
         }
-        FreeRtos::delay_ms(2);
+        if RAM_SETTLE_MS > 0 {
+            FreeRtos::delay_ms(RAM_SETTLE_MS);
+        }
         Ok(())
     }
 
