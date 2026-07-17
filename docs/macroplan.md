@@ -72,6 +72,13 @@ delivered = 2026-07-14
 learning = "Delivered 2026-07-14, ~16 weeks ahead of the 2026-11-02 baseline, and closed on-device across three bench runs in three days. `/` search shipped smartcase + accent-folded (a user decision that superseded the same-day plain-insensitive version; /ete finds été) with n/N, Enter-only jump, and an editor-global pattern. `:gl` pull landed fetch + fast-forward-only in all four shapes; the fast-forward is an O(changed) tree-diff apply (apply_tree_diff) built after run 2 crashed in libgit2's O(tree) checkout_tree — internal-DRAM exhaustion plus an esp-idf spi_master NULL-deref on its own failed-alloc path. Three memory/transport fixes rode along: file-list interning to one PSRAM blob (was 182 KB internal), a 64 KB DMA reserve, and TLS session resumption (third vendor delta), which cut the rejected-push reconcile cycle from 59 s to 24 s. Bonus: the first on-device rejected-push → reconcile → replay → push success, and the sd_bench dir-scaling run convicted FAT linear directory scans as the ~400 ms/loose-write residual (bounded, accepted). :sync was renamed :gp to pair with :gl."
 
 [[feature]]
+name = "v0.7.5 focus mode"
+start = 2026-07-17
+original = 2026-07-17
+status = "on-track"
+note = "Unplanned same-day insert after v0.7. Silent-timer Pomodoro: a 25-min focus block with no visible countdown, then a full-screen masking rest card dismissed by c. Built + host-tested (firmware 0.7.5, 245 editor tests, both builds compile for xtensa); on-device smoke-test pending via :focusdebug (25-second blocks)."
+
+[[feature]]
 name = "v0.8 battery + sleep"
 start = 2026-11-02
 original = 2026-11-30
@@ -214,6 +221,20 @@ pending. Detail: [v0.6-markdown.md](v0.6-markdown.md).
 fast-forward only, an O(changed) tree-diff apply); `:sync` renamed `:gp`.
 **CLOSED 2026-07-14** (firmware 0.7.0), panel- and git-path-verified on-device.
 Detail: [v0.7-search-and-git.md](v0.7-search-and-git.md).
+
+## v0.7.5 — Focus mode (Pomodoro) — [~]
+
+A silent-timer Pomodoro cycle: a 25-minute **focus** block with no visible
+countdown (the device tracks it silently and imposes the break), then a
+full-screen **rest** card that masks the text and is dismissed by `c` to start
+the next block. Rest is themed (white card / black in dark theme), untimed, and
+shows the block's `words · minutes`; `q`/`Esc` ends the session. Surfaced as
+"focus" (the Pomodoro name is trademarked). Ephemeral — RAM-only, off on reboot.
+A hidden `:focusdebug` runs the block on a 25-**second** clock for quick testing.
+**Built + host-tested 2026-07-17 (firmware 0.7.5), on-device smoke-test pending.**
+Unplanned same-day insert after v0.7, on the
+[v0.2.5](v0.2.5-international-input.md) `.5` precedent.
+Detail: [v0.7.5-focus-mode.md](v0.7.5-focus-mode.md).
 
 ## v0.8 — Power: battery + sleep — [ ]
 
