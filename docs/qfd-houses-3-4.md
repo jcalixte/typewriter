@@ -1,5 +1,7 @@
 # Houses 3 & 4 — processes × controls (pipeline reading)
 
+_Next house → [Quality House (empty template)](quality-house-empty.md)_
+
 Third and fourth houses of the QFD cascade (hub: [`qfd.md`](qfd.md)),
 drawn under a deliberate reinterpretation: a solo-built device has no
 factory, so "process" means the toolchain + release pipeline (P1–P9,

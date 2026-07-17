@@ -1,5 +1,7 @@
 # House 1 — WHATs × HOWs
 
+_Next house → [House 2](qfd-house-2.md)_
+
 The first house of the QFD cascade (hub + reading guide:
 [`qfd.md`](qfd.md)): §1's WHATs (rows) × §2's HOWs (columns), each cell
 scoring how strongly a characteristic advances a requirement

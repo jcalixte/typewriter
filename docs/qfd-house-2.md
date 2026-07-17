@@ -1,5 +1,7 @@
 # House 2 — HOWs × components
 
+_Next house → [Houses 3 & 4](qfd-houses-3-4.md)_
+
 Second house of the QFD cascade (hub: [`qfd.md`](qfd.md)); row
 importance carries down from [House 1](qfd-house-1.md)'s basement Σ.
 
