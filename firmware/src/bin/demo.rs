@@ -148,7 +148,7 @@ fn main() -> anyhow::Result<()> {
                     // just nowhere to persist it. No notice — the visible effect
                     // (e.g. line numbers toggling) is its own feedback.
                     Effect::SavePrefs { .. } => {}
-                    Effect::Publish | Effect::Pull => ed.set_notice("demo - no sync (no SD)"),
+                    Effect::Publish | Effect::Pull { .. } => ed.set_notice("demo - no sync (no SD)"),
                     Effect::Setup => ed.set_notice("demo - setup needs the full firmware"),
                     Effect::Reboot => {
                         // Needs no card: paint the branded splash so the reboot

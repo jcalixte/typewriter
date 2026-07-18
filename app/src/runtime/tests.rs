@@ -102,7 +102,7 @@ impl SyncService for RecSync {
         self.log.borrow_mut().publishes += 1;
         (self.publish_ret)()
     }
-    fn pull(&self) -> PullDispatch {
+    fn pull(&self, _commit_dirty: bool) -> PullDispatch {
         self.log.borrow_mut().pulls += 1;
         (self.pull_ret)()
     }
@@ -230,8 +230,21 @@ fn publish_effect_dispatches_to_sync() {
 fn pull_effect_dispatches_to_sync() {
     let sync = RecSync::new();
     let mut rt = runtime(Editor::new(), RecStorage::default(), sync.clone(), RecFiles::default());
-    rt.service_one(Effect::Pull);
+    rt.service_one(Effect::Pull { commit_dirty: false });
     assert_eq!(sync.log.borrow().pulls, 1);
+}
+
+#[test]
+fn pull_with_unsynced_saves_opens_the_commit_confirm() {
+    // The backend reports NeedsCommitConfirm when the dirty journal is non-empty;
+    // the runtime must open the editor's y/n prompt rather than dispatch or fail.
+    let sync = RecSync {
+        pull_ret: Rc::new(|| PullDispatch::NeedsCommitConfirm),
+        ..RecSync::new()
+    };
+    let mut rt = runtime(Editor::new(), RecStorage::default(), sync, RecFiles::default());
+    rt.service_one(Effect::Pull { commit_dirty: false });
+    assert_eq!(rt.ed.mode(), editor::Mode::Confirm, "unsynced :gl must prompt");
 }
 
 // ---- sync outcome ---------------------------------------------------------

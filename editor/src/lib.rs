@@ -83,7 +83,8 @@ pub enum Mode {
     /// Rest, so it never touches the hidden buffer.
     Rest,
     /// A destructive command is waiting for a `y`/`n` answer (`:delete`,
-    /// `:reboot`, `:setup`). Modal like [`Rest`](Mode::Rest): every key is
+    /// `:reboot`, `:setup`, or `:gl`'s commit-unsynced-and-pull). Modal like
+    /// [`Rest`](Mode::Rest): every key is
     /// swallowed but `y`/`Y` (proceed) — anything else cancels. Which command
     /// is pending rides in [`Editor::pending_confirm`]; the prompt shows on the
     /// snackbar. See [`Editor::confirm_key`].
@@ -102,6 +103,11 @@ pub(crate) enum Confirm {
     Reboot,
     /// `:setup` — reboot into the onboarding wizard.
     Setup,
+    /// `:gl` with unpublished saves — commit the dirty journal locally, then
+    /// pull (fetch + fast-forward/rebase). Guards the commit `:gl` would
+    /// otherwise make on the user's behalf. On `y` the editor queues
+    /// [`Effect::Pull`] `{ commit_dirty: true }`.
+    PullCommit,
 }
 
 /// Which of the two file scopes ([`CONTEXT.md`]) a buffer belongs to. Fixed at
@@ -173,10 +179,15 @@ pub enum Effect {
     /// [`Save`](Effect::Save) of the current buffer in the same batch. Never
     /// queued from a Local buffer (blocked in-core).
     Publish,
-    /// `:gl` — pull from the remote: fetch, then **fast-forward only**. The host
-    /// refuses (and surfaces) a divergence rather than merging, and never
-    /// touches local commits. Complements `:gp` (push) as the download half.
-    Pull,
+    /// `:gl` — pull from the remote: fetch, then fast-forward (or rebase local
+    /// work onto origin — never a content merge). When `commit_dirty` is set the
+    /// host first folds any saved-but-unpublished work into a local commit, so
+    /// the fetch can replant it onto origin instead of refusing. A bare `:gl`
+    /// sends `commit_dirty: false`; if the dirty journal is non-empty the host
+    /// asks to confirm (the commit is user-visible — see
+    /// [`confirm_pull_commit`](Editor::confirm_pull_commit)) and the confirmed
+    /// retry sets `commit_dirty: true`. Complements `:gp` (push) as the download half.
+    Pull { commit_dirty: bool },
     /// `:delete` — unlink `path` from the card. For a **Tracked** file the removal
     /// lands in the git working copy, so the next [`Publish`](Effect::Publish)'s
     /// `add --all` stages the deletion (no eager `git rm` needed); a **Local** file
@@ -1106,7 +1117,7 @@ impl Editor {
             "w" | "wq" | "x" => self.write_active(),
             // fmt → save → push, shared with the `>` publish command.
             "gp" => self.run_publish(),
-            "gl" => self.requests.push(Effect::Pull),
+            "gl" => self.requests.push(Effect::Pull { commit_dirty: false }),
             "setup" => self.request_setup(),
             "reboot" => self.request_reboot(),
             "focus" => self.toggle_focus(),
@@ -1152,6 +1163,16 @@ impl Editor {
             return;
         }
         self.requests.push(Effect::Reboot);
+    }
+
+    /// The host calls this when a bare `:gl` found saved-but-unpublished work in
+    /// the dirty journal: open a y/n prompt before committing it. A pull now
+    /// folds that work into a local commit so the fetch can rebase it onto origin
+    /// (rather than refuse), and that commit is user-visible — so it earns a
+    /// confirm. On `y`, [`confirm_key`](Self::confirm_key) queues
+    /// [`Effect::Pull`] `{ commit_dirty: true }`; any other key cancels.
+    pub fn confirm_pull_commit(&mut self) {
+        self.enter_confirm(Confirm::PullCommit, "unsynced saves - commit & pull? y/n");
     }
 
     /// Enter the [`Mode::Confirm`] y/n prompt for `what`, showing `prompt` on
@@ -1280,7 +1301,8 @@ impl Editor {
     }
 
     /// Dispatch a key while a destructive command waits for confirmation
-    /// ([`Mode::Confirm`] — `:delete`, `:reboot`, `:setup`). Leaves Confirm
+    /// ([`Mode::Confirm`] — `:delete`, `:reboot`, `:setup`, or `:gl`'s
+    /// commit-unsynced-and-pull). Leaves Confirm
     /// either way: a deliberate `y`/`Y` runs the [`pending_confirm`](Self::pending_confirm)
     /// action, and every other key — `n`, `Esc`, a stray character — cancels
     /// with a notice. Cancel is the default so a fat-fingered command never
@@ -1294,12 +1316,14 @@ impl Editor {
                 Some(Confirm::Delete) => self.delete_current(),
                 Some(Confirm::Reboot) => self.do_reboot(),
                 Some(Confirm::Setup) => self.requests.push(Effect::Setup),
+                Some(Confirm::PullCommit) => self.requests.push(Effect::Pull { commit_dirty: true }),
                 None => {}
             }
         } else {
             self.set_notice(match what {
                 Some(Confirm::Reboot) => "reboot cancelled",
                 Some(Confirm::Setup) => "setup cancelled",
+                Some(Confirm::PullCommit) => "pull cancelled",
                 _ => "delete cancelled",
             });
         }

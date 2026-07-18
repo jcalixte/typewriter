@@ -24,7 +24,45 @@ fn gp_command_saves_then_publishes() {
 
 #[test]
 fn gl_command_signals_pull() {
-    assert_eq!(kinds(&command("gl").1), vec![Kind::Pull]);
+    // A bare `:gl` pulls without committing — the host decides whether to prompt
+    // for a pre-fetch commit based on its own dirty journal.
+    let effs = command("gl").1;
+    assert_eq!(kinds(&effs), vec![Kind::Pull]);
+    assert!(
+        matches!(effs.as_slice(), [Effect::Pull { commit_dirty: false }]),
+        "bare :gl must not pre-authorize the commit",
+    );
+}
+
+#[test]
+fn pull_commit_confirm_queues_a_committing_pull() {
+    // The host opens this prompt when `:gl` found unpublished saves. Answering
+    // `y` queues a pull that folds the journal into a commit first.
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    e.confirm_pull_commit();
+    assert_eq!(e.mode(), Mode::Confirm, "expected the commit-&-pull prompt");
+    assert!(e.take_effects().is_empty(), "must not act before confirmation");
+    confirm(&mut e); // presses y
+    let effs = e.take_effects();
+    assert!(
+        matches!(effs.as_slice(), [Effect::Pull { commit_dirty: true }]),
+        "confirmed pull must authorize the commit; got {:?}",
+        kinds(&effs),
+    );
+}
+
+#[test]
+fn pull_commit_prompt_cancels_on_any_other_key() {
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    e.confirm_pull_commit();
+    e.handle(Key::Char('n')); // not y → cancel
+    assert_eq!(e.mode(), Mode::Normal);
+    assert!(e.take_effects().is_empty(), "cancelled pull-commit must queue nothing");
+    assert!(
+        e.notice.as_deref().unwrap_or_default().contains("cancelled"),
+        "expected a cancellation notice, got {:?}",
+        e.notice,
+    );
 }
 
 #[test]

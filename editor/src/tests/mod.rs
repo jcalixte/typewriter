@@ -77,7 +77,7 @@ fn kinds(effects: &[Effect]) -> Vec<Kind> {
             Effect::Save { .. } => Kind::Save,
             Effect::Load { .. } => Kind::Load,
             Effect::Publish => Kind::Publish,
-            Effect::Pull => Kind::Pull,
+            Effect::Pull { .. } => Kind::Pull,
             Effect::Delete { .. } => Kind::Delete,
             Effect::SavePrefs { .. } => Kind::SavePrefs,
             Effect::Setup => Kind::Setup,

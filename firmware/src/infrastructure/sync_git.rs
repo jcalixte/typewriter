@@ -206,10 +206,13 @@ pub fn tune_libgit2() {
 pub enum GitRequest {
     /// `:gp` — commit the dirty paths and push (the upload half).
     Publish(PublishRequest),
-    /// `:gl` — fetch + fast-forward only (the download half). The UI only
-    /// sends this when the dirty journal is empty, so the checkout can't
-    /// fight an unpublished save.
-    Pull,
+    /// `:gl` — fetch, then fast-forward or rebase (the download half). Carries
+    /// the dirty-journal snapshot (`Storage::take_dirty`): before fetching, the
+    /// thread folds those saved-but-unpublished paths into a local commit so the
+    /// fetch can replant them onto origin, then the working copy matches HEAD and
+    /// the apply-diff belt can't fight a device-side save. Empty for a plain
+    /// fetch (nothing was dirty).
+    Pull(BTreeSet<String>),
 }
 
 /// A request to publish. The UI task has already saved every dirty buffer to
@@ -305,7 +308,7 @@ pub fn run_git_service(
                     }
                 },
             ),
-            GitRequest::Pull => GitOutcome::Pull(
+            GitRequest::Pull(paths) => GitOutcome::Pull(
                 match pull_cycle(
                     &sys_loop,
                     &mut wifi,
@@ -313,6 +316,7 @@ pub fn run_git_service(
                     &mut nvs,
                     &mut clock_synced,
                     &mut tls_ready,
+                    &paths,
                 ) {
                     Ok(o) => o,
                     Err(e) => {
@@ -563,9 +567,10 @@ fn publish_cycle(
     Ok(outcome)
 }
 
-/// One full pull (`:gl`): ensure connectivity, then fetch + fast-forward only.
+/// One full pull (`:gl`): ensure connectivity, then fetch + fast-forward/rebase.
 /// Always needs the network — there is no radio-free shortcut like publish's
 /// up-to-date check, because the whole point is asking origin what's new.
+/// `paths` is the dirty-journal snapshot to commit locally before fetching.
 fn pull_cycle(
     sys_loop: &EspSystemEventLoop,
     wifi: &mut Option<BlockingWifi<EspWifi<'static>>>,
@@ -573,6 +578,7 @@ fn pull_cycle(
     nvs: &mut Option<EspDefaultNvsPartition>,
     clock_synced: &mut bool,
     tls_ready: &mut bool,
+    paths: &BTreeSet<String>,
 ) -> Result<PullOutcome> {
     if remote_url().is_empty() || gh_user().is_empty() || token().is_empty() || wifi_ssid().is_empty() {
         bail!("git config missing — provision the card's typoena.conf (installer / wizard) or set TW_* in firmware/.env and rebuild");
@@ -581,7 +587,7 @@ fn pull_cycle(
     ensure_online(sys_loop, wifi, modem, nvs, clock_synced, tls_ready)?;
 
     let t_pull = Instant::now();
-    let outcome = pull_once()?;
+    let outcome = pull_once(paths)?;
     log::info!(
         ":gl timing — fetch+ff {}ms, total {}ms",
         t_pull.elapsed().as_millis(),
@@ -1049,18 +1055,28 @@ fn update_tracking(repo: &Repository, branch: &str, tip: Oid) -> Result<()> {
 /// refusing we replant our local commit(s) onto origin ([`rebase_local_onto`])
 /// and end `LocalAhead` for `:gp` to publish.
 ///
+/// `paths` is the dirty-journal snapshot. Before touching the network we fold
+/// those saved-but-unpublished paths into a local commit ([`stage_and_commit`],
+/// the commit half of `:gp` without the push): that makes `:gl` self-sufficient
+/// — the ff/rebase below replants the commit onto origin so a plain `:gp`
+/// finishes it, no computer needed — and, because the working copy now matches
+/// the new HEAD, the SAFE belt can't fight a device-side save. The UI has
+/// already confirmed this commit (it is user-visible). Empty `paths` is a plain
+/// fetch.
+///
 /// The fast-forward is checkout-then-ref-move, with a **SAFE** checkout: it
 /// refuses to overwrite a working-copy file whose content differs from HEAD's.
-/// The UI already gates `:gl` on an empty dirty journal, so in normal use
-/// nothing conflicts; the belt catches files edited behind git's back (e.g.
-/// desktop edits made directly on the card — deliberately never committed by
-/// the device since the splice landed). One FAT caveat, matching publish's
-/// index-avoidance: the splice never updates the index, so its stat cache is
-/// stale and SAFE re-hashes each file the pull wants to change — fine for a
-/// few notes, and still O(changed), never O(tree).
-fn pull_once() -> Result<PullOutcome> {
+/// After the pre-fetch commit the card matches HEAD, so in normal use nothing
+/// conflicts; the belt catches files edited behind git's back (e.g. desktop
+/// edits made directly on the card — deliberately never committed by the device
+/// since the splice landed). One FAT caveat, matching publish's index-avoidance:
+/// the splice never updates the index, so its stat cache is stale and SAFE
+/// re-hashes each file the pull wants to change — fine for a few notes, and
+/// still O(changed), never O(tree).
+fn pull_once(paths: &BTreeSet<String>) -> Result<PullOutcome> {
     log::info!(
-        "pull started — free heap {} ({} internal)",
+        "pull started — {} unpublished path(s) to fold in, free heap {} ({} internal)",
+        paths.len(),
         free_heap(),
         internal_free_heap()
     );
@@ -1072,7 +1088,24 @@ fn pull_once() -> Result<PullOutcome> {
         .shorthand()
         .context("HEAD has no branch shorthand")?
         .to_string();
-    let head = repo.head()?.peel_to_commit()?.id();
+    let mut head = repo.head()?.peel_to_commit()?.id();
+
+    // Fold any saved-but-unpublished work into a local commit before the fetch,
+    // so a divergence rebases it onto origin instead of refusing (and the card
+    // ends matching HEAD, keeping the SAFE belt below quiet). Local only — no
+    // network. stage_and_commit moves the branch ref (commits onto "HEAD") and
+    // returns None when the paths are already committed (a no-op splice), so
+    // `head` only advances when there was genuinely new work.
+    if !paths.is_empty() {
+        if let Some(committed) = stage_and_commit(&repo, paths)? {
+            log::info!(
+                "pull: committed {} unpublished path(s) locally as {} before fetch",
+                paths.len(),
+                short(committed)
+            );
+            head = committed;
+        }
+    }
 
     // ls-refs first, download only if needed: the ref advertisement alone
     // answers "anything new?", so the common shapes (up to date, local ahead)
@@ -1236,8 +1269,8 @@ fn pull_once() -> Result<PullOutcome> {
 /// hashes to the OLD tree's blob aborts the pull — those are edits made behind
 /// git's back (e.g. desktop edits directly on the card), and clobbering them
 /// silently is worse than refusing. The check reads only the files the pull
-/// wants to change; the UI's empty-dirty-journal gate covers device-side
-/// saves.
+/// wants to change; device-side saves are covered by the pre-fetch commit in
+/// [`pull_once`] (which makes the card match HEAD before the diff runs).
 ///
 /// Writes are unlink + tmp + rename (FAT f_rename won't overwrite), so a
 /// power-pull mid-apply leaves at worst a `.gltmp` orphan and a half-applied
@@ -1632,14 +1665,27 @@ impl app::SyncService for GitSyncService {
         }
     }
 
-    fn pull(&self) -> app::PullDispatch {
-        if self.card.has_dirty() {
-            log::info!(":gl refused — dirty journal non-empty; :gp first");
-            app::PullDispatch::RefusedDirty
-        } else {
-            match self.tx.send(GitRequest::Pull) {
-                Ok(()) => app::PullDispatch::Dispatched,
-                Err(_) => app::PullDispatch::ThreadDown,
+    fn pull(&self, commit_dirty: bool) -> app::PullDispatch {
+        // A bare `:gl` with unpublished saves doesn't refuse anymore — it folds
+        // them into a local commit first so the fetch can rebase them onto
+        // origin. But that commit is user-visible, so the first pass asks the UI
+        // to confirm; the confirmed retry arrives with commit_dirty = true.
+        if !commit_dirty && self.card.has_dirty() {
+            log::info!(":gl — dirty journal non-empty; asking to confirm the pre-fetch commit");
+            return app::PullDispatch::NeedsCommitConfirm;
+        }
+        // Snapshot the journal into `in_flight` (empty when nothing was dirty);
+        // the git thread commits those paths before fetching, and poll_outcome
+        // settles the snapshot when the outcome lands — succeeded forgets it,
+        // failed returns it to pending — exactly as publish does.
+        let paths = self.card.take_dirty();
+        match self.tx.send(GitRequest::Pull(paths)) {
+            Ok(()) => app::PullDispatch::Dispatched,
+            Err(_) => {
+                // Thread gone — nothing will report back, so return the snapshot
+                // to pending ourselves (mirrors publish's ThreadDown path).
+                self.card.publish_failed();
+                app::PullDispatch::ThreadDown
             }
         }
     }
@@ -1662,13 +1708,24 @@ impl app::SyncService for GitSyncService {
                     PublishOutcome::Failed(reason) => app::PublishOutcome::Failed(reason),
                 })
             }
-            GitOutcome::Pull(o) => app::SyncOutcome::Pull(match o {
-                PullOutcome::Pulled(oid) => app::PullOutcome::Pulled(oid),
-                PullOutcome::Rebased(oid) => app::PullOutcome::Rebased(oid),
-                PullOutcome::UpToDate => app::PullOutcome::UpToDate,
-                PullOutcome::LocalAhead => app::PullOutcome::LocalAhead,
-                PullOutcome::Failed(reason) => app::PullOutcome::Failed(reason),
-            }),
+            GitOutcome::Pull(o) => {
+                // Settle the dirty snapshot this pull took (it folds unpublished
+                // saves into a local commit before fetching, like publish):
+                // integrated → forget it (the work is committed, and a stranded
+                // local commit is pushed by the next `:gp`); failed → back to
+                // pending. Empty snapshot → both are no-ops.
+                match &o {
+                    PullOutcome::Failed(_) => self.card.publish_failed(),
+                    _ => self.card.publish_succeeded(),
+                }
+                app::SyncOutcome::Pull(match o {
+                    PullOutcome::Pulled(oid) => app::PullOutcome::Pulled(oid),
+                    PullOutcome::Rebased(oid) => app::PullOutcome::Rebased(oid),
+                    PullOutcome::UpToDate => app::PullOutcome::UpToDate,
+                    PullOutcome::LocalAhead => app::PullOutcome::LocalAhead,
+                    PullOutcome::Failed(reason) => app::PullOutcome::Failed(reason),
+                })
+            }
         })
     }
 }

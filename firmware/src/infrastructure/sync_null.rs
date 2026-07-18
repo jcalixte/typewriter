@@ -13,7 +13,7 @@ impl app::SyncService for NullSyncService {
         log::info!(":gp — saved; light build (no `git` feature) — push skipped");
         app::PublishDispatch::Skipped
     }
-    fn pull(&self) -> app::PullDispatch {
+    fn pull(&self, _commit_dirty: bool) -> app::PullDispatch {
         log::info!(":gl — light build (no `git` feature) — pull skipped");
         app::PullDispatch::Skipped
     }

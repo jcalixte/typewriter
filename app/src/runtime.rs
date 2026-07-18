@@ -188,11 +188,11 @@ impl<S: Screen> Runtime<S> {
                 PublishDispatch::ThreadDown => self.ed.set_notice("sync: git thread down"),
                 PublishDispatch::Skipped => {}
             },
-            Effect::Pull => match self.sync.pull() {
+            Effect::Pull { commit_dirty } => match self.sync.pull(commit_dirty) {
                 PullDispatch::Dispatched => self.ed.set_notice("pulling..."),
-                PullDispatch::RefusedDirty => {
-                    self.ed.set_notice("pull: unsynced changes - :gp first")
-                }
+                // Unpublished saves: ask before folding them into a commit. On
+                // `y` the editor re-queues Pull { commit_dirty: true }.
+                PullDispatch::NeedsCommitConfirm => self.ed.confirm_pull_commit(),
                 PullDispatch::ThreadDown => self.ed.set_notice("pull: git thread down"),
                 PullDispatch::Skipped => {}
             },

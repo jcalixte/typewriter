@@ -48,8 +48,11 @@ pub enum PublishDispatch {
 /// What dispatching a pull (`:gl`) did.
 pub enum PullDispatch {
     Dispatched,
-    /// Refused: the dirty journal is non-empty, so `:gp` must go first.
-    RefusedDirty,
+    /// The dirty journal is non-empty: pulling would fold those saved-but-
+    /// unpublished paths into a local commit first, so the UI asks the user to
+    /// confirm before that happens (the commit is user-visible). On confirm the
+    /// UI re-dispatches the pull with `commit_dirty: true`.
+    NeedsCommitConfirm,
     ThreadDown,
     Skipped,
 }
@@ -83,13 +86,17 @@ pub enum SyncOutcome {
 /// that gates it. Fire-and-forget: [`publish`](SyncService::publish) /
 /// [`pull`](SyncService::pull) dispatch, and the result returns later via
 /// [`poll_outcome`](SyncService::poll_outcome). The backend owns the dirty
-/// journal — it takes the pending paths on publish and settles them when the
-/// outcome lands — so the app layer never touches it.
+/// journal — it takes the pending paths on publish (and on a committing pull)
+/// and settles them when the outcome lands — so the app layer never touches it.
 pub trait SyncService {
     /// Dispatch a publish of the whole Tracked working copy.
     fn publish(&self) -> PublishDispatch;
-    /// Dispatch a fetch + fast-forward pull.
-    fn pull(&self) -> PullDispatch;
+    /// Dispatch a fetch + fast-forward/rebase pull. `commit_dirty` false is a
+    /// bare `:gl`: if the dirty journal is non-empty it returns
+    /// [`NeedsCommitConfirm`](PullDispatch::NeedsCommitConfirm) instead of
+    /// dispatching, so the UI can confirm the commit first. `commit_dirty` true
+    /// (the confirmed retry) folds the journal into a local commit, then pulls.
+    fn pull(&self, commit_dirty: bool) -> PullDispatch;
     /// Non-blocking poll for a finished operation. The backend has already
     /// settled the dirty journal by the time this returns.
     fn poll_outcome(&self) -> Option<SyncOutcome>;
