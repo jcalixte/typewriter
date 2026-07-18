@@ -13,7 +13,7 @@ use esp_idf_svc::hal::units::FromValueType;
 
 use display::Frame;
 use editor::{
-    Editor, Effect, Mode, Prefs, Scope, Snippets, CH, CW, LOCAL_DIR, PREFS_PATH, REPO_DIR,
+    Date, Editor, Effect, Mode, Prefs, Scope, Snippets, CH, CW, LOCAL_DIR, PREFS_PATH, REPO_DIR,
     SNIPPETS_PATH,
 };
 use firmware::epd::{self, Epd};
@@ -197,6 +197,12 @@ fn main() -> anyhow::Result<()> {
         Err(_) => Prefs::default(),
     };
     log::info!("prefs: {prefs:?}");
+    // Apply the configured timezone before anything reads the wall clock, so
+    // `localtime_r` — and thus the `:inbox` note's dated name/title — reflects the
+    // local calendar day. Empty (the default) leaves the ESP clock at UTC.
+    if !prefs.timezone.is_empty() {
+        apply_timezone(&prefs.timezone);
+    }
     let (boot_path, boot_scope, saved) = boot_note(&mut epd, &storage, &prefs);
 
     // Spawn the dedicated git thread — the `:gp` publish transport. It owns
@@ -332,6 +338,12 @@ fn main() -> anyhow::Result<()> {
     spawn_file_walk(walk_tx.clone());
 
     loop {
+        // Feed today's date from the wall clock each pass, so `:inbox` names/dates
+        // the note for the current day even if the session crosses midnight or the
+        // clock is only set mid-session by the first sync. `None` until the clock
+        // is trustworthy (see `today_date`).
+        ed.set_today(today_date());
+
         // Drain all queued keystrokes (type-ahead absorbed during a refresh),
         // apply them, then do a single refresh for the batch.
         let prev_mode = ed.mode(); // to detect leaving the Rest curtain below
@@ -811,6 +823,50 @@ fn main() -> anyhow::Result<()> {
         std::mem::swap(&mut shown, &mut back);
         cursor_shown = ed.mode() != Mode::Insert;
     }
+}
+
+/// Apply a POSIX `TZ` string to libc so `localtime_r` reads the local calendar
+/// day (see `Prefs::timezone`). newlib carries no zoneinfo database, so `tz` must
+/// be the POSIX form (`CET-1CEST,M3.5.0,M10.5.0/3`), never an IANA name
+/// (`Europe/Paris`) — the latter silently stays UTC. Best-effort: an interior NUL
+/// or a failed `setenv` just leaves the previous zone (UTC) in place.
+fn apply_timezone(tz: &str) {
+    let Ok(c_tz) = std::ffi::CString::new(tz) else {
+        log::warn!("timezone {tz:?} has an interior NUL; left at UTC");
+        return;
+    };
+    // SAFETY: both pointers are valid C strings for the call; `tzset` reads the
+    // `TZ` env var we just set. `1` = overwrite any existing value.
+    unsafe {
+        esp_idf_svc::sys::setenv(c"TZ".as_ptr(), c_tz.as_ptr(), 1);
+        esp_idf_svc::sys::tzset();
+    }
+    log::info!("timezone applied: TZ={tz}");
+}
+
+/// Today's date from the wall clock, or `None` when the clock is not yet
+/// trustworthy. The editor boot path never runs SNTP, so the clock sits at the
+/// epoch until a `:gl`/`:gp` sync sets it this power cycle (no battery-backed
+/// RTC) — a year before 2020 means "unset", and `:inbox` refuses rather than
+/// dating a note `1970-01-01`. Honours the timezone applied by `apply_timezone`.
+fn today_date() -> Option<Date> {
+    let mut now: esp_idf_svc::sys::time_t = 0;
+    let mut t: esp_idf_svc::sys::tm = unsafe { core::mem::zeroed() };
+    // SAFETY: `now`/`t` are valid, owned locals; `time` fills `now`, `localtime_r`
+    // fills `t` from it (the reentrant form writes into our `t`, no shared state).
+    unsafe {
+        esp_idf_svc::sys::time(&mut now);
+        esp_idf_svc::sys::localtime_r(&now, &mut t);
+    }
+    let year = t.tm_year + 1900;
+    if year < 2020 {
+        return None; // clock unset (still at the epoch) — no sync yet this boot
+    }
+    Some(Date {
+        year,
+        month: (t.tm_mon + 1) as u32, // tm_mon is 0-11
+        day: t.tm_mday as u32,
+    })
 }
 
 /// Mount the SD card, or halt with the reason on the panel. A missing CARD is

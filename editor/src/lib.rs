@@ -114,6 +114,39 @@ pub enum Scope {
     Local,
 }
 
+/// A calendar day, fed by the host from its real-time clock
+/// ([`set_today`](Editor::set_today)) — the pure core has no clock of its own.
+/// `:inbox` uses it to name and title today's fleeting note. The host passes
+/// `None` while it has **no trustworthy date**: the editor boot path never runs
+/// SNTP, so the wall clock is at the epoch until a `:gl`/`:gp` sync sets it this
+/// power cycle (there is no battery-backed RTC). `:inbox` then refuses rather than
+/// dating a note `1970-01-01` (see [`open_inbox_today`](Editor::open_inbox_today)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Date {
+    pub year: i32,
+    /// 1–12.
+    pub month: u32,
+    /// 1–31.
+    pub day: u32,
+}
+
+impl Date {
+    /// `YYYY-MM-DD` — the fleeting note's filename stem. ISO field order means a
+    /// plain path sort is chronological, which is what [`open_oldest_inbox`]
+    /// (`:oldest`) leans on to find the oldest note for free.
+    ///
+    /// [`open_oldest_inbox`]: Editor::open_oldest_inbox
+    pub(crate) fn iso(&self) -> String {
+        format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+
+    /// `DD/MM/YYYY` — the note's `# ` heading, matching the writer's existing
+    /// `_inbox` day-first convention (e.g. `# 18/07/2026`).
+    pub(crate) fn title(&self) -> String {
+        format!("{:02}/{:02}/{:04}", self.day, self.month, self.year)
+    }
+}
+
 /// A side effect the host (firmware) must carry out. The editor core is pure and
 /// does no IO, so persistence, publishing, and file reads can't happen here —
 /// they are queued and drained by [`Editor::take_effects`] after a key batch,
@@ -345,6 +378,11 @@ pub struct Editor {
     /// Set with the mode by the `request_*` commands, taken by
     /// [`confirm_key`](Self::confirm_key). `None` outside Confirm.
     pending_confirm: Option<Confirm>,
+    /// Today's date, fed by the host each key batch ([`set_today`](Self::set_today))
+    /// from its real-time clock. `None` until the host has a trustworthy date (see
+    /// [`Date`]); `:inbox` needs it to name/date the note and refuses while it is
+    /// `None`.
+    today: Option<Date>,
 }
 
 
@@ -392,6 +430,7 @@ impl Editor {
             rest_stats: None,
             focus_debug: false,
             pending_confirm: None,
+            today: None,
         }
     }
 
@@ -489,6 +528,15 @@ impl Editor {
     /// Tell the editor whether a keyboard is attached (for the panel flag).
     pub fn set_keyboard_present(&mut self, present: bool) {
         self.keyboard_present = present;
+    }
+
+    /// Feed the editor today's date from the host clock — the pure core has none.
+    /// Passed each key batch so a session crossing midnight (or one whose clock is
+    /// only set mid-session by the first sync) always sees the current day. `None`
+    /// means the host has no trustworthy date yet (unset clock); `:inbox` refuses
+    /// in that case. See [`Date`].
+    pub fn set_today(&mut self, date: Option<Date>) {
+        self.today = date;
     }
 
     /// Post a transient side-panel notice ("snackbar") — e.g. the result of a
@@ -1043,6 +1091,8 @@ impl Editor {
         }
         match cmd.as_str() {
             "enew" => self.set_notice("usage: :enew <file>"),
+            "inbox" | "in" => self.open_inbox_today(),
+            "oldest" | "old" => self.open_oldest_inbox(),
             "delete" | "d" => self.request_delete(),
             "settings" => self.open_settings(),
             "fmt" => self.format_buffer(),

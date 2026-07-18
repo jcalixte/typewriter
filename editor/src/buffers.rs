@@ -300,6 +300,74 @@ impl Editor {
         self.set_notice(format!("new {}", palette_label(&path)));
     }
 
+    /// `:inbox` / `:in` — open today's fleeting note, creating it if new. The note
+    /// lives in the git-tracked `_inbox/` under [`REPO_DIR`], named `YYYY-MM-DD.md`
+    /// (ISO order, so a listing sorts chronologically for [`open_oldest_inbox`]);
+    /// when created it is prefilled with a `# DD/MM/YYYY` heading matching the
+    /// writer's `_inbox` convention. If today's note is **already open** (active or
+    /// parked) or **already on the card** (in the palette file list), this switches
+    /// to it rather than replacing it with an empty buffer — reopening it later in
+    /// the day to add more is the common case.
+    ///
+    /// Refuses when the host has no trustworthy date ([`today`](Self::today) is
+    /// `None` — the clock is unset until the first `:gl`/`:gp` sync of this power
+    /// cycle): a clear notice beats a note dated `1970-01-01`.
+    ///
+    /// [`open_oldest_inbox`]: Self::open_oldest_inbox
+    pub(crate) fn open_inbox_today(&mut self) {
+        let Some(date) = self.today else {
+            self.set_notice("clock not set - :gl first");
+            return;
+        };
+        let path = format!("{REPO_DIR}/_inbox/{}.md", date.iso());
+        // Already open, or already on the card — switch to it, never clobber.
+        if path == self.path
+            || self.parked.iter().any(|b| b.path == path)
+            || self.file_list_contains(&path)
+        {
+            self.open_path(path, Scope::Tracked);
+            return;
+        }
+        // A fresh note: seed the dated heading plus a blank line to write on, and
+        // mark it dirty so eviction / `:w` / idle-save persists it (mirrors
+        // [`new_file`](Self::new_file)). `set_active` lands the caret on that blank
+        // last line, in Normal — press `i`/`o` to start writing.
+        self.note_recent(&path);
+        self.add_to_file_list(&path);
+        self.park_active();
+        self.set_active(path.clone(), Scope::Tracked, format!("# {}\n\n", date.title()));
+        self.dirty = true;
+        self.set_notice(format!("new {}", palette_label(&path)));
+    }
+
+    /// `:oldest` / `:old` — open the oldest fleeting note in `_inbox/` for cleanup.
+    /// The palette file list is sorted by path and the notes are `YYYY-MM-DD.md`,
+    /// so the first entry under `_inbox/` is the chronologically oldest — no dates
+    /// to parse or compare. A notice when the inbox is empty. Needs no clock
+    /// (unlike [`open_inbox_today`](Self::open_inbox_today)), so it works offline at
+    /// any time.
+    pub(crate) fn open_oldest_inbox(&mut self) {
+        let prefix = format!("{REPO_DIR}/_inbox/");
+        let oldest = (0..self.file_count())
+            .map(|i| self.file_at(i))
+            .find(|p| p.starts_with(&prefix) && p.ends_with(".md"))
+            .map(str::to_string);
+        match oldest {
+            Some(path) => self.open_path(path, Scope::Tracked),
+            None => self.set_notice("inbox empty"),
+        }
+    }
+
+    /// Whether `path` is in the palette's file list — a binary search over the
+    /// sorted spans (the invariant [`add_to_file_list`](Self::add_to_file_list)
+    /// upholds). `:inbox` uses it to tell "today's note is already on the card"
+    /// (→ open) from "must create it".
+    pub(crate) fn file_list_contains(&self, path: &str) -> bool {
+        self.file_spans
+            .binary_search_by(|&(s, e)| self.file_blob[s as usize..e as usize].cmp(path))
+            .is_ok()
+    }
+
     /// `:delete` / `:d` — guard the destructive [`delete_current`](Self::delete_current)
     /// behind a `y`/`n` prompt. A delete stages a git removal on the next Publish
     /// (Tracked) or unlinks a Local file, and `:d` makes it a two-key command, so

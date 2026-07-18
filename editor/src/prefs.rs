@@ -54,6 +54,17 @@ pub struct Prefs {
     /// at `(ROWS - 1) / 2` so it can never squeeze the caret out. Honoured in
     /// Normal/Insert/Visual; View-mode viewport nav is unaffected.
     pub scroll_margin: usize,
+    /// The device timezone, as a **POSIX TZ string** (e.g. Paris:
+    /// `CET-1CEST,M3.5.0,M10.5.0/3`). Applied at boot by the host
+    /// (`setenv("TZ", …)` + `tzset()`), so `localtime_r` — and thus the `:inbox`
+    /// note's dated filename/title — reads the local calendar day. **Not** an IANA
+    /// name (`Europe/Paris`): ESP-IDF's newlib ships no zoneinfo database, so a
+    /// bare zone name would silently stay UTC — the DST rule must be spelled out.
+    /// Empty (the default) leaves the clock at UTC. Purely a host concern: the
+    /// pure core never reads it, it just rides `.typoena.toml` to every device
+    /// that clones the repo. The `>` palette doesn't cycle it (free-form, not a
+    /// preset) — hand-edit it here.
+    pub timezone: String,
 }
 
 impl Default for Prefs {
@@ -66,6 +77,7 @@ impl Default for Prefs {
             theme: "light".into(),
             auto_sync: "10m".into(),
             scroll_margin: 2,
+            timezone: String::new(),
         }
     }
 }
@@ -114,6 +126,7 @@ impl Prefs {
                         p.scroll_margin = n;
                     }
                 }
+                "timezone" => p.timezone = val.trim_matches('"').to_string(),
                 _ => {}
             }
         }
@@ -134,7 +147,9 @@ impl Prefs {
              open_last_on_boot = {}\n\
              theme = \"{}\"\n\
              auto_sync = \"{}\"\n\
-             scroll_margin = {}\n",
+             scroll_margin = {}\n\
+             # POSIX TZ (e.g. CET-1CEST,M3.5.0,M10.5.0/3); empty = UTC.\n\
+             timezone = \"{}\"\n",
             self.save_on_idle,
             self.format_on_save,
             self.line_numbers,
@@ -142,6 +157,7 @@ impl Prefs {
             self.theme,
             self.auto_sync,
             self.scroll_margin,
+            self.timezone,
         )
     }
 }

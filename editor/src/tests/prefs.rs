@@ -14,6 +14,15 @@ fn prefs_default_matches_the_documented_defaults() {
     assert_eq!(p.theme, "light");
     assert_eq!(p.auto_sync, "10m");
     assert_eq!(p.scroll_margin, 2);
+    assert_eq!(p.timezone, ""); // empty -> host leaves the clock at UTC
+}
+
+#[test]
+fn prefs_parse_reads_timezone_posix_string() {
+    let p = Prefs::parse("timezone = \"CET-1CEST,M3.5.0,M10.5.0/3\"\n");
+    assert_eq!(p.timezone, "CET-1CEST,M3.5.0,M10.5.0/3");
+    // Missing key -> empty (UTC), never a bogus zone.
+    assert_eq!(Prefs::parse("").timezone, "");
 }
 
 #[test]
@@ -62,6 +71,7 @@ fn prefs_to_toml_round_trips_through_parse() {
         theme: "dark".into(),
         auto_sync: "5m".into(),
         scroll_margin: 3,
+        timezone: "CET-1CEST,M3.5.0,M10.5.0/3".into(),
     };
     assert_eq!(Prefs::parse(&p.to_toml()), p);
 }

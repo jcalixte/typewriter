@@ -385,6 +385,17 @@ impl Storage {
     /// The atomic write primitive behind [`Storage::save_path`] and the dirty
     /// journal: write `{path}.tmp`, fsync, unlink the target, rename over it.
     fn atomic_write(path: &str, contents: &str) -> Result<()> {
+        // Make sure the target's directory exists first — a note in a subdir that
+        // isn't on the card yet (the first `:inbox` note when `_inbox/` is absent)
+        // would otherwise fail at `File::create` below. Guarded on the parent being
+        // missing so the common case (and every fixed-path caller under `/sd`, whose
+        // parent always exists) skips the FatFS `mkdir` entirely.
+        if let Some(parent) = Path::new(path).parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("create parent dir for {path}"))?;
+            }
+        }
         let tmp = format!("{path}.tmp");
         {
             let mut f = fs::File::create(&tmp)
