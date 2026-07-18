@@ -639,6 +639,126 @@ SCK 12, MOSI 11, CS 7, DC 6, RST 5, BUSY 4.
 
 ---
 
+## ADR-013: Firmware architecture — adopt the hexagonal ports refactor over the flat crate
+
+**Status:** Accepted — 2026-07-18 (on-device smoke test passed — see Outcome)
+**Scope:** Whole firmware crate + the host-crate workspace. Retires the flat `firmware/` module layout.
+
+### Context
+
+`refactor/whole-repo` (checked out as the `../typewriter-refactor` **worktree**) is
+not a second codebase — it is this same repo, diverged from `main` by exactly **one
+commit each way** from merge-base `0c9a106`:
+
+- `main` is ahead by `b93aa90` (`feat(conf): complete a bare repo name with the GitHub user`).
+- `refactor/whole-repo` is ahead by five commits that rework the firmware onto a
+  **ports-and-adapters (hexagonal)** shape, modelled on the C `../typing-machine`
+  reference:
+  - `hal/` — pure `Screen` / `Keyboard` trait contracts, no esp-idf types.
+  - `app/` — a host-testable application layer: the `Panel` render engine (generic
+    over `hal::Screen`), the application ports (`Storage`, `SyncService`, `Clock`,
+    `System`, `FileIndex`), and a `Runtime` that lifts the ~300-line editor loop out
+    of `main.rs`.
+  - `firmware/` regrouped into `drivers/` (esp-idf adapters) + `infrastructure/`
+    (SD storage, git sync, file index, wizard I/O) tiers; `main.rs` becomes a
+    boot/composition root.
+  - a root Cargo **workspace** over the seven pure crates — one lock, one `target/`,
+    one `cargo test` for all of them (previously each crate carried its own lock and
+    was tested individually).
+
+So the real question is not "which folder is best" but **"do we land this refactor
+on `main`, or abandon the branch and keep growing the flat crate?"** — decided here
+on measured evidence, not preference.
+
+### Criteria
+
+Ranked by weight for this project — a solo, on-device appliance where the device
+loop is the slow, expensive feedback path:
+
+1. **Off-device testability** — can run-loop logic be proven on the host, not the
+   bench? (Top weight: every on-device cycle costs a flash + a manual smoke.)
+2. **Separation of concerns / maintainability** — is the layering visible and the
+   god-file broken up?
+3. **Behaviour equivalence & feature parity** — same shipped behaviour, no lost
+   features.
+4. **On-device verification** — proven on the ESP32-S3, per project norm.
+5. **Merge / divergence cost** — how expensive to land, and does waiting make it
+   worse?
+6. **Complexity cost** — does the added indirection earn its keep, or is it ceremony?
+7. **Build / CI ergonomics** — one `cargo test` and one lock, or per-crate.
+
+### Options considered
+
+| Option                                                                   | Pros                                                                                                                                                                                                                                                              | Cons                                                                                                              |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **A. Adopt the refactor** (merge `refactor/whole-repo`, rebase `b93aa90` over it) | Run-loop becomes host-testable (**+29 `app` tests**, within **358 green** workspace tests); `main.rs` **924 → 368** lines; layering visible in the tree; one-command workspace test; indirection is disciplined — only genuine seams abstracted, Wi-Fi/git fusion deliberately left concrete | Not yet flashed on device — compile+link verified only; one more layer (ports) to learn; a little port ceremony |
+| **B. Keep `main` flat**, abandon the branch                              | Zero merge work; fewest moving parts; every line already device-proven                                                                                                                                                                                          | Run-loop stays locked in a 924-line `main.rs`, untestable off-device; the god-file keeps growing over nine more releases; discards a clean, working refactor |
+| **C. Cherry-pick parts** (workspace + tests, skip the `hal`/`app` ports) | Some test benefit without the layering                                                                                                                                                                                                                          | The tests **are** what the ports enable — you cannot host-test the loop without lifting it off the concrete hardware types; splitting the branch is more work than merging it |
+
+### Decision
+
+**Option A — adopt the refactor**, gated on a single on-device smoke test before the
+merge lands.
+
+It wins decisively on the top three criteria and loses on none where `main` isn't
+trivially recoverable:
+
+- **Testability (the whole point):** the `Runtime` is driven through ports with
+  in-memory doubles, so save / delete / publish-dispatch / pull-dispatch /
+  "a pull that moves the tree reloads the active buffer and rewalks" / every
+  snackbar variant are now **host** tests (`app/src/runtime/tests.rs`). That logic
+  used to live in `main.rs` and could only be exercised by flashing.
+- **Maintainability:** `main.rs` drops **924 → 368** lines and becomes a composition
+  root; the `drivers/` + `infrastructure/` split makes the layering legible.
+- **Discipline:** the design abstracts only real seams and explicitly *refuses* to
+  port the Wi-Fi radio (inseparably fused with git sync) — the indirection earns its
+  keep rather than being architecture-astronaut ceremony.
+- **Merge cost is at its global minimum right now:** one commit each way. Every day
+  `main` evolves on the flat structure widens the rebase. This is the cheapest this
+  decision will ever be.
+
+### Consequences
+
+- **Gate cleared — on-device smoke test passed (2026-07-18).** Green on 358 host
+  tests, the full `firmware` binary builds for xtensa, and the whole run-loop was
+  exercised on the bench ESP32-S3 (see Outcome below). The one residual risk —
+  runtime behaviour on silicon — is now observed, not inferred.
+- **After merge:** rebase `b93aa90` onto the refactor tip (trivial — it touches
+  `conf`, untouched by the refactor), then `git worktree remove ../typewriter-refactor`
+  and delete the `refactor/whole-repo` branch. The flat layout is retired:
+  `firmware/src/{epd,usb_kbd,net,git_sync,adapters}.rs` no longer exist as such.
+- **The two esp-idf binaries (`firmware`, `installer`) stay outside the workspace by
+  design** — different target triple / release cadence; they consume `hal`/`app` by
+  path across the boundary. Correct, not a gap.
+- **Reversibility:** the pre-refactor state stays in history at `b93aa90`; backing out
+  later is a `git revert` of the merge, not a rewrite. This is why the framing is
+  "merge or not," never "delete the loser."
+
+### Outcome — on-device verification (2026-07-18)
+
+Flashed to the bench ESP32-S3 (release, `--features git`, build `g56f8ef2`) and ran
+the full smoke test end to end. Every port the refactor introduced fired on silicon,
+matching its host double:
+
+- **Boot + render:** cursor ready 3239 ms; the extracted `app::render` engine drives
+  the panel — windowed per-keystroke refresh in Insert (~491 ms), full-area on mode
+  change (~525 ms).
+- **`Storage` (write):** opened `_inbox/2026-07-09.md` (695 B), edited in Insert, `:w`
+  saved **703 B** to the card.
+- **`SyncService` (publish):** `:gp` brought Wi-Fi up, committed `8470d7ac`, and the
+  **push was accepted by the remote** (publish 28.8 s).
+- **`SyncService` (pull) + `FileIndex`:** `:gl` fast-forwarded `main`
+  `8470d7ac → bcff040e` (2 files) and triggered the post-pull rewalk — the on-device
+  counterpart of the `pull_that_moves_the_tree_reloads_active_and_rewalks` host test.
+- **`Clock`:** SNTP synced (`unix 1784387806`). An earlier run also confirmed the
+  `SyncService` **RefusedDirty** gate (`:gl refused — dirty journal non-empty`).
+
+Only the `System` port (`:reboot` / `prepare_setup`) was not re-exercised — the
+lowest-risk seam (a marker write + `esp_restart`, and its save leg is the now-proven
+`Storage` path). Status flipped to **Accepted**; the refactor is clear to merge.
+
+---
+
 ## How to add a new ADR
 
 1. Append a new `## ADR-NNN: <title>` section to this file.
