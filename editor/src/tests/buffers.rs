@@ -152,6 +152,7 @@ fn reboot_autosaves_every_dirty_resident_buffer() {
     e.handle(Key::Escape); // B (now active) dirty
     e.take_effects(); // discard anything queued during setup
     ex(&mut e, "reboot");
+    confirm(&mut e);
     let effs = e.take_effects();
     assert_eq!(kinds(&effs), vec![Kind::Save, Kind::Save, Kind::Reboot]);
     let saved: Vec<&str> = effs

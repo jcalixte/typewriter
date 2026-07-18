@@ -379,24 +379,26 @@ fn command_label_reflects_current_pref_state() {
 #[test]
 fn setup_palette_command_requests_the_wizard() {
     // `> setup` fuzzy-ranks the Setup action first; Enter (clean buffer) closes
-    // the palette and queues the reboot-into-wizard effect.
+    // the palette into the confirm prompt, and `y` queues the reboot-into-wizard.
     let mut e = palette_type(&["/sd/repo/notes.md"], ">setup");
     let matches = e.palette_command_matches();
     assert_eq!(PALETTE_CMDS[matches[0]], PaletteCmd::Setup);
     e.handle(Key::Enter);
-    assert_eq!(e.mode(), Mode::Normal); // one-shot closes the palette
+    assert_eq!(e.mode(), Mode::Confirm); // palette closed, now guarding
+    confirm(&mut e);
     assert_eq!(kinds(&e.take_effects()), vec![Kind::Setup]);
 }
 
 #[test]
 fn reboot_palette_command_requests_a_restart() {
     // `> reboot` fuzzy-ranks the Reboot action first; Enter (clean buffer) closes
-    // the palette and queues the restart effect.
+    // the palette into the confirm prompt, and `y` queues the restart.
     let mut e = palette_type(&["/sd/repo/notes.md"], ">reboot");
     let matches = e.palette_command_matches();
     assert_eq!(PALETTE_CMDS[matches[0]], PaletteCmd::Reboot);
     e.handle(Key::Enter);
-    assert_eq!(e.mode(), Mode::Normal); // one-shot closes the palette
+    assert_eq!(e.mode(), Mode::Confirm); // palette closed, now guarding
+    confirm(&mut e);
     assert_eq!(kinds(&e.take_effects()), vec![Kind::Reboot]);
 }
 

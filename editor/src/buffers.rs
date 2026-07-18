@@ -155,9 +155,7 @@ impl Editor {
     /// they were formatted when last active and are deliberately not reflowed here,
     /// the same reason eviction never reflows a file the user can't see.
     pub(crate) fn try_save_all_dirty(&mut self) -> bool {
-        let unnamed_dirty = (self.dirty && self.path.is_empty())
-            || self.parked.iter().any(|b| b.dirty && b.path.is_empty());
-        if unnamed_dirty {
+        if self.has_unnamed_dirty() {
             return false;
         }
         if self.dirty {
@@ -313,8 +311,16 @@ impl Editor {
             self.set_notice("no file to delete");
             return;
         }
-        self.mode = Mode::Confirm;
-        self.set_notice(format!("delete {}? y/n", palette_label(&self.path)));
+        self.enter_confirm(Confirm::Delete, format!("delete {}? y/n", palette_label(&self.path)));
+    }
+
+    /// Any dirty buffer — active or parked — that has no name. The unnamed
+    /// scratch has nowhere to persist, so a reboot would lose it: this gates the
+    /// `:reboot` prompt ([`request_reboot`](Self::request_reboot)) and
+    /// [`try_save_all_dirty`](Self::try_save_all_dirty).
+    pub(crate) fn has_unnamed_dirty(&self) -> bool {
+        (self.dirty && self.path.is_empty())
+            || self.parked.iter().any(|b| b.dirty && b.path.is_empty())
     }
 
     /// `:delete` — unlink the **current** file from the card and leave it. Queues

@@ -29,8 +29,22 @@ fn gl_command_signals_pull() {
 
 #[test]
 fn setup_command_requests_the_wizard_when_clean() {
-    // A fresh clean buffer → `:setup` asks the host to reboot into the wizard.
-    assert_eq!(kinds(&command("setup").1), vec![Kind::Setup]);
+    // A fresh clean buffer → `:setup` prompts; on `y` it asks the host to reboot
+    // into the wizard.
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "setup");
+    assert!(e.take_effects().is_empty(), "must not act before confirmation");
+    confirm(&mut e);
+    assert_eq!(kinds(&e.take_effects()), vec![Kind::Setup]);
+}
+
+#[test]
+fn setup_prompt_cancels_on_any_other_key() {
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "setup");
+    e.handle(Key::Escape); // not y → cancel
+    assert_eq!(e.mode(), Mode::Normal);
+    assert!(e.take_effects().is_empty(), "cancelled :setup must queue nothing");
 }
 
 #[test]
@@ -52,8 +66,22 @@ fn setup_command_is_refused_with_unsaved_changes() {
 
 #[test]
 fn reboot_command_requests_a_restart_when_clean() {
-    // A fresh clean buffer → `:reboot` asks the host to restart, nothing to save.
-    assert_eq!(kinds(&command("reboot").1), vec![Kind::Reboot]);
+    // A fresh clean buffer → `:reboot` prompts; on `y` it asks the host to
+    // restart, nothing to save.
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "reboot");
+    assert!(e.take_effects().is_empty(), "must not restart before confirmation");
+    confirm(&mut e);
+    assert_eq!(kinds(&e.take_effects()), vec![Kind::Reboot]);
+}
+
+#[test]
+fn reboot_prompt_cancels_on_any_other_key() {
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "reboot");
+    e.handle(Key::Char('n')); // not y → cancel
+    assert_eq!(e.mode(), Mode::Normal);
+    assert!(e.take_effects().is_empty(), "cancelled :reboot must queue nothing");
 }
 
 #[test]
@@ -65,6 +93,7 @@ fn reboot_command_autosaves_a_dirty_buffer_then_restarts() {
     send(&mut e, "hi");
     e.handle(Key::Escape);
     ex(&mut e, "reboot");
+    confirm(&mut e);
     assert_eq!(kinds(&e.take_effects()), vec![Kind::Save, Kind::Reboot]);
 }
 

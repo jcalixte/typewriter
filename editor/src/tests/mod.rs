@@ -92,6 +92,13 @@ fn ink_at(frame: &Frame, x: usize, y: usize) -> bool {
     frame.bytes()[y * display::FB_BYTES_W + x / 8] & (0x80 >> (x % 8)) == 0
 }
 
+/// Answer `y` at a destructive-command `Mode::Confirm` prompt. Doubles as an
+/// assertion that a prompt is actually up (the guard was entered, not skipped).
+fn confirm(e: &mut Editor) {
+    assert_eq!(e.mode(), Mode::Confirm, "expected a confirm prompt");
+    e.handle(Key::Char('y'));
+}
+
 /// Feed a run of characters as Normal-mode keys.
 fn send(e: &mut Editor, s: &str) {
     for c in s.chars() {

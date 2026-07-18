@@ -82,11 +82,26 @@ pub enum Mode {
     /// block timer via [`Editor::enter_rest`] — there is no way to *type* into
     /// Rest, so it never touches the hidden buffer.
     Rest,
-    /// A destructive command is waiting for a `y`/`n` answer (currently only
-    /// `:delete` / `:d`). Modal like [`Rest`](Mode::Rest): every key is
-    /// swallowed but `y`/`Y` (proceed) — anything else cancels. The prompt
-    /// shows on the snackbar; see [`Editor::confirm_key`].
+    /// A destructive command is waiting for a `y`/`n` answer (`:delete`,
+    /// `:reboot`, `:setup`). Modal like [`Rest`](Mode::Rest): every key is
+    /// swallowed but `y`/`Y` (proceed) — anything else cancels. Which command
+    /// is pending rides in [`Editor::pending_confirm`]; the prompt shows on the
+    /// snackbar. See [`Editor::confirm_key`].
     Confirm,
+}
+
+/// Which destructive command a [`Mode::Confirm`] prompt is guarding. Stored
+/// alongside the mode (as [`rest_stats`](Editor::rest_stats) rides with
+/// [`Mode::Rest`]) so [`confirm_key`](Editor::confirm_key) knows what a `y`
+/// should run and what a cancel should say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Confirm {
+    /// `:delete` / `:d` — unlink the current file from the card.
+    Delete,
+    /// `:reboot` — restart the device (drops in-RAM state).
+    Reboot,
+    /// `:setup` — reboot into the onboarding wizard.
+    Setup,
 }
 
 /// Which of the two file scopes ([`CONTEXT.md`]) a buffer belongs to. Fixed at
@@ -326,6 +341,10 @@ pub struct Editor {
     /// instead of 25 minutes, so the whole cycle is testable in seconds. Toggled
     /// by `:focusdebug`; the panel marker shows `(s)` while it is on.
     focus_debug: bool,
+    /// Which destructive command a [`Mode::Confirm`] prompt is guarding, if any.
+    /// Set with the mode by the `request_*` commands, taken by
+    /// [`confirm_key`](Self::confirm_key). `None` outside Confirm.
+    pending_confirm: Option<Confirm>,
 }
 
 
@@ -372,6 +391,7 @@ impl Editor {
             pomodoro_on: false,
             rest_stats: None,
             focus_debug: false,
+            pending_confirm: None,
         }
     }
 
@@ -1038,31 +1058,51 @@ impl Editor {
         }
     }
 
-    /// `:setup` / `> setup` — ask the host to reopen the onboarding wizard.
-    /// Refuses while anything is unsaved: the host reboots into the wizard, so
-    /// a dirty buffer would be lost. Save with `:w` first, then retry.
+    /// `:setup` / `> setup` — reboot into the onboarding wizard, behind a y/n
+    /// prompt (the reboot drops in-RAM state, and the wizard's reset menu gates
+    /// the card-wiping paths, so it earns a deliberate confirm). Refuses up
+    /// front while anything is unsaved — the reboot would lose it — so we never
+    /// prompt for a restart we'd then have to block. Save with `:w` first.
     pub(crate) fn request_setup(&mut self) {
         if self.any_dirty() {
             self.set_notice("unsaved changes - :w first");
             return;
         }
-        self.requests.push(Effect::Setup);
+        self.enter_confirm(Confirm::Setup, "reopen setup? y/n");
     }
 
-    /// `:reboot` (or a software reboot button) — ask the host to restart. The
-    /// restart drops the in-RAM buffers, so it first auto-saves every *named*
-    /// dirty buffer ([`try_save_all_dirty`](Self::try_save_all_dirty)); those
-    /// [`Save`](Effect::Save)s are queued ahead of [`Reboot`](Effect::Reboot), so
-    /// the host flushes them to the card before it resets. A dirty *unnamed*
-    /// scratch buffer has nowhere to save to, so it blocks the reboot with a
-    /// notice instead of losing the text — unlike a button that silently no-ops,
-    /// this at least says why nothing happened.
+    /// `:reboot` (or a software reboot button) — restart the device, behind a
+    /// y/n prompt. The restart drops the in-RAM buffers, so an *unnamed* dirty
+    /// scratch (nowhere to save to) blocks it up front with a notice rather than
+    /// prompting for a reboot that would lose the text. Named dirty buffers are
+    /// saved on confirm, not here — see [`do_reboot`](Self::do_reboot).
     pub(crate) fn request_reboot(&mut self) {
+        if self.has_unnamed_dirty() {
+            self.set_notice("unnamed buffer - name it first");
+            return;
+        }
+        self.enter_confirm(Confirm::Reboot, "reboot? y/n");
+    }
+
+    /// The confirmed `:reboot`: auto-save every *named* dirty buffer
+    /// ([`try_save_all_dirty`](Self::try_save_all_dirty)) so those
+    /// [`Save`](Effect::Save)s are queued ahead of [`Reboot`](Effect::Reboot)
+    /// and the host flushes them before it resets. The unnamed-dirty case was
+    /// already refused at the prompt, so the guard here is belt-and-braces.
+    fn do_reboot(&mut self) {
         if !self.try_save_all_dirty() {
             self.set_notice("unnamed buffer - name it first");
             return;
         }
         self.requests.push(Effect::Reboot);
+    }
+
+    /// Enter the [`Mode::Confirm`] y/n prompt for `what`, showing `prompt` on
+    /// the snackbar. Shared by every destructive command that needs a confirm.
+    fn enter_confirm(&mut self, what: Confirm, prompt: impl Into<String>) {
+        self.pending_confirm = Some(what);
+        self.mode = Mode::Confirm;
+        self.set_notice(prompt);
     }
 
     fn reset_pending(&mut self) {
@@ -1183,19 +1223,28 @@ impl Editor {
     }
 
     /// Dispatch a key while a destructive command waits for confirmation
-    /// ([`Mode::Confirm`], currently only `:delete` / `:d`). Leaves Confirm
-    /// either way: a deliberate `y`/`Y` runs [`delete_current`](Self::delete_current)
-    /// (the host then reports the outcome on the snackbar), and every other
-    /// key — `n`, `Esc`, a stray character — cancels with a notice. Cancel is
-    /// the default so a fat-fingered `:d` never removes a file on its own.
+    /// ([`Mode::Confirm`] — `:delete`, `:reboot`, `:setup`). Leaves Confirm
+    /// either way: a deliberate `y`/`Y` runs the [`pending_confirm`](Self::pending_confirm)
+    /// action, and every other key — `n`, `Esc`, a stray character — cancels
+    /// with a notice. Cancel is the default so a fat-fingered command never
+    /// deletes a file or restarts the device on its own.
     fn confirm_key(&mut self, key: Key) {
         self.mode = Mode::Normal;
-        match key {
-            Key::Char('y') | Key::Char('Y') => {
-                self.notice = None; // the Delete effect's outcome replaces the prompt
-                self.delete_current();
+        let what = self.pending_confirm.take();
+        if matches!(key, Key::Char('y') | Key::Char('Y')) {
+            self.notice = None; // the resulting effect's outcome replaces the prompt
+            match what {
+                Some(Confirm::Delete) => self.delete_current(),
+                Some(Confirm::Reboot) => self.do_reboot(),
+                Some(Confirm::Setup) => self.requests.push(Effect::Setup),
+                None => {}
             }
-            _ => self.set_notice("delete cancelled"),
+        } else {
+            self.set_notice(match what {
+                Some(Confirm::Reboot) => "reboot cancelled",
+                Some(Confirm::Setup) => "setup cancelled",
+                _ => "delete cancelled",
+            });
         }
     }
 
