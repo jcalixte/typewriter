@@ -36,6 +36,22 @@ name = "sd_fat"
 path = "src/bin/sd_fat.rs"
 harness = false
 
+# Keyboard smoke test — USB host boot keyboard only, no SD/EPD/Wi-Fi, so a bare
+# board can prove the keyboard works. No git feature. Flash with `just flash-kbd`.
+[[bin]]
+name = "kbd"
+path = "src/bin/kbd.rs"
+harness = false
+
+# Full editor on the panel, no SD card — drives the shared ui::Panel render
+# engine (splash, windowed partials, caret debounce, focus mode) like the device
+# firmware, with storage/git stubbed. Nothing is saved. No git feature.
+# `just flash-demo`.
+[[bin]]
+name = "demo"
+path = "src/bin/demo.rs"
+harness = false
+
 # SD/FAT primitive-op micro-benchmark — attributes the ~700 ms/loose-object write
 # floor (see docs/tradeoff-curves/sync-commit-staging.md). Pure SD, no git feature.
 # Flash with `just flash-bench`.

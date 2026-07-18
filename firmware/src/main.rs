@@ -1,4 +1,3 @@
-mod usb_kbd;
 #[cfg(feature = "git")]
 mod wizard_io;
 
@@ -13,49 +12,23 @@ use esp_idf_svc::hal::units::FromValueType;
 
 use display::Frame;
 use editor::{
-    Date, Editor, Effect, Mode, Prefs, Scope, Snippets, CH, CW, LOCAL_DIR, PREFS_PATH, REPO_DIR,
+    Date, Editor, Effect, Mode, Prefs, Scope, Snippets, LOCAL_DIR, PREFS_PATH, REPO_DIR,
     SNIPPETS_PATH,
 };
-use firmware::epd::{self, Epd};
+use firmware::epd::Epd;
 use firmware::persistence::{Storage, CONF_PATH, NOTES};
+use firmware::ui::{FocusTimer, Panel};
+use firmware::usb_kbd;
 
 /// Injected by build.rs so serial output identifies the exact build.
 const BUILD_TAG: &str = concat!("build ", env!("BUILD_TIME"), " @", env!("BUILD_GIT"));
 
-/// Occasional full refresh, mainly for panel longevity — partial updates on
-/// this panel stay visually clean far longer, so this is deliberately rare.
-/// Once this many partials have accumulated, the full refresh runs at the
-/// next typing pause (the caret-debounce window) rather than promoting a
-/// keystroke repaint: the counter only advances while typing, so the old
-/// in-band promotion guaranteed the ~2 s flash always landed mid-sentence.
-const FULL_REFRESH_EVERY: u32 = 64;
-
-/// How long typing must pause before the Insert-mode caret is shown. There is no
-/// caret while actively typing (it would ghost under windowed refresh); it
-/// reappears once you settle. Normal/View draw their own caret every action.
-/// 2 s, not shorter: at 750 ms ordinary mid-sentence pauses triggered the
-/// caret, and each show/re-suppress pair cost two ~630 ms panel passes right
-/// as typing resumed (the "toggling" of the 2026-07-16 serial trace).
-const CURSOR_DEBOUNCE_MS: u128 = 2000;
-
 /// How long input must pause before `save_on_idle` persists a dirty buffer.
 /// The save is silent (no snackbar, no forced e-ink flash) — a safety net
 /// against power loss, not a user action — so unlike the caret it can afford
-/// to fire during a mid-sentence pause.
+/// to fire during a mid-sentence pause. The caret / longevity / focus timing
+/// constants now live with the render engine ([`firmware::ui`]).
 const IDLE_SAVE_MS: u128 = 1500;
-
-/// Focus mode (Pomodoro) block length: 25 minutes of writing before the rest
-/// card drops. Silent — never shown as a live countdown (an e-ink no-go, and
-/// the whole point). See docs/v0.7.5-focus-mode.md.
-const FOCUS_LEN_MS: u128 = 25 * 60 * 1000;
-/// The same 25 on a **seconds** clock, for the `:focusdebug` time-base
-/// ([`Editor::focus_debug`]) — makes the whole cycle testable in seconds.
-const FOCUS_DEBUG_LEN_MS: u128 = 25 * 1000;
-/// Grace past the block length: if the writer never pauses (so the pause-gated
-/// drop can't fire), force the break this long after it comes due, and the
-/// debug equivalent.
-const FOCUS_GRACE_MS: u128 = 2 * 60 * 1000;
-const FOCUS_DEBUG_GRACE_MS: u128 = 2 * 1000;
 
 fn main() -> anyhow::Result<()> {
     // Required once before any esp-idf-svc call; some runtime patches
@@ -255,34 +228,22 @@ fn main() -> anyhow::Result<()> {
     };
     log::info!("snippets: {} loaded", snippets.0.len());
     ed.set_snippets(snippets);
-    let mut updates: u32 = 0;
-    // Partial refreshes since the last full one — when it reaches
-    // FULL_REFRESH_EVERY, the idle branch runs the panel-longevity full
-    // refresh at the next typing pause.
-    let mut partials_since_full: u32 = 0;
-    let mut cursor_shown = true; // the initial render includes the caret
-    let mut last_activity = Instant::now();
-    // Whether `save_on_idle` already persisted the current idle window, so it
-    // fires once per typing burst (and doesn't retry-storm if a save fails).
-    // Reset on the next activity.
+    // Loop state that isn't the panel's own. `idle_saved`: whether
+    // `save_on_idle` already persisted the current idle window, so it fires once
+    // per typing burst (and doesn't retry-storm if a save fails); reset on the
+    // next activity. `last_file`: what the last-file marker was last written with
+    // — starts empty so the first loop pass records the boot buffer, and the
+    // marker then always names the active file, whether `open_last_on_boot`
+    // currently reads it or not (flipping the pref on works from the very next
+    // boot). `last_activity`: monotonic time of the last keystroke, for the caret
+    // / save-on-idle / longevity debounces.
     let mut idle_saved = false;
-    // What the last-file marker was last written with. Starts empty so the
-    // first loop pass records the boot buffer — the marker then always names
-    // the active file, whether `open_last_on_boot` currently reads it or not
-    // (flipping the pref on works from the very next boot).
     let mut last_file = String::new();
-    // Set when a paint fails (see the refresh block below): the next paint then
-    // does a full refresh to re-establish both RAM banks, since a partial that
-    // died mid-transfer may have left them inconsistent.
-    let mut force_full = false;
-    // Focus mode (Pomodoro): `Some(start)` while a session is active — the
-    // block's monotonic start (no wall clock needed). It stays Some through the
-    // Rest break too; the due-check below is gated on `mode != Rest`, not this.
-    // `None` when the session is off. `focus_words0` is the word count at the
-    // block's start, for the "words this block" figure. Driven by the
-    // FocusStart/FocusStop effects.
-    let mut focus_start: Option<Instant> = None;
-    let mut focus_words0: usize = 0;
+    let mut last_activity = Instant::now();
+    // Focus mode (Pomodoro): off until `:focus`, then a silent monotonic block
+    // timer (no wall clock, no live countdown). Driven by the FocusStart/Stop
+    // effects below; the rest-card drop is `Panel::rest_if_due` in the idle branch.
+    let mut focus = FocusTimer::default();
 
     // Keyboard attach/detach state drives the panel's disconnect flag; seed it
     // (and the word-count snapshot) before the first render.
@@ -292,24 +253,15 @@ fn main() -> anyhow::Result<()> {
 
     // First editor render — the moment the splash disappears. Everything
     // mandatory is ready here: SD mounted, note loaded, prefs applied, input
-    // running (the palette walk continues in the background). The splash's
-    // full refresh already seeded both RAM banks (its image is the `0x26`
-    // "previous" baseline) — the partial below first waits out its waveform
-    // (`wait_ready`), which the boot work above overlapped — so the editor
-    // comes up with a full-area *partial* (~630 ms) instead of a second full
-    // refresh (~1.9 s): the splash→editor swap rides the partial waveform,
-    // shaving ~1.3 s off cold boot. This large-area partial is the one boot
-    // refresh worth eyeballing for ghosting; the loop's periodic full refresh
-    // (every FULL_REFRESH_EVERY updates) clears any residue.
-    let mut shown = ed.draw(true);
-    epd.display_frame_partial_window(shown.bytes(), 0, epd::HEIGHT)?;
-    // The only two framebuffers the loop ever uses, both allocated here at
-    // boot: every repaint below renders into `back` (`draw_into` reuses its
-    // allocation) and swaps it with `shown` on success. A repaint must never
-    // allocate — a background `:gp` push can take the heap to the floor, and
-    // a failed `Vec` alloc aborts the whole app (the 2026-07-13 OOM: 66 s into
-    // the push, one HalfPageUp repaint died on a 27 KB framebuffer).
-    let mut back = Frame::new_white();
+    // running (the palette walk continues in the background). `Panel::new` draws
+    // the opening frame and paints it as a full-area *partial* (~630 ms) that
+    // first waits out the splash's waveform (which the boot work above
+    // overlapped), so the splash→editor swap rides the partial instead of a
+    // second full refresh — shaving ~1.3 s off cold boot. From here the panel
+    // owns the EPD and both reused framebuffers (a repaint never allocates — a
+    // background `:gp` can take the heap to the floor); every repaint goes
+    // through it. See [`firmware::ui::Panel`].
+    let mut panel = Panel::new(epd, &mut ed)?;
 
     // Boot-time measurement (the ≤ 5 s v0.1 / ≤ 3 s v1.0 target). Two clocks, and
     // they disagree by ~1.4 s here, so report both. `esp_log_timestamp()` counts
@@ -450,8 +402,7 @@ fn main() -> anyhow::Result<()> {
                         match storage.request_setup() {
                             Ok(()) => {
                                 ed.set_notice("opening setup - restarting...");
-                                ed.draw_into(&mut back, true);
-                                let _ = epd.display_frame(back.bytes());
+                                panel.blit_editor_full(&mut ed);
                                 log::info!(":setup — rebooting into the wizard");
                                 unsafe { esp_idf_svc::sys::esp_restart() };
                             }
@@ -473,17 +424,16 @@ fn main() -> anyhow::Result<()> {
                         // is on the bistable panel before the reset fires; it then
                         // carries over the whole reboot into the boot splash.
                         log::info!(":reboot — restarting");
-                        let _ = epd.display_frame(Frame::reboot().bytes());
+                        panel.blit_full(&Frame::reboot());
                         unsafe { esp_idf_svc::sys::esp_restart() };
                     }
                     Effect::FocusStart => {
                         // Begin (or, after a break, restart) a focus block: start
                         // the silent monotonic timer and snapshot the word count
                         // for the rest card. See docs/v0.7.5-focus-mode.md.
-                        focus_start = Some(Instant::now());
-                        focus_words0 = ed.word_count();
+                        focus.start(ed.word_count());
                     }
-                    Effect::FocusStop => focus_start = None,
+                    Effect::FocusStop => focus.stop(),
                 }
             }
         }
@@ -505,41 +455,10 @@ fn main() -> anyhow::Result<()> {
 
         if keys == 0 {
             // Focus mode: a running block that has reached its length drops the
-            // rest card at the next typing pause — never mid-keystroke — or at a
-            // grace cap if the writer never pauses. The break is a FULL refresh:
-            // the curtain is a deliberate, unmissable state change, and the clean
-            // flash avoids ghosting the big black/white swap. Skipped once Rest
-            // is already showing. The elapsed check is a single one-shot
-            // threshold, not a per-second repaint (no live countdown exists).
-            if let Some(start) = focus_start {
-                if ed.mode() != Mode::Rest {
-                    let (len, grace, div) = if ed.focus_debug() {
-                        (FOCUS_DEBUG_LEN_MS, FOCUS_DEBUG_GRACE_MS, 1000u128)
-                    } else {
-                        (FOCUS_LEN_MS, FOCUS_GRACE_MS, 60_000u128)
-                    };
-                    let el = start.elapsed().as_millis();
-                    let paused = last_activity.elapsed().as_millis() >= CURSOR_DEBOUNCE_MS;
-                    if el >= len && (paused || el >= len + grace) {
-                        let words = ed.word_count().saturating_sub(focus_words0);
-                        ed.enter_rest(words, (el / div) as u32);
-                        ed.draw_into(&mut back, true);
-                        let t0 = Instant::now();
-                        if let Err(e) = epd.display_frame(back.bytes()) {
-                            log::warn!("rest-card refresh FAILED ({e}); full refresh next");
-                            force_full = true;
-                            continue;
-                        }
-                        partials_since_full = 0;
-                        log::info!(
-                            "focus: rest after {el} ms ({words} words); {} ms",
-                            t0.elapsed().as_millis()
-                        );
-                        std::mem::swap(&mut shown, &mut back);
-                        cursor_shown = true;
-                        continue;
-                    }
-                }
+            // rest card at this typing pause — never mid-keystroke — or at a grace
+            // cap if the writer never pauses (Panel::rest_if_due).
+            if panel.rest_if_due(&mut ed, &focus, last_activity) {
+                continue;
             }
             // A finished git operation reports its outcome here (it ran on the
             // git thread while we idled). Show it in the snackbar with a silent
@@ -615,47 +534,22 @@ fn main() -> anyhow::Result<()> {
                 if ed.mode() == Mode::Rest {
                     continue;
                 }
-                ed.draw_into(&mut back, true);
-                if let Err(e) = epd.display_frame_partial_window(back.bytes(), 0, epd::HEIGHT) {
-                    log::warn!("sync-notice repaint FAILED ({e}); full refresh next");
-                    force_full = true;
-                    continue;
-                }
-                std::mem::swap(&mut shown, &mut back);
-                cursor_shown = true;
+                panel.show_notice(&mut ed);
                 continue;
             }
             // A finished background file walk (boot or post-pull) feeds the
-            // palette. Repaint only if the visible frame changed — the list
-            // is only visible through the palette overlay, which is usually
-            // closed, and a no-op full-area partial would be a pointless
-            // ~630 ms panel drive. Caret visibility is passed through
-            // unchanged so this can't reveal a debounced Insert caret early.
+            // palette; repaint only if the visible frame changed — the list is
+            // only visible through the (usually closed) palette overlay, so a
+            // no-op full-area partial would be a pointless ~630 ms panel drive
+            // (Panel::repaint_if_changed, which also preserves caret visibility).
             if let Ok(files) = walk_rx.try_recv() {
                 ed.set_file_list_joined(files);
-                ed.draw_into(&mut back, cursor_shown);
-                if changed_rows(shown.bytes(), back.bytes()).is_some() {
-                    if let Err(e) = epd.display_frame_partial_window(back.bytes(), 0, epd::HEIGHT) {
-                        log::warn!("palette repaint FAILED ({e}); full refresh next");
-                        force_full = true;
-                        continue;
-                    }
-                    std::mem::swap(&mut shown, &mut back);
-                }
+                panel.repaint_if_changed(&mut ed);
                 continue;
             }
             // A connect/disconnect while idle must still repaint the panel flag —
             // no keystroke will arrive to trigger it otherwise.
-            if kbd_changed {
-                ed.draw_into(&mut back, true);
-                if let Err(e) = epd.display_frame_partial_window(back.bytes(), 0, epd::HEIGHT) {
-                    log::warn!("kbd-flag repaint FAILED ({e}); full refresh next");
-                    force_full = true;
-                    continue;
-                }
-                std::mem::swap(&mut shown, &mut back);
-                cursor_shown = true;
-                log::info!("keyboard {}", if kbd { "connected" } else { "disconnected" });
+            if panel.kbd_repaint(&mut ed, kbd_changed, kbd) {
                 continue;
             }
             // save_on_idle: once input has paused, quietly persist a dirty named
@@ -682,146 +576,24 @@ fn main() -> anyhow::Result<()> {
                 // No repaint: `dirty` clearing has no visible effect, and a flash
                 // here would defeat the point. Fall through to the caret/idle path.
             }
-            // Panel-longevity full refresh, deferred to a typing pause. The
-            // partial counter only advances on keystroke repaints, so promoting
-            // in-band (the pre-2026-07-16 behavior) meant the ~2 s flash could
-            // ONLY ever land mid-typing. Runs before the caret branch and draws
-            // the caret itself, so the pause costs one flash, not flash + caret
-            // pass. Kept ahead of a long typing burst's ghost budget: a burst
-            // without a 2 s pause just accumulates a few more partials until
-            // the writer next settles.
-            if partials_since_full >= FULL_REFRESH_EVERY
-                && last_activity.elapsed().as_millis() >= CURSOR_DEBOUNCE_MS
-            {
-                ed.refresh_stats();
-                ed.draw_into(&mut back, true);
-                updates += 1;
-                let t0 = Instant::now();
-                if let Err(e) = epd.display_frame(back.bytes()) {
-                    // Same recovery as a failed keystroke paint. Counter reset
-                    // too — force_full's FULL on the next paint covers the
-                    // longevity duty, and retrying from here would busy-loop.
-                    log::warn!("idle FULL refresh #{updates} FAILED ({e}); full refresh next");
-                    force_full = true;
-                    partials_since_full = 0;
-                    continue;
-                }
-                partials_since_full = 0;
-                log::info!("idle FULL refresh #{updates}: {} ms", t0.elapsed().as_millis());
-                std::mem::swap(&mut shown, &mut back);
-                cursor_shown = true;
+            // Panel-longevity full refresh, deferred to a typing pause
+            // (Panel::longevity_full), then the debounced Insert caret or a brief
+            // CPU-yielding sleep (Panel::caret_or_sleep) — the tail of the idle
+            // sequence, always last since there is nothing after it.
+            if panel.longevity_full(&mut ed, last_activity) {
                 continue;
             }
-            // Debounced caret, Insert mode only: once typing pauses, bring the
-            // bar caret back and refresh the panel word count with a silent
-            // full-area partial (no flash). Normal/View draw their caret on action.
-            if ed.mode() == Mode::Insert
-                && !cursor_shown
-                && last_activity.elapsed().as_millis() >= CURSOR_DEBOUNCE_MS
-            {
-                ed.refresh_stats();
-                ed.draw_into(&mut back, true);
-                if let Err(e) = epd.display_frame_partial_window(back.bytes(), 0, epd::HEIGHT) {
-                    log::warn!("caret repaint FAILED ({e}); full refresh next");
-                    force_full = true;
-                } else {
-                    std::mem::swap(&mut shown, &mut back);
-                    cursor_shown = true;
-                    log::info!("caret shown");
-                }
-            } else {
-                FreeRtos::delay_ms(8);
-            }
+            panel.caret_or_sleep(&mut ed, last_activity);
             continue;
         }
 
         last_activity = Instant::now();
         idle_saved = false; // fresh activity reopens the save_on_idle window
-        // Non-Insert actions (Normal edits, mode switches) aren't rapid typing,
-        // so the panel word count can refresh immediately; in Insert the snapshot
-        // stays frozen until the typing-pause path above refreshes it.
-        if ed.mode() != Mode::Insert {
-            ed.refresh_stats();
-        }
-        // Suppress the Insert bar caret while typing (fast, no ghost); Normal
-        // and View render their caret regardless of this flag.
-        let insert_cursor_on = ed.mode() != Mode::Insert;
-        let prev_scroll = ed.scroll_top();
-        ed.draw_into(&mut back, insert_cursor_on);
-        let scrolled = ed.scroll_top() != prev_scroll;
-
-        // Leaving the rest curtain (c/q/Esc) swaps a full-screen card back to the
-        // editor: force a clean full refresh so the big ink change doesn't ghost.
-        if prev_mode == Mode::Rest && ed.mode() != Mode::Rest {
-            force_full = true;
-        }
-
-        // Only the rows that changed since the last shown frame need updating.
-        let Some((y0, y1)) = changed_rows(shown.bytes(), back.bytes()) else {
-            cursor_shown = ed.mode() != Mode::Insert;
-            continue; // no visible change (the frames are identical — no swap needed)
-        };
-        // Snap the band to whole text lines so a partial-window boundary never
-        // lands mid-glyph — otherwise the boundary gate crops tall characters.
-        let ch = CH as u16;
-        let y0 = y0 / ch * ch;
-        let y1 = (y1 / ch * ch + ch - 1).min(epd::HEIGHT - 1);
-
-        updates += 1;
-        // A purely additive Insert edit (no cursor, no scroll) uses the fast
-        // windowed partial; anything else — deletes, caret moves, scrolling,
-        // mode switches — uses a clean full-area partial. One tolerated erase:
-        // the debounced caret bar (2×CH px, one cell) being re-suppressed as
-        // typing resumes — its ghost risk is negligible, and promoting it made
-        // every post-pause keystroke drive the whole panel. Any wider erase
-        // (a backspaced glyph spans the caret's cell plus its own) still
-        // falls back to the clean full-area pass.
-        let additive = ed.mode() == Mode::Insert
-            && !scrolled
-            && match erase_bbox(shown.bytes(), back.bytes(), y0, y1) {
-                None => true,
-                Some((ex0, ex1, ey0, ey1)) => {
-                    cursor_shown && ex1 - ex0 < CW as u16 && ey1 - ey0 < CH as u16
-                }
-            };
-
-        let t0 = Instant::now();
-        // `force_full` promotes to a full refresh after a failed paint: it
-        // rewrites both RAM banks, recovering from a partial that may have died
-        // mid-transfer and desynced them. (The *periodic* panel-longevity full
-        // no longer promotes here — it runs from the idle branch, so its ~2 s
-        // flash lands in a typing pause instead of mid-sentence.)
-        let (result, refresh) = if force_full {
-            (epd.display_frame(back.bytes()), "FULL")
-        } else if additive {
-            (epd.display_frame_partial_window(back.bytes(), y0, y1 - y0 + 1), "windowed")
-        } else {
-            (epd.display_frame_partial_window(back.bytes(), 0, epd::HEIGHT), "full-area")
-        };
-        let ms = t0.elapsed().as_millis();
-        if let Err(e) = result {
-            // Never fatal — the buffer is the source of truth and safe in RAM,
-            // exactly like a failed `save_buffer`. Drop this frame, leave `shown`
-            // untouched so the next paint repaints the same diff, and force a
-            // clean full refresh then. Typical cause: internal DMA-capable RAM
-            // briefly starved by Wi-Fi/TLS during a background `:gp`; it frees
-            // the moment the push finishes.
-            log::warn!("{refresh} refresh #{updates} FAILED ({e}); frame dropped, full refresh next");
-            force_full = true;
-            continue;
-        }
-        force_full = false;
-        if refresh == "FULL" {
-            partials_since_full = 0;
-        } else {
-            partials_since_full += 1;
-        }
-        log::info!(
-            "{refresh} refresh #{updates} [{:?}]: {ms} ms (rows {y0}..={y1}, {keys} key(s))",
-            ed.mode()
-        );
-        std::mem::swap(&mut shown, &mut back);
-        cursor_shown = ed.mode() != Mode::Insert;
+        // Repaint the batch: the windowed/additive/full-area decision, the
+        // force_full recovery, and the leaving-Rest full refresh all live in the
+        // panel engine now (Panel::render_batch). `prev_mode` lets it detect the
+        // Rest→editor swap; `keys` is only for the trace.
+        panel.render_batch(&mut ed, prev_mode, keys);
     }
 }
 
@@ -1148,46 +920,5 @@ fn file_stem(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-/// First and last (inclusive) framebuffer rows that differ between two frames,
-/// or `None` if identical. Lets the partial refresh target just the band a
-/// keystroke touched instead of all 272 rows.
-fn changed_rows(a: &[u8], b: &[u8]) -> Option<(u16, u16)> {
-    let w = epd::FB_BYTES_W;
-    let mut first: Option<u16> = None;
-    let mut last = 0u16;
-    for y in 0..epd::HEIGHT as usize {
-        if a[y * w..(y + 1) * w] != b[y * w..(y + 1) * w] {
-            first.get_or_insert(y as u16);
-            last = y as u16;
-        }
-    }
-    first.map(|f| (f, last))
-}
-
-/// Bounding box (x0, x1, y0, y1 — pixels, inclusive) of the ink *erased* going
-/// from frame `a` to `b` within rows `y0..=y1`, or `None` when the change only
-/// adds ink. Windowed partial refresh renders added ink cleanly but leaves
-/// ghosts where ink is erased, so erasing edits fall back to a clean full-area
-/// partial — except an erase confined to one character cell with the caret on
-/// screen, which the caller reads as the debounced caret bar being
-/// re-suppressed. Bit convention: 1 = white, 0 = black ink.
-fn erase_bbox(a: &[u8], b: &[u8], y0: u16, y1: u16) -> Option<(u16, u16, u16, u16)> {
-    let w = epd::FB_BYTES_W;
-    let mut bbox: Option<(u16, u16, u16, u16)> = None;
-    for y in y0 as usize..=y1 as usize {
-        for xb in 0..w {
-            // Bits set in b but clear in a went black→white — erased ink.
-            let erased = b[y * w + xb] & !a[y * w + xb];
-            if erased == 0 {
-                continue;
-            }
-            let x_lo = (xb * 8) as u16 + erased.leading_zeros() as u16;
-            let x_hi = (xb * 8) as u16 + 7 - erased.trailing_zeros() as u16;
-            let bb = bbox.get_or_insert((x_lo, x_hi, y as u16, y as u16));
-            bb.0 = bb.0.min(x_lo);
-            bb.1 = bb.1.max(x_hi);
-            bb.3 = y as u16; // rows scan top-down, so y is always the new max
-        }
-    }
-    bbox
-}
+// The panel-diff helpers (`changed_rows` / `erase_bbox`) and the render loop's
+// paint machinery now live in [`firmware::ui`], shared with the `demo` bin.

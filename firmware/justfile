@@ -11,6 +11,8 @@ elf := "target/xtensa-esp32s3-espidf/release/firmware"
 elf_wifi := "target/xtensa-esp32s3-espidf/release/wifi_tls"
 elf_sd := "target/xtensa-esp32s3-espidf/release/sd_fat"
 elf_splash := "target/xtensa-esp32s3-espidf/release/splash"
+elf_kbd := "target/xtensa-esp32s3-espidf/release/kbd"
+elf_demo := "target/xtensa-esp32s3-espidf/release/demo"
 elf_git := "target/xtensa-esp32s3-espidf/release/git_smoke"
 elf_git_push := "target/xtensa-esp32s3-espidf/release/git_push"
 elf_git_sync := "target/xtensa-esp32s3-espidf/release/git_sync"
@@ -85,6 +87,32 @@ flash-sd:
 # serial monitor for the SD spike, with decoded backtraces
 monitor-sd:
     espflash monitor --elf {{elf_sd}}
+
+# Keyboard smoke test — build the USB-keyboard-only bin (no SD/EPD/Wi-Fi, no git)
+build-kbd:
+    {{esp_env}} cargo build --release --bin kbd
+
+# build + flash + monitor the keyboard smoke test
+flash-kbd:
+    {{esp_env}} cargo run --release --bin kbd
+
+# serial monitor for the keyboard smoke test, with decoded backtraces
+monitor-kbd:
+    espflash monitor --elf {{elf_kbd}}
+
+# Full editor on the panel — build the editor-on-EPD bin (no SD, no git): drives
+# the shared ui::Panel engine with storage stubbed. Type on a USB keyboard and
+# watch text land on the panel; nothing is saved.
+build-demo:
+    {{esp_env}} cargo build --release --bin demo
+
+# build + flash + monitor the screen + keyboard test
+flash-demo:
+    {{esp_env}} cargo run --release --bin demo
+
+# serial monitor for the screen + keyboard test, with decoded backtraces
+monitor-demo:
+    espflash monitor --elf {{elf_demo}}
 
 # SD primitive-op micro-benchmark — attributes the ~700 ms/loose-object write
 # floor (docs/tradeoff-curves/sync-commit-staging.md). Writes only to /sd/sdbench.
