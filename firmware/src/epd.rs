@@ -411,3 +411,25 @@ impl<'d> Epd<'d> {
         Ok(())
     }
 }
+
+/// The [`hal::Screen`] port: the render engine (`app::Panel`) drives the panel
+/// through this contract rather than the concrete `Epd`, so it no longer names
+/// esp-idf. Both methods forward to the inherent driver methods above; the
+/// associated error is esp-idf's `EspError`, kept off the layers above by the
+/// trait's associated type.
+impl hal::Screen for Epd<'_> {
+    type Error = EspError;
+
+    fn display_frame(&mut self, fb: &[u8]) -> Result<(), Self::Error> {
+        Epd::display_frame(self, fb)
+    }
+
+    fn display_frame_partial_window(
+        &mut self,
+        fb: &[u8],
+        y0: u16,
+        h: u16,
+    ) -> Result<(), Self::Error> {
+        Epd::display_frame_partial_window(self, fb, y0, h)
+    }
+}

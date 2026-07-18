@@ -131,6 +131,10 @@ git = ["dep:git2", "dep:libgit2-sys", "dep:wizard"]
 [dependencies]
 anyhow = "1"
 log = "0.4"
+# The hardware-abstraction port traits (Screen, Keyboard). The drivers below
+# implement them (epd -> Screen, usb_kbd -> Keyboard) and the render engine
+# depends on the traits, not the concrete types. Pure, host-buildable. See ../hal.
+hal = { path = "../hal" }
 # Pure HID decode (Key type + edge-detecting Decoder), split out so it is
 # host-testable off the xtensa target. See ../keymap and MEMORY_AUDIT.md.
 keymap = { path = "../keymap" }
@@ -139,6 +143,9 @@ keymap = { path = "../keymap" }
 # off-device. The firmware links them; the host tests live in each crate.
 editor = { path = "../editor" }
 display = { path = "../display" }
+# The application layer: the panel render engine now (`app::Panel`), and the
+# run-loop `Runtime` + its ports as the migration lands. Pure, host-testable.
+app = { path = "../app" }
 # The typoena.conf schema + parser (shared with the installer/wizard). The
 # card's conf is read at boot and overrides the .env-baked TW_* per field —
 # v0.9 onboarding slice 0. See ../conf and docs/v0.9-onboarding-wizard.md.

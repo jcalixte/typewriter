@@ -3,7 +3,7 @@
 //! The device firmware ([`main.rs`]) minus persistence: it brings up the
 //! e-paper (Spike 2 wiring) and the shared [`firmware::usb_kbd`] host stack,
 //! then runs the actual [`editor::Editor`] through the **same panel engine as
-//! `main.rs`** — [`firmware::ui::Panel`] — so the panel behaves exactly like the
+//! `main.rs`** — [`app::Panel`] — so the panel behaves exactly like the
 //! shipping device (boot splash, windowed/additive partials, the debounced
 //! Insert caret, the periodic panel-longevity full refresh, focus mode). Only
 //! the SD card is gone: the loop below is the storage/git-free half of main's,
@@ -25,13 +25,14 @@ use std::time::Instant;
 use esp_idf_svc::hal::gpio::{AnyIOPin, PinDriver, Pull};
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::hal::spi::config::{Config, DriverConfig};
+use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::hal::spi::{Dma, SpiBusDriver, SpiDriver};
 use esp_idf_svc::hal::units::FromValueType;
 
+use app::{FocusTimer, Panel};
 use display::Frame;
 use editor::{Editor, Effect, Mode, Prefs, Snippets};
 use firmware::epd::Epd;
-use firmware::ui::{FocusTimer, Panel};
 use firmware::usb_kbd;
 
 /// Injected by build.rs so serial output identifies the exact build.
@@ -181,7 +182,9 @@ fn main() -> anyhow::Result<()> {
             if panel.longevity_full(&mut ed, last_activity) {
                 continue;
             }
-            panel.caret_or_sleep(&mut ed, last_activity);
+            if !panel.caret_if_due(&mut ed, last_activity) {
+                FreeRtos::delay_ms(8);
+            }
             continue;
         }
 

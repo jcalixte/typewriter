@@ -13,14 +13,15 @@
 //! - [`usb_kbd`] — the USB-host boot-keyboard bridge, shared by the editor
 //!   binary and the `kbd` bench binary (`just flash-kbd`) so a bare board can
 //!   exercise the keyboard with no SD card through one copy.
-//! - [`ui`] — the panel render engine ([`ui::Panel`]): the editor's e-paper
-//!   refresh machinery, shared by the editor binary and the `demo` bin
-//!   (`just flash-demo`) so both drive the panel through one copy.
+//!
+//! The panel render engine ([`app::Panel`]) has moved to the host-testable
+//! `app` crate (generic over [`hal::Screen`]); the editor binary and the `demo`
+//! bin both drive it from there.
 
+pub mod adapters;
 pub mod epd;
 pub mod net;
 pub mod persistence;
-pub mod ui;
 pub mod usb_kbd;
 
 // On-device git publish (the editor's `:gp` transport). Behind the `git`

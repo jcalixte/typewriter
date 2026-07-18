@@ -44,6 +44,22 @@ use esp_idf_svc::sys::{
 /// This module only bridges it to the USB transport. See MEMORY_AUDIT.md.
 pub use keymap::Key;
 
+/// The [`hal::Keyboard`] port over this module's global USB-host key queue.
+/// Zero-sized: all state lives in the module statics, so every instance reads
+/// the one shared queue. Construct after [`start`]; the run loop drives the
+/// editor through this contract instead of the free functions below.
+pub struct UsbKeyboard;
+
+impl hal::Keyboard for UsbKeyboard {
+    fn next_key(&mut self) -> Option<Key> {
+        next_key()
+    }
+
+    fn keyboard_present(&self) -> bool {
+        keyboard_present()
+    }
+}
+
 /// Boot-keyboard parameters, confirmed by Spike 4's enumeration.
 const KBD_INTERFACE: u8 = 0;
 const KBD_ALT_SETTING: u8 = 0;

@@ -1,7 +1,7 @@
 #[cfg(feature = "git")]
 mod wizard_io;
 
-use std::time::Instant;
+use std::rc::Rc;
 
 use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::hal::gpio::{AnyIOPin, PinDriver, Pull};
@@ -10,25 +10,20 @@ use esp_idf_svc::hal::spi::config::{Config, DriverConfig};
 use esp_idf_svc::hal::spi::{Dma, SpiBusDriver, SpiDriver};
 use esp_idf_svc::hal::units::FromValueType;
 
+use app::{file_stem, FileIndex, Panel, Runtime};
 use display::Frame;
-use editor::{
-    Date, Editor, Effect, Mode, Prefs, Scope, Snippets, LOCAL_DIR, PREFS_PATH, REPO_DIR,
-    SNIPPETS_PATH,
-};
+use editor::{Editor, Prefs, Scope, Snippets, LOCAL_DIR, PREFS_PATH, SNIPPETS_PATH};
+use firmware::adapters::{EspClock, EspFileWalk, SdStorage};
+#[cfg(feature = "git")]
+use firmware::adapters::{EspSystem, GitSyncService};
+#[cfg(not(feature = "git"))]
+use firmware::adapters::{NullSyncService, NullSystem};
 use firmware::epd::Epd;
 use firmware::persistence::{Storage, CONF_PATH, NOTES};
-use firmware::ui::{FocusTimer, Panel};
 use firmware::usb_kbd;
 
 /// Injected by build.rs so serial output identifies the exact build.
 const BUILD_TAG: &str = concat!("build ", env!("BUILD_TIME"), " @", env!("BUILD_GIT"));
-
-/// How long input must pause before `save_on_idle` persists a dirty buffer.
-/// The save is silent (no snackbar, no forced e-ink flash) — a safety net
-/// against power loss, not a user action — so unlike the caret it can afford
-/// to fire during a mid-sentence pause. The caret / longevity / focus timing
-/// constants now live with the render engine ([`firmware::ui`]).
-const IDLE_SAVE_MS: u128 = 1500;
 
 fn main() -> anyhow::Result<()> {
     // Required once before any esp-idf-svc call; some runtime patches
@@ -228,27 +223,12 @@ fn main() -> anyhow::Result<()> {
     };
     log::info!("snippets: {} loaded", snippets.0.len());
     ed.set_snippets(snippets);
-    // Loop state that isn't the panel's own. `idle_saved`: whether
-    // `save_on_idle` already persisted the current idle window, so it fires once
-    // per typing burst (and doesn't retry-storm if a save fails); reset on the
-    // next activity. `last_file`: what the last-file marker was last written with
-    // — starts empty so the first loop pass records the boot buffer, and the
-    // marker then always names the active file, whether `open_last_on_boot`
-    // currently reads it or not (flipping the pref on works from the very next
-    // boot). `last_activity`: monotonic time of the last keystroke, for the caret
-    // / save-on-idle / longevity debounces.
-    let mut idle_saved = false;
-    let mut last_file = String::new();
-    let mut last_activity = Instant::now();
-    // Focus mode (Pomodoro): off until `:focus`, then a silent monotonic block
-    // timer (no wall clock, no live countdown). Driven by the FocusStart/Stop
-    // effects below; the rest-card drop is `Panel::rest_if_due` in the idle branch.
-    let mut focus = FocusTimer::default();
 
     // Keyboard attach/detach state drives the panel's disconnect flag; seed it
-    // (and the word-count snapshot) before the first render.
-    let mut last_kbd = usb_kbd::keyboard_present();
-    ed.set_keyboard_present(last_kbd);
+    // (and the word-count snapshot) before the first render. The loop's own
+    // bookkeeping (last-file marker, idle-save window, focus timer) now lives in
+    // the [`Runtime`].
+    ed.set_keyboard_present(usb_kbd::keyboard_present());
     ed.refresh_stats();
 
     // First editor render — the moment the splash disappears. Everything
@@ -260,8 +240,8 @@ fn main() -> anyhow::Result<()> {
     // second full refresh — shaving ~1.3 s off cold boot. From here the panel
     // owns the EPD and both reused framebuffers (a repaint never allocates — a
     // background `:gp` can take the heap to the floor); every repaint goes
-    // through it. See [`firmware::ui::Panel`].
-    let mut panel = Panel::new(epd, &mut ed)?;
+    // through it. See [`app::Panel`].
+    let panel = Panel::new(epd, &mut ed)?;
 
     // Boot-time measurement (the ≤ 5 s v0.1 / ≤ 3 s v1.0 target). Two clocks, and
     // they disagree by ~1.4 s here, so report both. `esp_log_timestamp()` counts
@@ -274,327 +254,48 @@ fn main() -> anyhow::Result<()> {
     let app_ms = (unsafe { esp_idf_svc::sys::esp_timer_get_time() } / 1000) as u32;
     log::info!("boot: cursor ready — {total_ms} ms since power-on ({app_ms} ms app-side)");
 
-    // Feed the file palette (Ctrl-P) from a background walk — spawned only now,
-    // AFTER the first editor frame is on the panel. Enumerating /sd/repo +
-    // /sd/local takes seconds on a big tree (readdir-over-SPI bound) and the
-    // palette isn't needed to type. Spawned earlier (pre-render), the walk
-    // thread monopolized the FatFS volume lock and starved the main task's own
-    // boot SD reads — the synchronous snippets load blocked ~5.4 s behind it
-    // (2026-07-17 trace: cursor-ready 4.2 s → 7.3 s, and the 240 MHz CPU made
-    // it worse by tightening the walk's readdir loop). By here every
-    // critical-path read (prefs, note, snippets) and the first paint are done,
-    // so the walk finally runs off the hot path. The list lands on `walk_rx`;
-    // the idle branch feeds it to the editor (recents-only until then). A pull
-    // re-feeds it the same way.
-    let (walk_tx, walk_rx) = std::sync::mpsc::channel::<String>();
-    spawn_file_walk(walk_tx.clone());
+    // The palette's background file index (Ctrl-P). Kick the first walk now —
+    // AFTER the first editor frame is on the panel — so the seconds-long readdir
+    // over SPI doesn't starve the boot-critical SD reads or delay the first
+    // paint. The idle loop feeds finished walks to the editor (recents-only until
+    // then); a pull re-walks the same way. Runs on the walk thread the port owns.
+    let files = EspFileWalk::new();
+    files.request_rewalk();
 
-    loop {
-        // Feed today's date from the wall clock each pass, so `:inbox` names/dates
-        // the note for the current day even if the session crosses midnight or the
-        // clock is only set mid-session by the first sync. `None` until the clock
-        // is trustworthy (see `today_date`).
-        ed.set_today(today_date());
+    // Share the mounted card across the storage / sync / system adapters — all on
+    // this single UI task, so `Rc` (not `Arc`) is enough. The git build's sync +
+    // system adapters reach the same dirty journal and setup marker through it.
+    let card = Rc::new(storage);
 
-        // Drain all queued keystrokes (type-ahead absorbed during a refresh),
-        // apply them, then do a single refresh for the batch.
-        let prev_mode = ed.mode(); // to detect leaving the Rest curtain below
-        let mut keys = 0;
-        while let Some(k) = usb_kbd::next_key() {
-            let was_rest = ed.mode() == Mode::Rest;
-            ed.handle(k);
-            keys += 1;
-            // Leaving the rest curtain (Ctrl-C / q / Esc) drops the rest of this
-            // batch: a keyboard bump that triggered the exit can't then poke the
-            // editor, so one accidental touch only ever lands you on a clean
-            // Normal screen, never an edit.
-            if was_rest && ed.mode() != Mode::Rest {
-                while usb_kbd::next_key().is_some() {}
-                break;
-            }
-        }
+    // Choose the sync + system adapters by build: a full build drives git; a
+    // light editor build injects the no-op pair (publish/pull skipped, `:setup`
+    // reports it needs the full firmware). The [`Runtime`] is identical either way.
+    #[cfg(feature = "git")]
+    let sync: Box<dyn app::SyncService> =
+        Box::new(GitSyncService::new(card.clone(), git_tx, git_rx));
+    #[cfg(not(feature = "git"))]
+    let sync: Box<dyn app::SyncService> = Box::new(NullSyncService);
+    #[cfg(feature = "git")]
+    let system: Box<dyn app::System> = Box::new(EspSystem(card.clone()));
+    #[cfg(not(feature = "git"))]
+    let system: Box<dyn app::System> = Box::new(NullSystem);
 
-        // Service the host-side effects the batch queued, in order. A file open
-        // queues a Save of the outgoing dirty buffer *then* a Load of the target;
-        // `:gp` queues a Save of the current buffer *then* Publish. Save/Load
-        // are inline (fast SD IO); Publish hands off to the git thread — behind
-        // the `git` feature, so a light build carries no libgit2/git2.
-        //
-        // Drain to empty rather than once: servicing a Load can itself queue an
-        // eviction Save (when the swap pushes a dirty parked buffer out of the
-        // ≤3 window), and that must be persisted now, not deferred to the next
-        // keystroke where a power-off could lose it. The queue strictly shrinks
-        // (a Save/Publish/Pull queues nothing; a Load queues at most one Save),
-        // so this terminates.
-        loop {
-            let effects = ed.take_effects();
-            if effects.is_empty() {
-                break;
-            }
-            for effect in effects {
-                match effect {
-                    Effect::Save { path, contents, .. } => {
-                        save_buffer(&storage, &mut ed, &path, &contents)
-                    }
-                    Effect::Load { path, scope } => open_buffer(&storage, &mut ed, path, scope),
-                    Effect::Publish => {
-                        // Non-blocking, so the ~10 s push never stalls the editor.
-                        // The outcome returns on `git_rx` and updates the snackbar
-                        // (see the idle branch below). The Save that preceded this
-                        // in the batch already persisted the buffer, so this is a
-                        // pure git publish of the recorded dirty paths — the
-                        // outcome decides whether the snapshot is forgotten
-                        // (publish_succeeded) or retried (publish_failed).
-                        #[cfg(feature = "git")]
-                        {
-                            use firmware::git_sync::{GitRequest, PublishRequest};
-                            let paths = storage.take_dirty();
-                            match git_tx.send(GitRequest::Publish(PublishRequest { paths })) {
-                                Ok(()) => ed.set_notice("syncing..."),
-                                Err(_) => {
-                                    // Thread gone — nothing will report back, so
-                                    // return the snapshot to pending ourselves.
-                                    storage.publish_failed();
-                                    ed.set_notice("sync: git thread down");
-                                }
-                            }
-                        }
-                        #[cfg(not(feature = "git"))]
-                        log::info!(":gp — saved; light build (no `git` feature) — push skipped");
-                    }
-                    Effect::Pull => {
-                        // `:gl` — fetch + fast-forward, on the git thread like a
-                        // publish. Gated on an empty dirty journal: unpublished
-                        // saves would fight the checkout, and `:gp` first is
-                        // the appliance's natural order anyway. (A RAM-dirty
-                        // buffer that was never saved doesn't gate — its edits
-                        // simply win over the pulled state, see the outcome
-                        // handler below.)
-                        #[cfg(feature = "git")]
-                        {
-                            use firmware::git_sync::GitRequest;
-                            if storage.has_dirty() {
-                                // Log it too — on the 2026-07-14 run this gate
-                                // firing looked like a silent no-op in the
-                                // serial log.
-                                log::info!(":gl refused — dirty journal non-empty; :gp first");
-                                ed.set_notice("pull: unsynced changes - :gp first");
-                            } else {
-                                match git_tx.send(GitRequest::Pull) {
-                                    Ok(()) => ed.set_notice("pulling..."),
-                                    Err(_) => ed.set_notice("pull: git thread down"),
-                                }
-                            }
-                        }
-                        #[cfg(not(feature = "git"))]
-                        log::info!(":gl — light build (no `git` feature) — pull skipped");
-                    }
-                    Effect::Delete { path, scope } => delete_buffer(&storage, &mut ed, path, scope),
-                    Effect::SavePrefs { contents } => save_prefs(&storage, &mut ed, &contents),
-                    Effect::Setup => {
-                        // Reboot into the boot-time wizard: the running editor
-                        // can't reclaim the radio from the git thread. The editor
-                        // already refused if anything was unsaved, so the reboot
-                        // loses nothing. Paint a notice with a blocking full
-                        // refresh (visible before the reset), then restart — the
-                        // boot gate sees the marker and re-enters the wizard.
-                        #[cfg(feature = "git")]
-                        match storage.request_setup() {
-                            Ok(()) => {
-                                ed.set_notice("opening setup - restarting...");
-                                panel.blit_editor_full(&mut ed);
-                                log::info!(":setup — rebooting into the wizard");
-                                unsafe { esp_idf_svc::sys::esp_restart() };
-                            }
-                            Err(e) => {
-                                log::warn!(":setup marker write failed: {e:#}");
-                                ed.set_notice("setup: could not save marker");
-                            }
-                        }
-                        #[cfg(not(feature = "git"))]
-                        ed.set_notice(":setup needs the full firmware");
-                    }
-                    Effect::Reboot => {
-                        // Clean restart (`:reboot`). No marker or radio hand-off
-                        // like `:setup` needs — just paint the branded splash (the
-                        // same circle+wordmark the panel boots back to, plus a
-                        // "restarting..." line) so the reboot reads as intentional
-                        // rather than a frozen frame. The editor already refused if
-                        // anything was unsaved. Blocking full refresh so the frame
-                        // is on the bistable panel before the reset fires; it then
-                        // carries over the whole reboot into the boot splash.
-                        log::info!(":reboot — restarting");
-                        panel.blit_full(&Frame::reboot());
-                        unsafe { esp_idf_svc::sys::esp_restart() };
-                    }
-                    Effect::FocusStart => {
-                        // Begin (or, after a break, restart) a focus block: start
-                        // the silent monotonic timer and snapshot the word count
-                        // for the rest card. See docs/v0.7.5-focus-mode.md.
-                        focus.start(ed.word_count());
-                    }
-                    Effect::FocusStop => focus.stop(),
-                }
-            }
-        }
-
-        // Keep the last-file marker on the active named buffer: any switch
-        // (`:e`, palette pick, `:delete`'s fallback) lands here once its
-        // effects have drained. An unnamed `:enew` scratch (empty path) keeps
-        // the previous marker — there is nothing to resume into.
-        if !ed.path().is_empty() && ed.path() != last_file {
-            last_file = ed.path().to_string();
-            storage.record_last_file(&last_file);
-        }
-
-        // Keyboard attach/detach feeds the panel's disconnect flag.
-        let kbd = usb_kbd::keyboard_present();
-        ed.set_keyboard_present(kbd);
-        let kbd_changed = kbd != last_kbd;
-        last_kbd = kbd;
-
-        if keys == 0 {
-            // Focus mode: a running block that has reached its length drops the
-            // rest card at this typing pause — never mid-keystroke — or at a grace
-            // cap if the writer never pauses (Panel::rest_if_due).
-            if panel.rest_if_due(&mut ed, &focus, last_activity) {
-                continue;
-            }
-            // A finished git operation reports its outcome here (it ran on the
-            // git thread while we idled). Show it in the snackbar with a silent
-            // full-area partial — no keystroke will arrive to trigger a repaint.
-            #[cfg(feature = "git")]
-            if let Ok(outcome) = git_rx.try_recv() {
-                use firmware::git_sync::{GitOutcome, PublishOutcome, PullOutcome};
-                let notice = match outcome {
-                    GitOutcome::Publish(outcome) => {
-                        // Settle the dirty snapshot this publish took: confirmed
-                        // published (or up to date) → forget it; failed → back to
-                        // pending so the next :gp retries the same paths.
-                        match &outcome {
-                            PublishOutcome::Pushed(_) | PublishOutcome::UpToDate => {
-                                storage.publish_succeeded()
-                            }
-                            PublishOutcome::Failed(_) => storage.publish_failed(),
-                        }
-                        match outcome {
-                            PublishOutcome::Pushed(oid) => format!("synced {oid}"),
-                            PublishOutcome::UpToDate => "up to date".to_string(),
-                            PublishOutcome::Failed(reason) => reason,
-                        }
-                    }
-                    GitOutcome::Pull(outcome) => {
-                        // Pulled and Rebased both move the working copy under us
-                        // (Rebased applies origin's tree *and* replants our commit
-                        // on top); LocalAhead / UpToDate leave the tree untouched.
-                        let moved_working_copy = matches!(
-                            outcome,
-                            PullOutcome::Pulled(_) | PullOutcome::Rebased(_)
-                        );
-                        let notice = match outcome {
-                            PullOutcome::Pulled(oid) => format!("pulled {oid}"),
-                            PullOutcome::Rebased(oid) => format!("rebased {oid} - :gp to publish"),
-                            PullOutcome::UpToDate => "up to date".to_string(),
-                            PullOutcome::LocalAhead => "ahead - :gp to publish".to_string(),
-                            PullOutcome::Failed(reason) => reason,
-                        };
-                        if moved_working_copy {
-                            // Stale resident buffers must re-read the disk. Clean
-                            // parked buffers are dropped (they reload on the next
-                            // switch), the clean active buffer is re-read now, and
-                            // a RAM-dirty buffer is left alone — its edits win,
-                            // last-writer-wins like the publish reconcile. The
-                            // palette list is re-walked in the background for files
-                            // the pull added or removed (it lands on `walk_rx` a
-                            // few seconds later, instead of stalling the UI).
-                            ed.drop_clean_parked();
-                            if ed.dirty() {
-                                log::info!(
-                                    "post-pull: {} is RAM-dirty — kept (its edits win)",
-                                    ed.path()
-                                );
-                            } else if !ed.path().is_empty() {
-                                match storage.load_path(ed.path()) {
-                                    Ok(text) => ed.refresh_active(text),
-                                    Err(e) => log::warn!(
-                                        "post-pull reload of {} FAILED ({e:#}); buffer kept",
-                                        ed.path()
-                                    ),
-                                }
-                            }
-                            spawn_file_walk(walk_tx.clone());
-                        }
-                        notice
-                    }
-                };
-                ed.set_notice(notice);
-                // Behind the rest curtain the panel is masked: keep the state
-                // settlement above but defer the repaint — the notice shows when
-                // the writer presses `c` and the editor repaints normally.
-                if ed.mode() == Mode::Rest {
-                    continue;
-                }
-                panel.show_notice(&mut ed);
-                continue;
-            }
-            // A finished background file walk (boot or post-pull) feeds the
-            // palette; repaint only if the visible frame changed — the list is
-            // only visible through the (usually closed) palette overlay, so a
-            // no-op full-area partial would be a pointless ~630 ms panel drive
-            // (Panel::repaint_if_changed, which also preserves caret visibility).
-            if let Ok(files) = walk_rx.try_recv() {
-                ed.set_file_list_joined(files);
-                panel.repaint_if_changed(&mut ed);
-                continue;
-            }
-            // A connect/disconnect while idle must still repaint the panel flag —
-            // no keystroke will arrive to trigger it otherwise.
-            if panel.kbd_repaint(&mut ed, kbd_changed, kbd) {
-                continue;
-            }
-            // save_on_idle: once input has paused, quietly persist a dirty named
-            // buffer so a power pull can't cost more than the last couple seconds.
-            // Silent — no snackbar and no forced e-ink flash (a safety net, not an
-            // action; `:w` is the loud save). Unformatted: fmt only runs on an
-            // explicit `:w`/`:gp`, never reflowing text mid-session. Fires once
-            // per idle window (`idle_saved`), so a failing save can't busy-loop.
-            if !idle_saved
-                && ed.prefs().save_on_idle
-                && ed.dirty()
-                && !ed.path().is_empty()
-                && last_activity.elapsed().as_millis() >= IDLE_SAVE_MS
-            {
-                idle_saved = true;
-                let path = ed.path().to_string();
-                match storage.save_path(&path, ed.text()) {
-                    Ok(()) => {
-                        log::info!("idle-save: {} bytes to {path}", ed.text().len());
-                        ed.mark_saved(&path);
-                    }
-                    Err(e) => log::warn!("idle-save FAILED ({e:#}); buffer kept in RAM"),
-                }
-                // No repaint: `dirty` clearing has no visible effect, and a flash
-                // here would defeat the point. Fall through to the caret/idle path.
-            }
-            // Panel-longevity full refresh, deferred to a typing pause
-            // (Panel::longevity_full), then the debounced Insert caret or a brief
-            // CPU-yielding sleep (Panel::caret_or_sleep) — the tail of the idle
-            // sequence, always last since there is nothing after it.
-            if panel.longevity_full(&mut ed, last_activity) {
-                continue;
-            }
-            panel.caret_or_sleep(&mut ed, last_activity);
-            continue;
-        }
-
-        last_activity = Instant::now();
-        idle_saved = false; // fresh activity reopens the save_on_idle window
-        // Repaint the batch: the windowed/additive/full-area decision, the
-        // force_full recovery, and the leaving-Rest full refresh all live in the
-        // panel engine now (Panel::render_batch). `prev_mode` lets it detect the
-        // Rest→editor swap; `keys` is only for the trace.
-        panel.render_batch(&mut ed, prev_mode, keys);
-    }
+    // Assemble the run loop and drive it forever. The editor is seeded, the panel
+    // holds the first frame, and every hardware / infrastructure dependency is
+    // now behind a port; the loop that used to live inline here is the
+    // host-tested [`Runtime`]. The only exits are `:reboot`/`:setup`, which
+    // restart the device — so `run` never returns.
+    let mut runtime = Runtime::new(
+        ed,
+        panel,
+        Box::new(usb_kbd::UsbKeyboard),
+        Box::new(SdStorage(card.clone())),
+        sync,
+        Box::new(EspClock),
+        system,
+        Box::new(files),
+    );
+    runtime.run()
 }
 
 /// Apply a POSIX `TZ` string to libc so `localtime_r` reads the local calendar
@@ -614,31 +315,6 @@ fn apply_timezone(tz: &str) {
         esp_idf_svc::sys::tzset();
     }
     log::info!("timezone applied: TZ={tz}");
-}
-
-/// Today's date from the wall clock, or `None` when the clock is not yet
-/// trustworthy. The editor boot path never runs SNTP, so the clock sits at the
-/// epoch until a `:gl`/`:gp` sync sets it this power cycle (no battery-backed
-/// RTC) — a year before 2020 means "unset", and `:inbox` refuses rather than
-/// dating a note `1970-01-01`. Honours the timezone applied by `apply_timezone`.
-fn today_date() -> Option<Date> {
-    let mut now: esp_idf_svc::sys::time_t = 0;
-    let mut t: esp_idf_svc::sys::tm = unsafe { core::mem::zeroed() };
-    // SAFETY: `now`/`t` are valid, owned locals; `time` fills `now`, `localtime_r`
-    // fills `t` from it (the reentrant form writes into our `t`, no shared state).
-    unsafe {
-        esp_idf_svc::sys::time(&mut now);
-        esp_idf_svc::sys::localtime_r(&now, &mut t);
-    }
-    let year = t.tm_year + 1900;
-    if year < 2020 {
-        return None; // clock unset (still at the epoch) — no sync yet this boot
-    }
-    Some(Date {
-        year,
-        month: (t.tm_mon + 1) as u32, // tm_mon is 0-11
-        day: t.tm_mday as u32,
-    })
 }
 
 /// Mount the SD card, or halt with the reason on the panel. A missing CARD is
@@ -707,218 +383,3 @@ fn show_message(epd: &mut Epd, msg: &str) -> anyhow::Result<()> {
     epd.display_frame(frame.bytes())?;
     Ok(())
 }
-
-/// Persist a buffer to SD at `path`. Errors are logged, never propagated: the
-/// in-RAM buffer is the source of truth and must survive a failed write (e.g. a
-/// card pulled mid-session) so the user can fix the card and retry `:w`. On
-/// success the editor's dirty flag for that path is cleared.
-fn save_buffer(storage: &Storage, ed: &mut Editor, path: &str, contents: &str) {
-    match storage.save_path(path, contents) {
-        Ok(()) => {
-            log::info!(":w — saved {} bytes to {path}", contents.len());
-            ed.mark_saved(path);
-            ed.set_notice("saved");
-        }
-        Err(e) => {
-            log::error!("save FAILED ({e:#}); buffer kept in RAM, retry :w");
-            ed.set_notice("save FAILED - retry :w");
-        }
-    }
-}
-
-/// Persist the preferences file after a palette `>` command changed a pref
-/// (`Effect::SavePrefs`). The editor already applied the change live and
-/// serialized it; this is a plain atomic write to the fixed `.typoena.toml`
-/// path. Under `/sd/repo`, so it rides the next `:gp` to other devices.
-fn save_prefs(storage: &Storage, ed: &mut Editor, contents: &str) {
-    match storage.save_path(PREFS_PATH, contents) {
-        Ok(()) => log::info!("prefs saved to {PREFS_PATH}"),
-        Err(e) => {
-            log::error!("prefs save FAILED ({e:#})");
-            ed.set_notice("prefs save FAILED");
-        }
-    }
-}
-
-/// Read `path` from SD and install it as the active buffer (the multi-file open
-/// path, from `:e` / the palette). A read failure keeps the current buffer and
-/// surfaces the reason on the snackbar rather than swapping to an empty screen.
-fn open_buffer(storage: &Storage, ed: &mut Editor, path: String, scope: Scope) {
-    match storage.load_path(&path) {
-        Ok(text) => {
-            log::info!("opened {path} ({} bytes, {scope:?})", text.len());
-            let name = file_stem(&path);
-            ed.set_notice(format!("loaded {name}"));
-            ed.install_loaded(path, scope, text);
-        }
-        Err(e) => {
-            log::error!("open {path} FAILED ({e:#})");
-            ed.set_notice(format!("can't open {}", file_stem(&path)));
-        }
-    }
-}
-
-/// Unlink a file from the card (`:delete`). The editor has already dropped it
-/// from its model and switched away, so this is pure IO plus the snackbar. For a
-/// Tracked file the removal is left in the git working copy — the next `:gp`'s
-/// `add --all` stages the deletion — so nothing git-specific happens here. A
-/// failure keeps the file on disk and says so; the buffer has still switched, so
-/// the file is recoverable by re-opening it.
-fn delete_buffer(storage: &Storage, ed: &mut Editor, path: String, scope: Scope) {
-    // Scope-qualified label (`repo/notes.md`), so the snackbar names exactly which
-    // file left the card — and, for a Tracked file, that the removal is only local
-    // until the next `:gp` publishes it (deleting from the card alone never
-    // touches the remote — that mirrors how a Save is local until Publish).
-    let label = path.strip_prefix("/sd/").unwrap_or(&path);
-    match storage.delete_path(&path) {
-        Ok(()) => {
-            log::info!("deleted {path} ({scope:?})");
-            ed.set_notice(match scope {
-                Scope::Tracked => format!("deleted {label} - :gp to publish"),
-                Scope::Local => format!("deleted {label}"),
-            });
-        }
-        Err(e) => {
-            log::error!("delete {path} FAILED ({e:#})");
-            ed.set_notice(format!("delete FAILED: {label}"));
-        }
-    }
-}
-
-/// Enumerate the palette's openable files: the regular files under `/sd/repo`
-/// and `/sd/local`, recursively, as absolute paths — **one newline-joined
-/// blob**, not a `Vec<String>`. 1099 paths as individual small `String`s
-/// measured 182 KB of *internal* DRAM resident (each stays under the 16 KB
-/// SPIRAM-malloc threshold, plus per-alloc overhead), which starved the SD DMA
-/// pool during the first on-device pull (2026-07-14). The blob is seeded past
-/// the threshold so it and its growth reallocs land in PSRAM. Skips dot
-/// entries at every level (so `.git` and its thousands of object files never
-/// get walked). Best-effort: an unreadable directory (e.g. no `/sd/local`
-/// yet) contributes nothing rather than failing. The editor sorts and dedupes
-/// span-side. Runs on the `walk` thread (`spawn_file_walk`); on a big repo
-/// the FAT directory IO is the cost to watch (~4 ms/file over SPI).
-fn enumerate_files() -> String {
-    let start = std::time::Instant::now();
-    // 64 KB seed: comfortably past the 16 KB SPIRAM threshold and roomy enough
-    // that a ~1100-file tree never reallocs.
-    let mut out = String::with_capacity(64 * 1024);
-    let mut count = 0usize;
-    for dir in [REPO_DIR, LOCAL_DIR] {
-        walk_files(std::path::Path::new(dir), 0, &mut out, &mut count);
-    }
-    log::info!("file walk: {count} files in {}ms", start.elapsed().as_millis());
-    out
-}
-
-/// Run [`enumerate_files`] on its own short-lived thread and send the result
-/// over `tx`; the main loop's idle branch feeds it to the editor. Off the boot
-/// path (and off the UI loop on a post-pull re-walk) because the walk takes
-/// seconds on a big tree and the palette is not mandatory for typing. The
-/// walk is pure directory reads, serialized against the editor's and the git
-/// thread's SD traffic by the FatFS volume lock. Bracketed with internal-DRAM
-/// readings to confirm the interned blob keeps the list out of internal
-/// (pre-interning: 182 KB resident; expected now: ~0, the spans only).
-fn spawn_file_walk(tx: std::sync::mpsc::Sender<String>) {
-    // Explicit stack: the default pthread stack (4 KB) is tight for 8 levels
-    // of readdir recursion plus FatFS underneath.
-    let spawned = std::thread::Builder::new()
-        .name("walk".into())
-        .stack_size(16 * 1024)
-        .spawn(move || {
-            let dram_before = internal_free_heap();
-            let files = enumerate_files();
-            let dram_after = internal_free_heap();
-            log::info!(
-                "file list: internal heap {dram_before} -> {dram_after} ({} KB consumed), blob {} KB",
-                dram_before.saturating_sub(dram_after) / 1024,
-                files.len() / 1024
-            );
-            let _ = tx.send(files); // receiver gone = shutting down; nothing to do
-        });
-    if let Err(e) = spawned {
-        log::warn!("file-walk thread spawn FAILED ({e}); palette list not refreshed");
-    }
-}
-
-/// Depth bound for [`walk_files`] — belt-and-braces against pathological
-/// nesting on a hand-edited card; notes trees are a couple of levels deep.
-const WALK_MAX_DEPTH: usize = 8;
-
-/// Recursive helper for [`enumerate_files`]: push `dir`'s files onto `out`,
-/// then descend into its subdirectories. Reads each directory fully before
-/// recursing (the `remove_dir_recursive` pattern in `git_sync`), so only one
-/// FatFS directory handle is open at a time regardless of depth — relevant on
-/// the FD-bounded SD mount.
-fn walk_files(dir: &std::path::Path, depth: usize, out: &mut String, count: &mut usize) {
-    if depth > WALK_MAX_DEPTH {
-        log::warn!("file walk: {} exceeds depth {WALK_MAX_DEPTH}, skipped", dir.display());
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    // Keep the dirent's own file type — a per-entry `metadata()` stat re-walks
-    // the directory by path every time (~32ms/file on the SD card; it turned a
-    // 1098-file walk into 35s). But the type needs decoding: esp-idf's
-    // dirent.h says DT_REG=1 / DT_DIR=2, and std was built against libc
-    // 0.2.178, which had no espidf overrides (they arrived in 0.2.186) and
-    // falls back to the generic unix table — DT_FIFO=1, DT_CHR=2, DT_DIR=4,
-    // DT_REG=8. Through std's eyes every card file is a "fifo" and every
-    // directory a "char device": is_file()/is_dir() never matched, and the
-    // 2026-07-13 walk dropped all 1157 files in 49ms. FAT can't hold fifos or
-    // device nodes, so reading fifo-as-file / chardev-as-dir is unambiguous
-    // here, and the is_file()/is_dir() arms take over the day the toolchain's
-    // libc catches up. A type matching neither pair pays the one stat rather
-    // than being silently dropped.
-    use std::os::unix::fs::FileTypeExt;
-    let children: Vec<_> = entries
-        .flatten()
-        .filter_map(|e| e.file_type().ok().map(|t| (e.path(), t)))
-        .collect();
-    for (path, ftype) in children {
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        if name.starts_with('.') {
-            continue;
-        }
-        let (is_file, is_dir) = if ftype.is_file() || ftype.is_fifo() {
-            (true, false)
-        } else if ftype.is_dir() || ftype.is_char_device() {
-            (false, true)
-        } else {
-            match std::fs::metadata(&path) {
-                Ok(m) => (m.is_file(), m.is_dir()),
-                Err(_) => continue,
-            }
-        };
-        if is_file {
-            if let Some(p) = path.to_str() {
-                out.push_str(p);
-                out.push('\n');
-                *count += 1;
-            }
-        } else if is_dir {
-            walk_files(&path, depth + 1, out, count);
-        }
-    }
-}
-
-/// Free internal DRAM (excludes the 8 MB PSRAM pool, which dominates the total
-/// free-heap number and masks DRAM exhaustion). Same reading `git_sync` logs.
-fn internal_free_heap() -> u32 {
-    use esp_idf_svc::sys;
-    unsafe { sys::heap_caps_get_free_size(sys::MALLOC_CAP_INTERNAL) as u32 }
-}
-
-/// A file's display name — its basename without extension (`/sd/repo/notes.md`
-/// → `notes`), for the snackbar. Falls back to the raw path if it has no stem.
-fn file_stem(path: &str) -> &str {
-    std::path::Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(path)
-}
-
-// The panel-diff helpers (`changed_rows` / `erase_bbox`) and the render loop's
-// paint machinery now live in [`firmware::ui`], shared with the `demo` bin.
