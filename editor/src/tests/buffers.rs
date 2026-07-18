@@ -232,10 +232,22 @@ fn enew_without_a_name_is_a_usage_noop() {
 }
 
 #[test]
-fn delete_queues_a_delete_of_the_current_file() {
-    let (mut e, effs) = command("delete");
+fn delete_prompts_before_touching_anything() {
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "delete");
+    // The prompt is up; nothing has happened yet — no effect, file still active.
+    assert_eq!(e.mode(), Mode::Confirm);
+    assert_eq!(e.path(), "/sd/repo/notes.md");
+    assert!(e.take_effects().is_empty());
+}
+
+#[test]
+fn confirming_the_prompt_queues_the_delete() {
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "delete");
+    e.handle(Key::Char('y')); // confirm
     assert_eq!(
-        effs,
+        e.take_effects(),
         vec![Effect::Delete {
             path: "/sd/repo/notes.md".into(),
             scope: Scope::Tracked,
@@ -245,7 +257,36 @@ fn delete_queues_a_delete_of_the_current_file() {
     assert_eq!(e.path(), "");
     assert_eq!(e.text(), "");
     assert_eq!(e.mode(), Mode::Normal);
+}
+
+#[test]
+fn cancelling_the_prompt_leaves_the_file_untouched() {
+    let mut e = palette_editor(&["/sd/repo/notes.md", "/sd/repo/todo.md"]);
+    ex(&mut e, "delete");
+    e.handle(Key::Char('n')); // anything but y/Y cancels
+    assert_eq!(e.mode(), Mode::Normal);
+    assert_eq!(e.path(), "/sd/repo/notes.md"); // still the active file
+    assert!(files_vec(&e).contains(&"/sd/repo/notes.md".to_string())); // not dropped
+    assert!(e.take_effects().is_empty()); // no Delete queued
+}
+
+#[test]
+fn esc_at_the_prompt_cancels_too() {
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "delete");
+    e.handle(Key::Escape);
+    assert_eq!(e.mode(), Mode::Normal);
+    assert_eq!(e.path(), "/sd/repo/notes.md");
     assert!(e.take_effects().is_empty());
+}
+
+#[test]
+fn d_is_an_alias_for_delete() {
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "d"); // the shorthand also prompts...
+    assert_eq!(e.mode(), Mode::Confirm);
+    e.handle(Key::Char('y')); // ...and deletes on confirm
+    assert_eq!(kinds(&e.take_effects()), vec![Kind::Delete]);
 }
 
 #[test]
@@ -254,6 +295,7 @@ fn delete_never_saves_the_discarded_buffer_even_when_dirty() {
     e.handle(Key::Char('x')); // dirty it
     assert!(e.dirty());
     ex(&mut e, "delete");
+    e.handle(Key::Char('y')); // confirm
     // The buffer is being deleted, so it is discarded, not saved: Delete only.
     assert_eq!(kinds(&e.take_effects()), vec![Kind::Delete]);
 }
@@ -264,6 +306,7 @@ fn delete_switches_to_the_most_recently_parked_buffer() {
     e.install_loaded("/sd/repo/b.md".into(), Scope::Tracked, "BBB".into()); // active B, A parked
     e.take_effects();
     ex(&mut e, "delete"); // deletes B, restores A
+    e.handle(Key::Char('y')); // confirm
     assert_eq!(e.path(), "/sd/repo/a.md");
     assert_eq!(e.text(), "AAA"); // A came back from RAM, caret/undo with it
     match &e.take_effects()[..] {
@@ -276,6 +319,7 @@ fn delete_switches_to_the_most_recently_parked_buffer() {
 fn delete_drops_the_file_from_the_palette_list() {
     let mut e = palette_editor(&["/sd/repo/notes.md", "/sd/repo/todo.md"]);
     ex(&mut e, "delete"); // notes.md is active
+    e.handle(Key::Char('y')); // confirm
     e.take_effects();
     assert!(!files_vec(&e).contains(&"/sd/repo/notes.md".to_string()));
     e.handle(Key::Palette);
@@ -289,6 +333,7 @@ fn delete_drops_the_file_from_the_palette_list() {
 fn delete_of_a_local_file_carries_local_scope() {
     let mut e = Editor::with_file("/sd/local/j.md".into(), Scope::Local, "diary".into());
     ex(&mut e, "delete");
+    e.handle(Key::Char('y')); // confirm
     match &e.take_effects()[..] {
         [Effect::Delete { path, scope }] => {
             assert_eq!(path, "/sd/local/j.md");
@@ -303,5 +348,5 @@ fn delete_on_an_unnamed_buffer_is_a_noop() {
     let mut e = Editor::new(); // scratch, empty path — nothing on disk to delete
     ex(&mut e, "delete");
     assert!(e.take_effects().is_empty());
-    assert_eq!(e.mode(), Mode::Normal);
+    assert_eq!(e.mode(), Mode::Normal); // no prompt: nothing to delete
 }

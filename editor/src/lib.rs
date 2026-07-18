@@ -82,6 +82,11 @@ pub enum Mode {
     /// block timer via [`Editor::enter_rest`] — there is no way to *type* into
     /// Rest, so it never touches the hidden buffer.
     Rest,
+    /// A destructive command is waiting for a `y`/`n` answer (currently only
+    /// `:delete` / `:d`). Modal like [`Rest`](Mode::Rest): every key is
+    /// swallowed but `y`/`Y` (proceed) — anything else cancels. The prompt
+    /// shows on the snackbar; see [`Editor::confirm_key`].
+    Confirm,
 }
 
 /// Which of the two file scopes ([`CONTEXT.md`]) a buffer belongs to. Fixed at
@@ -515,6 +520,15 @@ impl Editor {
             return;
         }
 
+        // A pending confirmation (`:delete`) is modal like Rest: resolve it
+        // before the Cmd+S / notice-clear / `.` machinery so a stray key can't
+        // slip a save or a repeat past the guard. `y`/`Y` proceeds; anything
+        // else cancels — see `confirm_key`.
+        if self.mode == Mode::Confirm {
+            self.confirm_key(key);
+            return;
+        }
+
         // Cmd+S — an explicit save from any mode, mirroring `:w`, resolved
         // before mode dispatch so it never changes mode nor gets recorded for
         // `.` (returns early). It is guarded by the dirty flag: a clean buffer
@@ -566,8 +580,9 @@ impl Editor {
             Mode::View => self.view_key(key),
             Mode::Command => self.command_key(key),
             Mode::Palette => self.palette_key(key),
-            // Resolved before dispatch (above); listed for exhaustiveness.
+            // Both resolved before dispatch (above); listed for exhaustiveness.
             Mode::Rest => self.rest_key(key),
+            Mode::Confirm => self.confirm_key(key),
         }
 
         // A snippet tab-stop session lives only in Insert. Leaving Insert — Esc,
@@ -1008,7 +1023,7 @@ impl Editor {
         }
         match cmd.as_str() {
             "enew" => self.set_notice("usage: :enew <file>"),
-            "delete" => self.delete_current(),
+            "delete" | "d" => self.request_delete(),
             "settings" => self.open_settings(),
             "fmt" => self.format_buffer(),
             "w" | "wq" | "x" => self.write_active(),
@@ -1164,6 +1179,23 @@ impl Editor {
                 self.requests.push(Effect::FocusStop);
             }
             _ => {} // swallowed — no editing behind the curtain
+        }
+    }
+
+    /// Dispatch a key while a destructive command waits for confirmation
+    /// ([`Mode::Confirm`], currently only `:delete` / `:d`). Leaves Confirm
+    /// either way: a deliberate `y`/`Y` runs [`delete_current`](Self::delete_current)
+    /// (the host then reports the outcome on the snackbar), and every other
+    /// key — `n`, `Esc`, a stray character — cancels with a notice. Cancel is
+    /// the default so a fat-fingered `:d` never removes a file on its own.
+    fn confirm_key(&mut self, key: Key) {
+        self.mode = Mode::Normal;
+        match key {
+            Key::Char('y') | Key::Char('Y') => {
+                self.notice = None; // the Delete effect's outcome replaces the prompt
+                self.delete_current();
+            }
+            _ => self.set_notice("delete cancelled"),
         }
     }
 

@@ -579,6 +579,7 @@ impl Editor {
                 // Rest masks the panel (draw_into early-returns), so this is
                 // never reached; listed for exhaustiveness.
                 Mode::Rest => "REST",
+                Mode::Confirm => "CONFIRM",
                 Mode::Command => unreachable!(),
             };
             let mut s = format!("-- {name} --");

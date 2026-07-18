@@ -302,6 +302,21 @@ impl Editor {
         self.set_notice(format!("new {}", palette_label(&path)));
     }
 
+    /// `:delete` / `:d` — guard the destructive [`delete_current`](Self::delete_current)
+    /// behind a `y`/`n` prompt. A delete stages a git removal on the next Publish
+    /// (Tracked) or unlinks a Local file, and `:d` makes it a two-key command, so
+    /// it earns a confirmation: drop into [`Mode::Confirm`] and wait (see
+    /// [`confirm_key`](Self::confirm_key)). An unnamed scratch has nothing on disk,
+    /// so it stays a no-op with a notice — never a prompt.
+    pub(crate) fn request_delete(&mut self) {
+        if self.path.is_empty() {
+            self.set_notice("no file to delete");
+            return;
+        }
+        self.mode = Mode::Confirm;
+        self.set_notice(format!("delete {}? y/n", palette_label(&self.path)));
+    }
+
     /// `:delete` — unlink the **current** file from the card and leave it. Queues
     /// an [`Effect::Delete`] (the host does the removal + reports the outcome) and
     /// updates the in-core model now: the path is dropped from the file list and
