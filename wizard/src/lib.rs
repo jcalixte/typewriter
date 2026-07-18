@@ -169,11 +169,14 @@ enum Screen {
     Wiping { progress: String },
     /// `:setup` repo-switch confirmation (reached from the reset menu's repo
     /// row when a *different* repo is picked). A switch deletes the working copy
-    /// and re-downloads the new one (minutes), so it's confirmed first — but
-    /// with a plain Enter/Esc, not the typed word [`Screen::ConfirmWipe`] needs:
-    /// the mandatory dirty guard already guarantees nothing unpublished is lost.
+    /// with an unconditional `remove_tree` and re-downloads the new one
+    /// (minutes), so — like a factory reset — the user types the target repo's
+    /// short name to confirm, not a plain Enter. The mandatory dirty guard
+    /// covers unpublished *device* notes, but not edits made directly on the
+    /// card off-device; the typed word forces a deliberate acknowledgement of
+    /// *which* repo replaces the current one. `typed` is that in-progress input;
     /// `new_url` is the target's expanded remote, committed to the conf on Enter.
-    ConfirmRepoSwitch { full_name: String, new_url: String },
+    ConfirmRepoSwitch { full_name: String, new_url: String, typed: String },
 }
 
 /// How the wizard was entered. First boot walks the steps linearly; `:setup`
@@ -194,6 +197,14 @@ const SETUP_WIPE_ROW: usize = 3;
 
 /// The word the user must type to confirm a factory reset (case-insensitive).
 const WIPE_WORD: &str = "erase";
+
+/// The word that confirms a repo switch (case-insensitive): the target repo's
+/// short name — the segment after `owner/`. Typed like [`WIPE_WORD`], it forces
+/// the user to acknowledge *which* repo replaces the current one, rather than
+/// reflex-pressing Enter over an unconditional `remove_tree` of the working copy.
+fn repo_switch_word(full_name: &str) -> &str {
+    full_name.rsplit('/').next().unwrap_or(full_name)
+}
 
 /// A transient error shown on the current screen (join failed, auth failed…).
 /// Cleared on the next keystroke.
@@ -516,8 +527,11 @@ impl Wizard {
                                         return vec![];
                                     }
                                     // A different repo — confirm the delete + reclone.
-                                    self.screen =
-                                        Screen::ConfirmRepoSwitch { full_name, new_url };
+                                    self.screen = Screen::ConfirmRepoSwitch {
+                                        full_name,
+                                        new_url,
+                                        typed: String::new(),
+                                    };
                                     return vec![];
                                 }
                                 // First boot: persist the remote and clone now.
@@ -645,8 +659,32 @@ impl Wizard {
             },
             // The wipe runs on the driver and reboots; keys do nothing.
             Screen::Wiping { .. } => vec![],
-            Screen::ConfirmRepoSwitch { full_name, new_url } => match k {
+            Screen::ConfirmRepoSwitch { full_name, new_url, typed } => match k {
+                Key::Char(c) if !c.is_control() => {
+                    typed.push(c);
+                    vec![]
+                }
+                Key::Backspace => {
+                    // Backspace past an empty field cancels back to the menu.
+                    if typed.pop().is_none() {
+                        self.screen = Screen::SetupMenu {
+                            sel: SETUP_REPO_ROW,
+                        };
+                    }
+                    vec![]
+                }
+                Key::DeleteWord | Key::DeleteLine => {
+                    typed.clear();
+                    vec![]
+                }
                 Key::Enter => {
+                    if !typed.trim().eq_ignore_ascii_case(repo_switch_word(full_name)) {
+                        self.notice = Some(format!(
+                            "type \"{}\" to confirm the switch",
+                            repo_switch_word(full_name)
+                        ));
+                        return vec![];
+                    }
                     // Confirmed. Commit the new remote to the conf, then emit the
                     // switch: delete the old tree, persist the conf, clone the new
                     // tip. Delete precedes the conf write so a power-pull once the
@@ -662,7 +700,7 @@ impl Wizard {
                         Effect::Clone { full_name },
                     ]
                 }
-                Key::Escape | Key::Backspace => {
+                Key::Escape => {
                     self.screen = Screen::SetupMenu {
                         sel: SETUP_REPO_ROW,
                     };
@@ -1058,15 +1096,24 @@ impl Wizard {
                 line(f, 2, &format!("  {progress}..."), ink);
                 hint(f, "this can take a minute - do not power off");
             }
-            Screen::ConfirmRepoSwitch { full_name, .. } => {
+            Screen::ConfirmRepoSwitch { full_name, typed, .. } => {
                 // conf.remote_url still names the *current* repo here — it's
                 // committed to the target only on Enter (leaving this screen).
                 line(f, 0, "Switch notes repo", ink);
                 line(f, 2, &format!("  From: {}", repo_display(&self.conf.remote_url)), ink);
                 line(f, 3, &format!("  To:   {full_name}"), ink);
                 line(f, 5, "  This deletes the current copy and re-downloads it.", ink);
-                line(f, 6, "  Your notes are all published, so nothing is lost.", ink);
-                hint(f, "Enter switches - Esc cancels");
+                line(f, 6, "  Only the published version comes back.", ink);
+                let word = repo_switch_word(full_name);
+                let prompt = format!("  Type \"{word}\" to confirm: ");
+                let row = 8;
+                line(f, row, &format!("{prompt}{typed}"), ink);
+                // Caret after the typed word.
+                let x = 10 + (prompt.chars().count() + typed.chars().count()) as i32 * 10;
+                let _ = Rectangle::new(Point::new(x, 8 + row * 24), Size::new(10, 20))
+                    .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+                    .draw(f);
+                hint(f, "Enter confirms - Esc cancels");
             }
         }
         if let Some(n) = &self.notice {

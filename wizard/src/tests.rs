@@ -599,6 +599,23 @@ fn setup_repo_switch_esc_cancels() {
 }
 
 #[test]
+fn setup_repo_switch_needs_the_repo_name_typed() {
+    // The switch only fires once the target repo's short name is typed — a wrong
+    // word is refused, so a stray Enter can't wipe the working copy.
+    let mut w = to_setup_repo_pick();
+    type_str(&mut w, "dotfiles");
+    w.key(Key::Enter); // → ConfirmRepoSwitch
+    type_str(&mut w, "notes"); // the *current* repo's name, not the target
+    assert!(w.key(Key::Enter).is_empty(), "wrong word must not switch");
+    assert_eq!(w.conf().remote_url, "https://github.com/you/notes.git"); // untouched
+    w.key(Key::DeleteLine); // clear the field
+    type_str(&mut w, "DotFiles"); // case-insensitive, matches you/dotfiles
+    let fx = w.key(Key::Enter);
+    assert_eq!(fx[0], Effect::DeleteRepo);
+    assert_eq!(fx.last(), Some(&Effect::Clone { full_name: "you/dotfiles".into() }));
+}
+
+#[test]
 fn setup_repo_pick_esc_returns_to_menu() {
     // Browsing the repo list, then Esc without picking → back to the menu.
     let mut w = to_setup_repo_pick();
@@ -615,7 +632,11 @@ fn setup_repo_switch_different_repo_confirms_then_clones() {
     type_str(&mut w, "dotfiles"); // a different repo
     // Picking it opens the confirmation (no effect yet — a switch is destructive).
     assert!(w.key(Key::Enter).is_empty(), "a switch is confirmed first");
-    // Confirm → delete the old tree, persist the new conf, clone the new tip.
+    // Typed-word guard: a bare Enter over the empty field does nothing.
+    assert!(w.key(Key::Enter).is_empty(), "an empty confirm must not switch");
+    // Type the target repo's name, then Enter → delete the old tree, persist the
+    // new conf, clone the new tip.
+    type_str(&mut w, "dotfiles");
     let fx = w.key(Key::Enter);
     assert_eq!(fx.len(), 3);
     assert_eq!(fx[0], Effect::DeleteRepo);
@@ -647,6 +668,7 @@ fn setup_repo_switch_failed_clone_avoids_noop_trap() {
     let mut w = to_setup_repo_pick();
     type_str(&mut w, "dotfiles");
     w.key(Key::Enter); // → ConfirmRepoSwitch
+    type_str(&mut w, "dotfiles"); // confirm word
     let fx = w.key(Key::Enter); // confirm
     assert_eq!(fx[0], Effect::DeleteRepo);
     // Clone fails → back to the pick list.
@@ -655,6 +677,7 @@ fn setup_repo_switch_failed_clone_avoids_noop_trap() {
     // Re-pick the very repo we were switching to: NOT on disk, so a fresh switch.
     type_str(&mut w, "dotfiles");
     assert!(w.key(Key::Enter).is_empty(), "→ confirm, not a menu no-op");
+    type_str(&mut w, "dotfiles"); // confirm word again
     let fx = w.key(Key::Enter); // confirm again → the switch effects
     assert_eq!(fx[0], Effect::DeleteRepo);
     assert_eq!(fx.last(), Some(&Effect::Clone { full_name: "you/dotfiles".into() }));
@@ -667,6 +690,7 @@ fn setup_done_refused_when_switch_incomplete() {
     let mut w = to_setup_repo_pick();
     type_str(&mut w, "dotfiles");
     w.key(Key::Enter); // → ConfirmRepoSwitch
+    type_str(&mut w, "dotfiles"); // confirm word
     w.key(Key::Enter); // confirm → effects
     w.event(Event::CloneFailed("TLS".into())); // repo deleted, clone failed
     w.event(Event::Repos(repos())); // land in the pick list
