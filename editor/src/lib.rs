@@ -82,6 +82,11 @@ pub enum Mode {
     /// block timer via [`Editor::enter_rest`] — there is no way to *type* into
     /// Rest, so it never touches the hidden buffer.
     Rest,
+    /// The `:about` splash: a full-screen card (like [`Rest`](Mode::Rest)) with
+    /// the product name and running firmware version. Read-only — every key is
+    /// swallowed but `Enter`/`q`/`Esc`, which return to Normal. See
+    /// [`Editor::about_key`].
+    About,
     /// A destructive command is waiting for a `y`/`n` answer (`:delete`,
     /// `:reboot`, `:setup`, or `:gl`'s commit-unsynced-and-pull). Modal like
     /// [`Rest`](Mode::Rest): every key is
@@ -413,6 +418,10 @@ pub struct Editor {
     /// [`Date`]); `:inbox` needs it to name/date the note and refuses while it is
     /// `None`.
     today: Option<Date>,
+    /// The running firmware version, fed by the host at boot via
+    /// [`set_version`](Self::set_version) — the pure core has no build metadata.
+    /// Shown by `:about`; empty until fed (host tests leave it so).
+    version: String,
 }
 
 
@@ -462,6 +471,7 @@ impl Editor {
             focus_debug: false,
             pending_confirm: None,
             today: None,
+            version: String::new(),
         }
     }
 
@@ -599,6 +609,13 @@ impl Editor {
         self.snippets = snippets.0;
     }
 
+    /// Record the running firmware version for `:about`. The pure core has no
+    /// build metadata, so the firmware feeds it its `CARGO_PKG_VERSION` at boot
+    /// (mirrors [`set_prefs`](Self::set_prefs)); host tests leave it empty.
+    pub fn set_version(&mut self, version: impl Into<String>) {
+        self.version = version.into();
+    }
+
     /// Whitespace-delimited word count of the whole buffer. Public so the host
     /// can snapshot it at a focus block's start and diff it for the rest card.
     pub fn word_count(&self) -> usize {
@@ -625,6 +642,14 @@ impl Editor {
         // else cancels — see `confirm_key`.
         if self.mode == Mode::Confirm {
             self.confirm_key(key);
+            return;
+        }
+
+        // The `:about` splash is a full-screen modal too: resolve it before the
+        // Cmd+S / notice-clear / `.` machinery so a leave key can't slip a save
+        // or a repeat past the card. `Enter`/`q`/`Esc` leave — see `about_key`.
+        if self.mode == Mode::About {
+            self.about_key(key);
             return;
         }
 
@@ -679,8 +704,9 @@ impl Editor {
             Mode::View => self.view_key(key),
             Mode::Command => self.command_key(key),
             Mode::Palette => self.palette_key(key),
-            // Both resolved before dispatch (above); listed for exhaustiveness.
+            // All resolved before dispatch (above); listed for exhaustiveness.
             Mode::Rest => self.rest_key(key),
+            Mode::About => self.about_key(key),
             Mode::Confirm => self.confirm_key(key),
         }
 
@@ -1134,6 +1160,7 @@ impl Editor {
             "setup" => self.request_setup(),
             "reboot" => self.request_reboot(),
             "update" => self.request_update(),
+            "about" => self.show_about(),
             "focus" => self.toggle_focus(),
             "focusdebug" => self.toggle_focus_debug(),
             _ => {}
@@ -1177,6 +1204,22 @@ impl Editor {
             return;
         }
         self.enter_confirm(Confirm::Update, "check for firmware update? y/n");
+    }
+
+    /// `:about` — raise the full-screen splash ([`Mode::About`]) with the product
+    /// name and running firmware version (injected by the host via
+    /// [`set_version`](Self::set_version)). Read-only; `Enter`/`q`/`Esc` leave.
+    fn show_about(&mut self) {
+        self.mode = Mode::About;
+    }
+
+    /// Dispatch a key on the `:about` splash ([`Mode::About`]). The card masks the
+    /// whole screen, so only `Enter`/`q`/`Esc` do anything — they return to
+    /// Normal — and every other key is swallowed (no editing behind the card).
+    fn about_key(&mut self, key: Key) {
+        if matches!(key, Key::Enter | Key::Escape | Key::Char('q')) {
+            self.mode = Mode::Normal;
+        }
     }
 
     /// The confirmed `:reboot`: auto-save every *named* dirty buffer

@@ -191,6 +191,9 @@ fn main() -> anyhow::Result<()> {
     // notes). Cleared by the first keystroke, like any snackbar.
     ed.set_notice(format!("loaded {}", file_stem(&boot_path)));
     ed.set_prefs(prefs);
+    // The pure editor core has no build metadata; feed it the running firmware
+    // version so `:about` can show it (same const the OTA check compares).
+    ed.set_version(firmware::infrastructure::ota::FW_VERSION);
     // Snippet library (.typoena.snippets.json, git-tracked). Parsed with
     // serde_json in the editor crate; a missing / unreadable / malformed file is
     // non-fatal — the editor simply has no snippets and runs unchanged.

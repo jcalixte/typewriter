@@ -196,6 +196,56 @@ fn update_command_is_refused_with_unsaved_changes() {
 }
 
 #[test]
+fn about_command_opens_the_full_screen_splash() {
+    // `:about` raises the read-only splash and queues nothing — it neither saves
+    // nor touches the buffer.
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    e.set_version("0.7.8");
+    ex(&mut e, "about");
+    assert_eq!(e.mode(), Mode::About);
+    assert!(e.take_effects().is_empty(), ":about must queue nothing");
+}
+
+#[test]
+fn about_splash_leaves_on_enter_q_or_esc() {
+    for leave in [Key::Enter, Key::Char('q'), Key::Escape] {
+        let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+        ex(&mut e, "about");
+        assert_eq!(e.mode(), Mode::About);
+        e.handle(leave);
+        assert_eq!(e.mode(), Mode::Normal, "{leave:?} should leave the splash");
+    }
+}
+
+#[test]
+fn about_splash_swallows_other_keys() {
+    // Every key but the leave keys is swallowed — the card is read-only, so a
+    // stray press can't leave by accident or edit the hidden buffer.
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "hello".into());
+    ex(&mut e, "about");
+    e.handle(Key::Char('x')); // would delete a char in Normal
+    assert_eq!(e.mode(), Mode::About, "a stray key must not leave the splash");
+    assert_eq!(e.text, "hello", "the buffer stays untouched behind the card");
+}
+
+#[test]
+fn about_splash_renders_the_injected_version() {
+    // The card paints the version, so a different version yields a different
+    // frame — proof the host-fed number actually reaches the splash.
+    let mut a = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    a.set_version("0.7.8");
+    ex(&mut a, "about");
+    let mut b = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    b.set_version("9.9.9");
+    ex(&mut b, "about");
+    assert_ne!(
+        a.draw(true).bytes(),
+        b.draw(true).bytes(),
+        "the version must show on the card"
+    );
+}
+
+#[test]
 fn gp_formats_the_buffer_before_publishing() {
     // fmt → save → commit → push: `:gp` runs :fmt in-core first (default on).
     let mut e = Editor::with_file(

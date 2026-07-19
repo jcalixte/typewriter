@@ -296,13 +296,18 @@ impl Editor {
     /// background `:gp` push has taken the heap to the floor — a failed
     /// framebuffer alloc aborts the whole app (the 2026-07-13 OOM).
     pub fn draw_into(&mut self, out: &mut Frame, cursor_on: bool) {
-        // The focus-mode break masks the whole screen: draw the rest card
-        // instead of the editor, then apply the theme flip so a dark theme turns
-        // the white card into the black one. Nothing else (layout, scroll,
-        // panel) runs — the buffer stays hidden behind the curtain.
-        if self.mode == Mode::Rest {
+        // The full-screen cards (the focus-mode break and the `:about` splash)
+        // mask the whole screen: draw the card instead of the editor, then apply
+        // the theme flip so a dark theme turns the white card into the black one.
+        // Nothing else (layout, scroll, panel) runs — the buffer stays hidden
+        // behind the curtain.
+        if matches!(self.mode, Mode::Rest | Mode::About) {
             let mut f = std::mem::replace(out, Frame::empty());
-            self.draw_rest_card(&mut f);
+            if self.mode == Mode::About {
+                self.draw_about_card(&mut f);
+            } else {
+                self.draw_rest_card(&mut f);
+            }
             if self.prefs.theme == "dark" {
                 f.invert();
             }
@@ -484,13 +489,13 @@ impl Editor {
         *out = f;
     }
 
-    /// Draw the side panel: a full-height rule, word count at the top, and the
-    /// mode indicator + pending-command echo at the bottom-left, with a
-    /// keyboard-disconnect flag just above the mode while the keyboard is
-    /// dropped. Small 6×10 font. This is the surface every later field
-    /// (filename, clock, Wi-Fi, publish state) will add to. Word count is a
-    /// throttled snapshot and the rest is event-driven, so the panel never
-    /// repaints per keystroke.
+    /// Draw the side panel: a full-height rule, the active file name and word
+    /// count at the top, and the mode indicator + pending-command echo at the
+    /// bottom-left, with a keyboard-disconnect flag just above the mode while the
+    /// keyboard is dropped. Small 6×10 font. This is the surface every later field
+    /// (clock, Wi-Fi, publish state) will add to. Word count is a throttled
+    /// snapshot and the rest is event-driven, so the panel never repaints per
+    /// keystroke.
     pub(crate) fn draw_panel(&self, f: &mut Frame) {
         // The rule dividing writing column from panel, full panel height.
         Rectangle::new(Point::new(DIVIDER_X, 0), Size::new(1, HEIGHT as u32))
@@ -500,9 +505,24 @@ impl Editor {
 
         let style = MonoTextStyle::new(&FONT_9X15, BinaryColor::On);
 
-        // Word count, from the throttled snapshot (never per keystroke).
+        // Active file name (basename with suffix) on the top line — the file you're
+        // looking at — or `[no name]` for an unnamed scratch buffer. Clamped to the
+        // panel width so a long name can't run past the right edge.
+        let name = self
+            .path
+            .rsplit('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("[no name]");
+        let name: String = name.chars().take(PANEL_COLS).collect();
+        Text::with_baseline(&name, Point::new(PANEL_X, 2), style, Baseline::Top)
+            .draw(f)
+            .unwrap();
+
+        // Word count on the next line, from the throttled snapshot (never per
+        // keystroke).
         let words = format!("{} words", self.shown_words);
-        Text::with_baseline(&words, Point::new(PANEL_X, 2), style, Baseline::Top)
+        Text::with_baseline(&words, Point::new(PANEL_X, 2 + PANEL_CH), style, Baseline::Top)
             .draw(f)
             .unwrap();
 
@@ -517,7 +537,7 @@ impl Editor {
                 .take(NOTICE_MAX_LINES)
                 .enumerate()
             {
-                let y = 2 + PANEL_CH + 2 + i as i32 * PANEL_CH;
+                let y = 2 + 2 * PANEL_CH + 2 + i as i32 * PANEL_CH;
                 Text::with_baseline(&line, Point::new(PANEL_X, y), style, Baseline::Top)
                     .draw(f)
                     .unwrap();
@@ -576,9 +596,10 @@ impl Editor {
                 Mode::VisualLine => "V-LINE",
                 Mode::View => "VIEW",
                 Mode::Palette => "PALETTE",
-                // Rest masks the panel (draw_into early-returns), so this is
-                // never reached; listed for exhaustiveness.
+                // Rest and About mask the panel (draw_into early-returns), so
+                // these are never reached; listed for exhaustiveness.
                 Mode::Rest => "REST",
+                Mode::About => "ABOUT",
                 Mode::Confirm => "CONFIRM",
                 Mode::Command => unreachable!(),
             };
@@ -639,6 +660,38 @@ impl Editor {
                 .unwrap();
             y += CH;
         }
+    }
+
+    /// The `:about` splash ([`Mode::About`]): a full-screen card with the product
+    /// wordmark and running firmware version centred, plus the credit and the
+    /// leave hint pinned near the bottom. Painted black-on-white; the caller's
+    /// dark-theme invert turns it into the black card (as with the rest card).
+    /// Latin-9 glyphs only — no heart glyph (it isn't in the font), so the credit
+    /// spells "with love". `version` is host-injected; empty (host tests) shows
+    /// "version unknown" rather than a bare `v`.
+    pub(crate) fn draw_about_card(&self, f: &mut Frame) {
+        f.clear_white();
+        let style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+        let centre = |f: &mut Frame, text: &str, y: i32| {
+            let x = (WIDTH as i32 - text.chars().count() as i32 * CW) / 2;
+            Text::with_baseline(text, Point::new(x, y), style, Baseline::Top)
+                .draw(f)
+                .unwrap();
+        };
+
+        // Wordmark + version, vertically centred.
+        let version = if self.version.is_empty() {
+            "version unknown".to_string()
+        } else {
+            format!("v{}", self.version)
+        };
+        let top = (HEIGHT as i32 - 2 * CH) / 2;
+        centre(f, "typoena", top);
+        centre(f, &version, top + CH);
+
+        // Credit + leave hint, pinned a row above the bottom edge.
+        centre(f, "Made with love by Julien Calixte & Emmanuel Colas", HEIGHT as i32 - 3 * CH);
+        centre(f, "Enter or q to leave", HEIGHT as i32 - 2 * CH);
     }
 
     /// The transient `:` command line, drawn at body size (FONT_10X20) along the

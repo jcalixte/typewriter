@@ -158,9 +158,14 @@ impl<S: Screen> Panel<S> {
         ed.draw_into(&mut self.back, insert_cursor_on);
         let scrolled = ed.scroll_top() != prev_scroll;
 
-        // Leaving the rest curtain (c/q/Esc) swaps a full-screen card back to the
-        // editor: force a clean full refresh so the big ink change doesn't ghost.
-        if prev_mode == Mode::Rest && ed.mode() != Mode::Rest {
+        // A full-screen card (the rest curtain, or the `:about` splash) swapping
+        // to or from the editor is a big ink change: force a clean full refresh so
+        // it doesn't ghost. Rest only ever *leaves* through here (the focus timer
+        // drops it in via `rest_if_due`); `:about` both enters and leaves by
+        // keystroke, so either of its transitions counts.
+        let was_card = prev_mode == Mode::Rest || prev_mode == Mode::About;
+        let is_card = ed.mode() == Mode::About; // Rest never enters via a key batch
+        if was_card != is_card {
             self.force_full = true;
         }
 
