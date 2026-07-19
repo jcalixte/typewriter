@@ -2,12 +2,12 @@
 //!
 //! The wizard crate is pure logic; this module is its I/O: keys from
 //! `usb_kbd`, frames to the panel, and the effects executed against real
-//! hardware. Runs *before* the git thread spawns.
+//! hardware. Runs *before* the net thread spawns.
 //!
 //! Radio ownership: the Wi-Fi half of the modem is reborrowed once
 //! (`split_reborrow`) and the `EspWifi` built from it is **kept up for the
 //! whole wizard** — sign-in, repo listing and clone are all network steps.
-//! Dropping it when `run` returns releases the modem for the git thread,
+//! Dropping it when `run` returns releases the modem for the net thread,
 //! which re-associates on the first `:gp` (a session's second join is fast).
 //!
 //! HTTPS: `EspHttpConnection` over the esp-idf certificate bundle (the
@@ -117,7 +117,7 @@ pub fn run(
     let (clone_msg_tx, clone_msg_rx) = std::sync::mpsc::channel::<CloneMsg>();
     std::thread::Builder::new()
         .name("wizclone".into())
-        .stack_size(crate::infrastructure::sync_git::GIT_STACK)
+        .stack_size(crate::infrastructure::net::GIT_STACK)
         .spawn(move || clone_worker(clone_req_rx, clone_msg_tx))
         .context("spawning the clone worker")?;
     let (int_free, int_largest) = unsafe {
@@ -129,7 +129,7 @@ pub fn run(
     };
     log::info!(
         "wizard: clone worker up ({} KB stack); internal DRAM free {} B (largest block {} B)",
-        crate::infrastructure::sync_git::GIT_STACK / 1024,
+        crate::infrastructure::net::GIT_STACK / 1024,
         int_free,
         int_largest,
     );
@@ -415,7 +415,7 @@ fn clone_worker(req_rx: Receiver<CloneReq>, msg_tx: std::sync::mpsc::Sender<Clon
         let progress = move |s: &str| {
             let _ = ptx.send(CloneMsg::Progress(s.to_string()));
         };
-        let msg = match crate::infrastructure::sync_git::clone_repo(
+        let msg = match crate::infrastructure::net::clone_repo(
             &req.remote_url,
             &req.gh_user,
             &req.token,

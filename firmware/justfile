@@ -9,18 +9,10 @@ set dotenv-load := true
 esp_env := ". ~/export-esp.sh &&"
 elf := "target/xtensa-esp32s3-espidf/release/firmware"
 elf_wifi := "target/xtensa-esp32s3-espidf/release/wifi_tls"
-elf_sd := "target/xtensa-esp32s3-espidf/release/sd_fat"
-elf_splash := "target/xtensa-esp32s3-espidf/release/splash"
-elf_kbd := "target/xtensa-esp32s3-espidf/release/kbd"
-elf_demo := "target/xtensa-esp32s3-espidf/release/demo"
-elf_git := "target/xtensa-esp32s3-espidf/release/git_smoke"
-elf_git_push := "target/xtensa-esp32s3-espidf/release/git_push"
-elf_git_sync := "target/xtensa-esp32s3-espidf/release/git_sync"
 
-# Custom partition table (adds the `storage` FAT partition for the git working
-# copy). Only the git-push flash applies it — the editor flash keeps the default
-# single-app layout, so this change is scoped to Spike 7's finish.
-partition_table := justfile_directory() + "/partitions.csv"
+# Production dual-OTA partition table (ota_0/ota_1/otadata) for `:update`.
+# Applied by `flash-ota` — the one-time migration that makes a device OTA-capable.
+partition_table_ota := justfile_directory() + "/partitions-ota.csv"
 
 # Spike 7 Path 2 — env for the git2/libgit2 build. LIBGIT2_SRC points at the
 # vendored libgit2 submodule (v1.9.4, matches libgit2-sys 0.18.5). pkgconfig/
@@ -34,29 +26,125 @@ git_env := "LIBGIT2_SRC=" + libgit2_src + " LIBGIT2_NO_VENDOR=1 PKG_CONFIG_ALLOW
 default:
     @just --list
 
-# compile (release) — the nominal product build: full firmware WITH git
-# publishing (compiles libgit2 + mbedTLS, links git2). For fast iteration on the
-# editor / EPD / USB / SD without paying for libgit2, use `build-light`.
+# compile (release) — THE product firmware: editor + EPD + USB + SD + git
+# publishing (`:gp`/`:gl`) + `:update` OTA + onboarding wizard. Always the full
+# build (compiles libgit2 + mbedTLS, links git2). Editor/render logic is
+# host-tested off-device (`cargo test -p app -p editor`); after the first build
+# libgit2 is a cached esp-idf component, so on-device rebuilds are incremental.
 build:
-    {{esp_env}} {{git_env}} cargo build --release --bin firmware --features git
+    {{esp_env}} {{git_env}} cargo build --release --bin firmware --features full
 
 # build + flash + open serial monitor (full firmware, see `build`)
 flash:
-    {{esp_env}} {{git_env}} cargo run --release --bin firmware --features git
+    {{esp_env}} {{git_env}} cargo run --release --bin firmware --features full
 
-# LIGHT editor build — no git: no libgit2 component (LIBGIT2_SRC unset) and no
-# git2 crate (`git` feature off), so it builds much faster. `:sync` saves locally
-# and skips the push. Use for anything but exercising publish.
-build-light:
-    {{esp_env}} cargo build --release --bin firmware
+# Reflashes onto the dual A/B layout (partitions-ota.csv) so `:update` has an
+# inactive slot to write into — a single-slot device can't grow one while
+# running, so this USB flash is the one manual step; every update after it is
+# over the air. Also flashes OUR esp-idf bootloader (built with
+# CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE) instead of espflash's prebuilt one, so a
+# boot-looping OTA image auto-rolls-back; it falls back to espflash's bootloader
+# (OTA works, rollback does NOT) with a loud warning if the built one isn't
+# found. Switching layout rewrites flash, but notes live on the SD card
+# (/sd/repo), not flash — untouched.
+# ONE-TIME USB migration to the OTA A/B layout; every :update after is airborne.
+flash-ota: build
+    just _flash-prod-image yes no
 
-# light build + flash + open serial monitor (see `build-light`)
-flash-light:
-    {{esp_env}} cargo run --release --bin firmware
+# Shared flash body for flash-ota / ship: flash the ALREADY-BUILT firmware onto
+# the dual A/B OTA layout, preferring OUR esp-idf bootloader (built with
+# CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE, so a boot-looping OTA image rolls back)
+# over espflash's prebuilt one. Args: monitor ("yes" stays attached to the serial
+# log after flashing), require_rollback ("yes" REFUSES to flash without our
+# bootloader — `ship` passes this so no field unit ships without rollback;
+# flash-ota passes "no" and just warns). Hidden (leading `_`): callers run `build`.
+_flash-prod-image monitor="no" require_rollback="no":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    boot=$(ls target/xtensa-esp32s3-espidf/release/build/esp-idf-sys-*/out/build/bootloader/bootloader.bin 2>/dev/null | head -1 || true)
+    mon=""
+    if [ "{{monitor}}" = "yes" ]; then mon="--monitor"; fi
+    if [ -z "${boot:-}" ]; then
+        if [ "{{require_rollback}}" = "yes" ]; then
+            echo "error: rollback-enabled esp-idf bootloader not found — refusing to ship a unit" >&2
+            echo "       without field rollback (a bad OTA could brick it with no USB nearby)." >&2
+            echo "       Run \`just build\` so esp-idf-sys emits its bootloader, then retry." >&2
+            exit 1
+        fi
+        echo "!! esp-idf bootloader.bin not found — flashing espflash's bootloader; OTA works but rollback will NOT."
+        espflash flash $mon --baud 921600 --partition-table {{partition_table_ota}} --flash-size 16mb {{elf}}
+    else
+        echo "Using rollback-enabled bootloader: $boot"
+        espflash flash $mon --baud 921600 --bootloader "$boot" --partition-table {{partition_table_ota}} --flash-size 16mb {{elf}}
+    fi
+
+# Prepare a CUSTOMER unit for shipping: flash the production OTA firmware over USB
+# (dual A/B layout + our rollback bootloader, REQUIRED here unlike flash-ota),
+# then print the remaining hands-on steps. No serial monitor — a unit is validated
+# by eye on the e-ink panel (the first-boot wizard), so this returns as soon as
+# the flash lands, ready for the next unit. Does NOT touch the SD card; that's a
+# separate `just wipe` on a card reader.
+# Flash a customer unit for shipping (OTA layout + REQUIRED rollback; card is separate).
+ship: build
+    just _flash-prod-image no yes
+    @echo ""
+    @echo "✅ firmware flashed — dual A/B OTA layout + rollback bootloader."
+    @echo "Finish this unit (separate SD-card step, not done here):"
+    @echo "  1. Insert a BLANK FAT32 card:  just wipe"
+    @echo "  2. Power-cycle; confirm the first-boot WIZARD (Wi-Fi screen) paints on the panel."
+    @echo "     (blank panel or boot loop? debug with: just monitor)"
+    @echo "  3. Power off and box it. The customer sets their own Wi-Fi + GitHub on first"
+    @echo "     boot; every firmware update after that rides over the air (:update)."
+
+# Publish the current firmware as an OTA release on typoena.dev. Builds the
+# production image, converts the ELF to the app image the device streams into its
+# inactive slot (espflash save-image → esp-idf app format, no flash-size padding),
+# writes it as typoena-<ver>.bin into the site's public/firmware/, and points
+# latest.txt at <ver>. On `:update` a device GETs latest.txt, compares <ver>
+# against its baked CARGO_PKG_VERSION, and fetches typoena-<ver>.bin if newer.
+#
+# <ver> comes from firmware/Cargo.toml — the SAME source as the device's
+# FW_VERSION — so BUMP [package].version there before publishing a new release.
+#
+# Files land in the typoena-site repo (Vite copies public/ → dist/, nginx serves
+# it). This stages files only and prints the git commands so you review the diff;
+# the deploy happens when you push (Coolify redeploys typoena-site).
+# Stage the current firmware as an OTA release on typoena.dev (then push to deploy).
+publish-firmware: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ver="$(grep -m1 '^version[[:space:]]*=' "{{justfile_directory()}}/Cargo.toml" | sed -E 's/.*"([^"]+)".*/\1/')"
+    [ -n "$ver" ] || { echo "error: couldn't read [package].version from firmware/Cargo.toml" >&2; exit 1; }
+    site="{{justfile_directory()}}/../typoena-site"
+    [ -d "$site/.git" ] || { echo "error: typoena-site repo not found at $site" >&2; exit 1; }
+    dir="$site/public/firmware"
+    mkdir -p "$dir"
+    prev=""
+    if [ -f "$dir/latest.txt" ]; then prev="$(tr -d '[:space:]' < "$dir/latest.txt")"; fi
+    if [ "$prev" = "$ver" ]; then
+        echo "note: latest.txt is already $ver — bump firmware/Cargo.toml for a new release" >&2
+    fi
+    bin="$dir/typoena-$ver.bin"
+    echo "generating OTA app image for $ver → $bin"
+    espflash save-image --chip esp32s3 "{{elf}}" "$bin"
+    printf '%s\n' "$ver" > "$dir/latest.txt"
+    # A device only ever fetches the version named in latest.txt, so prune older
+    # images from the working tree — keeps the deployed site (and Docker image)
+    # lean. Git history still retains them; see the header note on binaries-in-git.
+    find "$dir" -maxdepth 1 -name 'typoena-*.bin' ! -name "typoena-$ver.bin" -delete
+    echo ""
+    echo "staged in $dir:"
+    ls -1 "$dir" | sed 's/^/  /'
+    echo "  ($(du -h "$bin" | cut -f1) image)"
+    echo ""
+    echo "publish (review the diff, then push → Coolify redeploys typoena-site):"
+    echo "  git -C \"$site\" add -A public/firmware"
+    echo "  git -C \"$site\" commit -m \"firmware: publish $ver\""
+    echo "  git -C \"$site\" push"
 
 # flash + monitor the ALREADY-BUILT firmware — no cargo, no rebuild. Flashes
-# whatever `build`/`build-light` last produced (both write the same ELF).
-# Same espflash flags as the cargo runner in .cargo/config.toml.
+# whatever `build` last produced. Same espflash flags as the cargo runner in
+# .cargo/config.toml.
 flash-only:
     espflash flash --monitor --baud 921600 {{elf}}
 
@@ -76,44 +164,6 @@ flash-wifi:
 monitor-wifi:
     espflash monitor --elf {{elf_wifi}}
 
-# Spike 3 — build the SD/FAT spike (no .env needed)
-build-sd:
-    {{esp_env}} cargo build --release --bin sd_fat
-
-# Spike 3 — flash + monitor the SD/FAT spike
-flash-sd:
-    {{esp_env}} cargo run --release --bin sd_fat
-
-# serial monitor for the SD spike, with decoded backtraces
-monitor-sd:
-    espflash monitor --elf {{elf_sd}}
-
-# Keyboard smoke test — build the USB-keyboard-only bin (no SD/EPD/Wi-Fi, no git)
-build-kbd:
-    {{esp_env}} cargo build --release --bin kbd
-
-# build + flash + monitor the keyboard smoke test
-flash-kbd:
-    {{esp_env}} cargo run --release --bin kbd
-
-# serial monitor for the keyboard smoke test, with decoded backtraces
-monitor-kbd:
-    espflash monitor --elf {{elf_kbd}}
-
-# Full editor on the panel — build the editor-on-EPD bin (no SD, no git): drives
-# the shared ui::Panel engine with storage stubbed. Type on a USB keyboard and
-# watch text land on the panel; nothing is saved.
-build-demo:
-    {{esp_env}} cargo build --release --bin demo
-
-# build + flash + monitor the screen + keyboard test
-flash-demo:
-    {{esp_env}} cargo run --release --bin demo
-
-# serial monitor for the screen + keyboard test, with decoded backtraces
-monitor-demo:
-    espflash monitor --elf {{elf_demo}}
-
 # SD primitive-op micro-benchmark — attributes the ~700 ms/loose-object write
 # floor (docs/tradeoff-curves/sync-commit-staging.md). Writes only to /sd/sdbench.
 build-bench:
@@ -126,70 +176,6 @@ flash-bench:
 # serial monitor for the SD bench, with decoded backtraces
 monitor-bench:
     espflash monitor --elf target/xtensa-esp32s3-espidf/release/sd_bench
-
-# git-level micro-benchmark — localizes the ~700 ms/object libgit2 overhead
-# (docs/tradeoff-curves/sync-commit-staging.md). Read-mostly on /sd/repo.
-build-gitbench:
-    {{esp_env}} {{git_env}} cargo build --release --bin git_bench --features git
-
-# build + flash + monitor the git-level bench
-flash-gitbench:
-    {{esp_env}} {{git_env}} cargo run --release --bin git_bench --features git
-
-# serial monitor for the git-level bench, with decoded backtraces
-monitor-gitbench:
-    espflash monitor --elf target/xtensa-esp32s3-espidf/release/git_bench
-
-# Spike 9 — build the boot splash spike (no .env needed)
-build-splash:
-    {{esp_env}} cargo build --release --bin splash
-
-# Spike 9 — flash + monitor the boot splash spike
-flash-splash:
-    {{esp_env}} cargo run --release --bin splash
-
-# serial monitor for the splash spike, with decoded backtraces
-monitor-splash:
-    espflash monitor --elf {{elf_splash}}
-
-# Spike 7 Path 2 — build the git2/libgit2 smoke (git2 safe API on device)
-build-git:
-    {{esp_env}} {{git_env}} cargo build --release --bin git_smoke --features git
-
-# Spike 7 Path 2 — flash + monitor the git2/libgit2 smoke
-flash-git:
-    {{esp_env}} {{git_env}} cargo run --release --bin git_smoke --features git
-
-# serial monitor for the git smoke, with decoded backtraces
-monitor-git:
-    espflash monitor --elf {{elf_git}}
-
-# Spike 7 finish — build the on-device git push (Wi-Fi + SNTP + flash-FAT + libgit2)
-build-git-push:
-    {{esp_env}} {{git_env}} cargo build --release --bin git_push --features git
-
-# Spike 7 finish — flash + monitor. espflash applies the custom partition table
-# (so the `storage` FAT partition exists) and sets 16 MB flash. Uses espflash
-# directly, not `cargo run`, so the table is applied only to this binary.
-flash-git-push: build-git-push
-    espflash flash --monitor --baud 921600 --partition-table {{partition_table}} --flash-size 16mb {{elf_git_push}}
-
-# serial monitor for the git push, with decoded backtraces
-monitor-git-push:
-    espflash monitor --elf {{elf_git_push}}
-
-# Milestone #2A — build the persistent-clone publish cycle (clone + fast-forward push)
-build-git-sync:
-    {{esp_env}} {{git_env}} cargo build --release --bin git_sync --features git
-
-# Milestone #2A — flash + monitor. Applies the same custom partition table as
-# git-push (the `storage` FAT partition holds the persistent clone).
-flash-git-sync: build-git-sync
-    espflash flash --monitor --baud 921600 --partition-table {{partition_table}} --flash-size 16mb {{elf_git_sync}}
-
-# serial monitor for the git sync, with decoded backtraces
-monitor-git-sync:
-    espflash monitor --elf {{elf_git_sync}}
 
 # detect board, print chip/MAC/flash size
 info:

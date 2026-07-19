@@ -153,6 +153,49 @@ fn reboot_command_refuses_an_unsaved_unnamed_buffer() {
 }
 
 #[test]
+fn update_command_requests_an_ota_check_when_clean() {
+    // A fresh clean buffer → `:update` prompts; on `y` it asks the host to run the
+    // over-the-air update (which ends in a reboot into the new image).
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "update");
+    assert_eq!(e.mode(), Mode::Confirm, "expected the update confirm prompt");
+    assert!(e.take_effects().is_empty(), "must not act before confirmation");
+    confirm(&mut e);
+    assert_eq!(kinds(&e.take_effects()), vec![Kind::Update]);
+}
+
+#[test]
+fn update_prompt_cancels_on_any_other_key() {
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "update");
+    e.handle(Key::Char('n')); // not y → cancel
+    assert_eq!(e.mode(), Mode::Normal);
+    assert!(e.take_effects().is_empty(), "cancelled :update must queue nothing");
+    assert!(
+        e.notice.as_deref().unwrap_or_default().contains("cancelled"),
+        "expected a cancellation notice, got {:?}",
+        e.notice
+    );
+}
+
+#[test]
+fn update_command_is_refused_with_unsaved_changes() {
+    // Dirty the buffer, then `:update` — the post-install reboot would lose the
+    // edit, so it refuses with a notice and queues nothing (mirrors `:setup`).
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    e.handle(Key::Char('i'));
+    send(&mut e, "hi");
+    e.handle(Key::Escape);
+    ex(&mut e, "update");
+    assert!(e.take_effects().is_empty(), "dirty :update must queue nothing");
+    assert!(
+        e.notice.as_deref().unwrap_or_default().contains("unsaved"),
+        "expected an unsaved-changes notice, got {:?}",
+        e.notice
+    );
+}
+
+#[test]
 fn gp_formats_the_buffer_before_publishing() {
     // fmt → save → commit → push: `:gp` runs :fmt in-core first (default on).
     let mut e = Editor::with_file(

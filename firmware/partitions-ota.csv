@@ -1,0 +1,29 @@
+# Typoena PRODUCTION partition table — 16 MB flash (ESP32-S3-WROOM-1-N16R8).
+#
+# Dual A/B app slots for over-the-air update (`:update`). `:update` streams a new
+# image into whichever slot is NOT running, then `esp_ota_set_boot_partition`
+# flips `otadata` to point at it; the running slot is never written, so a power
+# loss mid-download is safe (the next boot still runs the current image). With
+# `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` the new slot boots in "pending
+# verify" and is rolled back on the next reset unless the app confirms itself
+# healthy (`ota::mark_running_firmware_valid`, called at cursor-ready).
+#
+# This REPLACES the single-app layout for production. The one migration cost:
+# a device on the old single-slot layout can't grow a second slot while running,
+# so it needs ONE USB reflash with this table (`just flash-ota`) to become
+# OTA-capable; every update after that is over the air.
+#
+# The product git working copy lives on the SD card (`/sd/repo`), not flash, so
+# there is no `storage` data partition here (unlike the git-push spike's
+# partitions.csv). Two 4 MB slots + otadata use ~8.5 MB of 16 MB — generous app
+# headroom (the light editor is ~1 MB; the full build adds Wi-Fi + libgit2 + the
+# wizard) with ~7 MB free for a future recovery slot or data partition.
+#
+# App slots MUST be equal-sized and 0x10000-aligned; otadata MUST be 0x2000.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x6000,
+otadata,    data, ota,      0xf000,   0x2000,
+phy_init,   data, phy,      0x11000,  0x1000,
+ota_0,      app,  ota_0,    0x20000,  0x400000,
+ota_1,      app,  ota_1,    0x420000, 0x400000,

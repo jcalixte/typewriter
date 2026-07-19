@@ -61,8 +61,8 @@ need `CONFIG_SPIRAM` turned on first.
 
 Credentials are build-time: copy [`.env.example`](.env.example) to `.env`, set
 `TW_WIFI_SSID` / `TW_WIFI_PASS`, and `just` loads them (dotenv) so `build.rs`
-bakes them in. `.env` is gitignored; the light editor build (`just flash-light`)
-needs none of it. `sdkconfig.defaults` gains the full certificate bundle and a bigger main
+bakes them in. `.env` is gitignored; the SD bench (`sd_bench`) needs none of it.
+`sdkconfig.defaults` gains the full certificate bundle and a bigger main
 task stack for the mbedtls handshake — a one-time esp-idf reconfigure on the
 next build.
 
@@ -173,48 +173,39 @@ the Xtensa GCC to `PATH`):
 . ~/export-esp.sh
 ```
 
-Then from this directory, `just build` (the nominal product build) or, for fast
-iteration without git, `just build-light`:
+Then from this directory, `just build` — the product firmware:
 
 ```sh
-just build         # full: firmware + git publishing (libgit2 + git2)
-just build-light   # light: editor only, no git — much faster
+just build   # the product firmware: editor + git publishing + OTA + wizard
 ```
 
-(A bare `cargo build --release` with no env is equivalent to `build-light` — the
-`git` feature is off by default.)
-
 The first build is slow (the esp-idf C sources are checked out and built
-under `.embuild/`; the full build also compiles libgit2 + mbedTLS). Subsequent
-builds are incremental.
+under `.embuild/`; the build also compiles libgit2 + mbedTLS). Subsequent builds
+are incremental — libgit2 is a fingerprint-cached esp-idf component, so editing
+Rust never recompiles it. Editor and render-engine logic is host-tested
+off-device (`cargo test -p app -p editor`), which is the fast iteration loop.
 
-### Build modes — git (default) vs light
+### The `full` feature — why libgit2 stays behind a switch
 
-Publishing (`:gp` → git push) is expensive to build: it drags in libgit2 +
-mbedTLS (compiled as an esp-idf component) and the `git2` crate. It sits behind
-a switch. The nominal build turns it on (it's the product); a **light** build
-leaves it off — ideal for iterating on the editor, EPD, USB, or SD without
-paying for libgit2:
+Publishing (`:gp`/`:gl` → git) and `:update` (OTA) drag in libgit2 + mbedTLS
+(compiled as an esp-idf component) and the `git2` crate — expensive to build.
+The `firmware` bin sets `required-features = ["full"]`, so the product firmware
+always has them. `full` is nonetheless **off by default**, for one reason: a
+bare `cargo build` and the standalone bench bins build WITHOUT libgit2.
 
-| Build                    | Command                                 | libgit2 component          | `git2` crate | `:gp`                     |
-| ------------------------ | --------------------------------------- | -------------------------- | ------------ | ------------------------- |
-| **Full / git** (default) | `just build` / `just flash`             | compiled                   | linked       | save → push               |
-| **Light**                | `just build-light` / `just flash-light` | not compiled (empty no-op) | not linked   | saves locally, skips push |
+| Target                            | `full`                     | libgit2 component          | `git2` crate |
+| --------------------------------- | -------------------------- | -------------------------- | ------------ |
+| `firmware` (`just build`/`flash`) | always (required-features) | compiled                   | linked       |
+| bench bins (`just build-bench`, …) | off                       | not compiled (empty no-op) | not linked   |
 
-Two independent switches make this work, and the justfile flips them together:
+Two independent switches gate libgit2, and the `full` recipes flip them together:
 
-1. **`git` Cargo feature** (`--features git`) — pulls the `git2` crate and
-   turns on the `#[cfg(feature = "git")]` publish path in
-   [`src/main.rs`](src/main.rs) (`publish()`). Off by default; the full recipes
-   pass it.
+1. **`full` Cargo feature** (`--features full`) — pulls the `git2`/`libgit2-sys`
+   crates and the `net`/`ota`/`wizard_io` modules. The `firmware` bin requires
+   it; the bench recipes omit it.
 2. **`LIBGIT2_SRC` env** — the [libgit2 component](components/libgit2/CMakeLists.txt)
    only compiles its sources when this points at the vendored tree; unset, it
    registers an _empty_ component. Only the full recipes set it.
-
-Because git code in the firmware binary is only ever compiled under
-`--features git`, `just build-light` can never drag libgit2 in. (Git isn't wired
-into `main.rs` yet, so the full `just build` currently just builds slower and
-behaves like the light build — the seam is in place ahead of the integration.)
 
 ## Flash (when hardware is on the bench)
 

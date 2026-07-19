@@ -103,6 +103,10 @@ pub(crate) enum Confirm {
     Reboot,
     /// `:setup` — reboot into the onboarding wizard.
     Setup,
+    /// `:update` — download and install a firmware update over the air (then
+    /// reboot into it). Gated behind a confirm because it moves the device to new
+    /// firmware and restarts it. On `y` the editor queues [`Effect::Update`].
+    Update,
     /// `:gl` with unpublished saves — commit the dirty journal locally, then
     /// pull (fetch + fast-forward/rebase). Guards the commit `:gl` would
     /// otherwise make on the user's behalf. On `y` the editor queues
@@ -214,6 +218,15 @@ pub enum Effect {
     /// of this, so the host flushes them before the reset); a dirty *unnamed*
     /// scratch buffer has nowhere to save and blocks the reboot instead.
     Reboot,
+    /// `:update` (or `> update`) — check for a newer firmware release and, if one
+    /// exists, download it over the air into the inactive OTA slot and reboot into
+    /// it. Runs on the same radio-owning background thread as [`Publish`](Effect::Publish)
+    /// (the editor can't reclaim the modem), so it is fire-and-forget: dispatch
+    /// shows `updating...`, and the terminal outcome (installed → reboot, already
+    /// current, or failed) returns later like a sync outcome. Only queued when no
+    /// buffer is dirty ([`any_dirty`](Editor::any_dirty)) — the post-install reboot
+    /// would lose unsaved edits — so it is gated exactly like [`Setup`](Effect::Setup).
+    Update,
     /// Focus mode (Pomodoro): begin — or, after a break, restart — a focus
     /// block. The host starts its silent monotonic block timer and snapshots the
     /// word count for the session stats. Queued by `:focus` (turning the session
@@ -1120,6 +1133,7 @@ impl Editor {
             "gl" => self.requests.push(Effect::Pull { commit_dirty: false }),
             "setup" => self.request_setup(),
             "reboot" => self.request_reboot(),
+            "update" => self.request_update(),
             "focus" => self.toggle_focus(),
             "focusdebug" => self.toggle_focus_debug(),
             _ => {}
@@ -1150,6 +1164,19 @@ impl Editor {
             return;
         }
         self.enter_confirm(Confirm::Reboot, "reboot? y/n");
+    }
+
+    /// `:update` / `> update` — check for and install a firmware update over the
+    /// air, behind a y/n prompt. Refuses up front while anything is unsaved: the
+    /// install ends in a reboot that drops the in-RAM buffers, so — like
+    /// [`request_setup`](Self::request_setup) — we never prompt for an update we'd
+    /// then have to block. Save with `:w` first.
+    pub(crate) fn request_update(&mut self) {
+        if self.any_dirty() {
+            self.set_notice("unsaved changes - :w first");
+            return;
+        }
+        self.enter_confirm(Confirm::Update, "check for firmware update? y/n");
     }
 
     /// The confirmed `:reboot`: auto-save every *named* dirty buffer
@@ -1316,6 +1343,7 @@ impl Editor {
                 Some(Confirm::Delete) => self.delete_current(),
                 Some(Confirm::Reboot) => self.do_reboot(),
                 Some(Confirm::Setup) => self.requests.push(Effect::Setup),
+                Some(Confirm::Update) => self.requests.push(Effect::Update),
                 Some(Confirm::PullCommit) => self.requests.push(Effect::Pull { commit_dirty: true }),
                 None => {}
             }
@@ -1323,6 +1351,7 @@ impl Editor {
             self.set_notice(match what {
                 Some(Confirm::Reboot) => "reboot cancelled",
                 Some(Confirm::Setup) => "setup cancelled",
+                Some(Confirm::Update) => "update cancelled",
                 Some(Confirm::PullCommit) => "pull cancelled",
                 _ => "delete cancelled",
             });

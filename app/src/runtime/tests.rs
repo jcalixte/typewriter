@@ -11,7 +11,7 @@ use editor::{Editor, Effect, Scope};
 use super::*;
 use crate::ports::{
     Clock, FileIndex, PublishDispatch, PublishOutcome, PullDispatch, PullOutcome, SetupDispatch,
-    Storage, SyncOutcome, SyncService, System,
+    Storage, NetOutcome, NetService, System, UpdateDispatch, UpdateOutcome,
 };
 use crate::render::Panel;
 
@@ -78,7 +78,8 @@ impl Storage for RecStorage {
 struct SyncLog {
     publishes: u32,
     pulls: u32,
-    outcome: Option<SyncOutcome>,
+    updates: u32,
+    outcome: Option<NetOutcome>,
 }
 
 /// Configurable dispatch results + a single queued outcome.
@@ -87,6 +88,7 @@ struct RecSync {
     log: Rc<RefCell<SyncLog>>,
     publish_ret: Rc<dyn Fn() -> PublishDispatch>,
     pull_ret: Rc<dyn Fn() -> PullDispatch>,
+    update_ret: Rc<dyn Fn() -> UpdateDispatch>,
 }
 impl RecSync {
     fn new() -> Self {
@@ -94,10 +96,11 @@ impl RecSync {
             log: Rc::new(RefCell::new(SyncLog::default())),
             publish_ret: Rc::new(|| PublishDispatch::Dispatched),
             pull_ret: Rc::new(|| PullDispatch::Dispatched),
+            update_ret: Rc::new(|| UpdateDispatch::Dispatched),
         }
     }
 }
-impl SyncService for RecSync {
+impl NetService for RecSync {
     fn publish(&self) -> PublishDispatch {
         self.log.borrow_mut().publishes += 1;
         (self.publish_ret)()
@@ -106,7 +109,11 @@ impl SyncService for RecSync {
         self.log.borrow_mut().pulls += 1;
         (self.pull_ret)()
     }
-    fn poll_outcome(&self) -> Option<SyncOutcome> {
+    fn update(&self) -> UpdateDispatch {
+        self.log.borrow_mut().updates += 1;
+        (self.update_ret)()
+    }
+    fn poll_outcome(&self) -> Option<NetOutcome> {
         self.log.borrow_mut().outcome.take()
     }
 }
@@ -122,7 +129,7 @@ impl Clock for FixedClock {
 struct PanicSystem;
 impl System for PanicSystem {
     fn prepare_setup(&self) -> SetupDispatch {
-        SetupDispatch::Unsupported
+        SetupDispatch::MarkerFailed
     }
     fn reboot(&self) -> ! {
         panic!("reboot in test")
@@ -257,7 +264,7 @@ fn pull_that_moves_the_tree_reloads_active_and_rewalks() {
     let ed = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "old".into());
     let mut rt = runtime(ed, storage.clone(), RecSync::new(), files.clone());
 
-    rt.handle_sync_outcome(SyncOutcome::Pull(PullOutcome::Pulled("abc".into())));
+    rt.handle_net_outcome(NetOutcome::Pull(PullOutcome::Pulled("abc".into())));
 
     assert_eq!(storage.0.borrow().loads, vec!["/sd/repo/notes.md".to_string()]);
     assert_eq!(*files.0.borrow(), 1, "palette should be re-walked after a moving pull");
@@ -270,8 +277,38 @@ fn up_to_date_pull_leaves_the_tree_untouched() {
     let ed = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "old".into());
     let mut rt = runtime(ed, storage.clone(), RecSync::new(), files.clone());
 
-    rt.handle_sync_outcome(SyncOutcome::Pull(PullOutcome::UpToDate));
+    rt.handle_net_outcome(NetOutcome::Pull(PullOutcome::UpToDate));
 
     assert!(storage.0.borrow().loads.is_empty(), "no reload when the tree didn't move");
     assert_eq!(*files.0.borrow(), 0, "no re-walk when the tree didn't move");
+}
+
+// ---- firmware update ------------------------------------------------------
+
+#[test]
+fn update_effect_dispatches_to_sync() {
+    let sync = RecSync::new();
+    let mut rt = runtime(Editor::new(), RecStorage::default(), sync.clone(), RecFiles::default());
+    rt.service_one(Effect::Update);
+    assert_eq!(sync.log.borrow().updates, 1);
+}
+
+#[test]
+#[should_panic(expected = "reboot in test")]
+fn installed_update_reboots_into_the_new_image() {
+    // A successful install makes the new slot the boot target; the runtime must
+    // reboot into it. PanicSystem's reboot panics, which is the reboot signal here.
+    let mut rt =
+        runtime(Editor::new(), RecStorage::default(), RecSync::new(), RecFiles::default());
+    rt.handle_net_outcome(NetOutcome::Update(UpdateOutcome::Installed("0.8.0".into())));
+}
+
+#[test]
+fn up_to_date_update_does_not_reboot() {
+    // Already newest → a notice, no restart. The test completing (PanicSystem's
+    // reboot never fires) is the assertion; Failed takes the same non-reboot path.
+    let mut rt =
+        runtime(Editor::new(), RecStorage::default(), RecSync::new(), RecFiles::default());
+    rt.handle_net_outcome(NetOutcome::Update(UpdateOutcome::UpToDate));
+    rt.handle_net_outcome(NetOutcome::Update(UpdateOutcome::Failed("no wifi".into())));
 }

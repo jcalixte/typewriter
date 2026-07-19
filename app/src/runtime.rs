@@ -23,7 +23,7 @@ use hal::{Keyboard, Screen};
 
 use crate::ports::{
     Clock, FileIndex, PublishDispatch, PublishOutcome, PullDispatch, PullOutcome, SetupDispatch,
-    Storage, SyncOutcome, SyncService, System,
+    Storage, NetOutcome, NetService, System, UpdateDispatch, UpdateOutcome,
 };
 use crate::render::{FocusTimer, Panel};
 
@@ -39,7 +39,7 @@ pub struct Runtime<S: Screen> {
     panel: Panel<S>,
     keyboard: Box<dyn Keyboard>,
     storage: Box<dyn Storage>,
-    sync: Box<dyn SyncService>,
+    net: Box<dyn NetService>,
     clock: Box<dyn Clock>,
     system: Box<dyn System>,
     files: Box<dyn FileIndex>,
@@ -72,7 +72,7 @@ impl<S: Screen> Runtime<S> {
         panel: Panel<S>,
         keyboard: Box<dyn Keyboard>,
         storage: Box<dyn Storage>,
-        sync: Box<dyn SyncService>,
+        net: Box<dyn NetService>,
         clock: Box<dyn Clock>,
         system: Box<dyn System>,
         files: Box<dyn FileIndex>,
@@ -83,7 +83,7 @@ impl<S: Screen> Runtime<S> {
             panel,
             keyboard,
             storage,
-            sync,
+            net,
             clock,
             system,
             files,
@@ -183,18 +183,16 @@ impl<S: Screen> Runtime<S> {
             // Non-blocking: the ~10 s push never stalls the editor; the outcome
             // returns via `poll_outcome` in the idle branch. The Save that
             // preceded this in the batch already persisted the buffer.
-            Effect::Publish => match self.sync.publish() {
+            Effect::Publish => match self.net.publish() {
                 PublishDispatch::Dispatched => self.ed.set_notice("syncing..."),
                 PublishDispatch::ThreadDown => self.ed.set_notice("sync: git thread down"),
-                PublishDispatch::Skipped => {}
             },
-            Effect::Pull { commit_dirty } => match self.sync.pull(commit_dirty) {
+            Effect::Pull { commit_dirty } => match self.net.pull(commit_dirty) {
                 PullDispatch::Dispatched => self.ed.set_notice("pulling..."),
                 // Unpublished saves: ask before folding them into a commit. On
                 // `y` the editor re-queues Pull { commit_dirty: true }.
                 PullDispatch::NeedsCommitConfirm => self.ed.confirm_pull_commit(),
                 PullDispatch::ThreadDown => self.ed.set_notice("pull: git thread down"),
-                PullDispatch::Skipped => {}
             },
             Effect::Delete { path, scope } => self.delete_buffer(path, scope),
             Effect::SavePrefs { contents } => self.save_prefs(&contents),
@@ -208,7 +206,6 @@ impl<S: Screen> Runtime<S> {
                     self.system.reboot();
                 }
                 SetupDispatch::MarkerFailed => self.ed.set_notice("setup: could not save marker"),
-                SetupDispatch::Unsupported => self.ed.set_notice(":setup needs the full firmware"),
             },
             Effect::Reboot => {
                 // Paint the branded splash (so the reboot reads as intentional),
@@ -217,6 +214,15 @@ impl<S: Screen> Runtime<S> {
                 self.panel.blit_full(&Frame::reboot());
                 self.system.reboot();
             }
+            // Non-blocking, like Publish: the multi-second download + flash runs on
+            // the radio-owning thread while the editor keeps running; the terminal
+            // outcome returns via `poll_outcome` in the idle branch. `:update` was
+            // gated on a clean buffer set in the editor, so the eventual reboot on
+            // success (see `handle_net_outcome`) can't strand unsaved edits.
+            Effect::Update => match self.net.update() {
+                UpdateDispatch::Dispatched => self.ed.set_notice("checking for update..."),
+                UpdateDispatch::ThreadDown => self.ed.set_notice("update: git thread down"),
+            },
             Effect::FocusStart => self.focus.start(self.ed.word_count()),
             Effect::FocusStop => self.focus.stop(),
         }
@@ -233,8 +239,8 @@ impl<S: Screen> Runtime<S> {
         }
         // A finished git operation reports its outcome here (it ran on the git
         // thread while we idled).
-        if let Some(outcome) = self.sync.poll_outcome() {
-            self.handle_sync_outcome(outcome);
+        if let Some(outcome) = self.net.poll_outcome() {
+            self.handle_net_outcome(outcome);
             return;
         }
         // A finished background file walk (boot or post-pull) feeds the palette;
@@ -281,10 +287,10 @@ impl<S: Screen> Runtime<S> {
     /// pull that moved the working copy) reload the stale active buffer and
     /// re-walk the palette. The dirty-journal settlement already happened inside
     /// the sync backend before this returned.
-    fn handle_sync_outcome(&mut self, outcome: SyncOutcome) {
+    fn handle_net_outcome(&mut self, outcome: NetOutcome) {
         let notice = match outcome {
-            SyncOutcome::Publish(o) => publish_notice(&o),
-            SyncOutcome::Pull(o) => {
+            NetOutcome::Publish(o) => publish_notice(&o),
+            NetOutcome::Pull(o) => {
                 // Pulled and Rebased both move the working copy under us; the
                 // stale resident buffers must re-read the disk.
                 let moved_working_copy =
@@ -313,6 +319,20 @@ impl<S: Screen> Runtime<S> {
                 }
                 notice
             }
+            NetOutcome::Update(o) => match o {
+                UpdateOutcome::Installed(ver) => {
+                    // The new image is written and is now the boot slot. Paint the
+                    // notice with a blocking full refresh (visible before the
+                    // reset), then restart into it; the boot path self-tests and
+                    // marks it valid, or the bootloader rolls back to this slot.
+                    self.ed.set_notice(format!("updated to {ver} - restarting..."));
+                    self.panel.blit_editor_full(&mut self.ed);
+                    log::info!(":update — installed {ver}; rebooting into the new image");
+                    self.system.reboot();
+                }
+                UpdateOutcome::UpToDate => "firmware up to date".to_string(),
+                UpdateOutcome::Failed(reason) => reason,
+            },
         };
         self.ed.set_notice(notice);
         // Behind the rest curtain the panel is masked: settle the state but defer

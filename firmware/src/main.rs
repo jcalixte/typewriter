@@ -13,16 +13,10 @@ use editor::{Editor, Prefs, Scope, Snippets, LOCAL_DIR, PREFS_PATH, SNIPPETS_PAT
 use firmware::drivers::clock_esp::{self, EspClock};
 use firmware::drivers::keyboard_usb as usb_kbd;
 use firmware::drivers::screen_epd::Epd;
-#[cfg(feature = "git")]
 use firmware::drivers::system_esp::EspSystem;
-#[cfg(not(feature = "git"))]
-use firmware::drivers::system_esp::NullSystem;
 use firmware::infrastructure::file_index::EspFileWalk;
+use firmware::infrastructure::net::NetService;
 use firmware::infrastructure::storage_sd::{SdStorage, Storage, CONF_PATH, NOTES};
-#[cfg(feature = "git")]
-use firmware::infrastructure::sync_git::GitSyncService;
-#[cfg(not(feature = "git"))]
-use firmware::infrastructure::sync_null::NullSyncService;
 
 /// Injected by build.rs so serial output identifies the exact build.
 const BUILD_TAG: &str = concat!("build ", env!("BUILD_TIME"), " @", env!("BUILD_GIT"));
@@ -79,19 +73,6 @@ fn main() -> anyhow::Result<()> {
     // the next `:w`. See docs/v0.1-mvp-technical.md, boot sequence.
     let storage = boot_storage(&mut epd);
 
-    // The light build has no wizard (it can't clone), so it keeps the old
-    // no-repo halt; the git build's repo check happens in the wizard gate
-    // below, where a missing repo *enters setup* instead of halting.
-    #[cfg(not(feature = "git"))]
-    if !storage.repo_present() {
-        let _ = CONF_PATH; // conf is consumed by the git build only
-        boot_halt(
-            &mut epd,
-            "No repo on the SD card",
-            "Provision it on your computer (just init) and reboot.",
-        );
-    }
-
     // Bring up the USB keyboard in the background; keys arrive via next_key().
     // Before the wizard gate — first-boot setup types on this keyboard.
     usb_kbd::start()?;
@@ -102,7 +83,6 @@ fn main() -> anyhow::Result<()> {
     // the wizard runs *instead of* the editor (slice 2) and hands back the
     // completed conf; either way the result is installed before the git
     // thread spawns. Secrets stay out of the log — only which keys exist.
-    #[cfg(feature = "git")]
     let (sys_loop, nvs, modem) = {
         use esp_idf_svc::eventloop::EspSystemEventLoop;
         use esp_idf_svc::nvs::EspDefaultNvsPartition;
@@ -125,10 +105,10 @@ fn main() -> anyhow::Result<()> {
             if provided.is_empty() { "nothing".into() } else { provided.join(", ") }
         );
 
-        let effective = firmware::infrastructure::sync_git::effective_conf_from(&card);
+        let effective = firmware::infrastructure::net::effective_conf_from(&card);
         let unconfigured = !effective.missing_required().is_empty() || !storage.repo_present();
         // `:setup` reboots into the wizard prefilled (the running editor can't
-        // reclaim the radio from the git thread). One-shot: clear the marker on
+        // reclaim the radio from the net thread). One-shot: clear the marker on
         // read so a power-pull mid-setup boots the editor, not setup again.
         let setup_requested = storage.setup_requested();
         if setup_requested {
@@ -153,7 +133,7 @@ fn main() -> anyhow::Result<()> {
         } else {
             card
         };
-        firmware::infrastructure::sync_git::set_card_conf(final_conf);
+        firmware::infrastructure::net::set_card_conf(final_conf);
         (sys_loop, nvs, modem)
     };
 
@@ -175,26 +155,27 @@ fn main() -> anyhow::Result<()> {
     }
     let (boot_path, boot_scope, saved) = boot_note(&mut epd, &storage, &prefs);
 
-    // Spawn the dedicated git thread — the `:gp` publish transport. It owns
-    // the Wi-Fi stack (brought up lazily on the first `:gp`, so the radio
-    // stays off until you publish) and parks on `git_tx` until signalled; the
-    // push runs off the UI loop, and its outcome returns on `git_rx` for the
-    // snackbar. Behind the `git` feature so a light build carries no libgit2.
-    #[cfg(feature = "git")]
-    let (git_tx, git_rx) = {
-        use firmware::infrastructure::sync_git::{run_git_service, GitOutcome, GitRequest, GIT_STACK};
+    // Spawn the dedicated net thread — the transport behind `:gp`/`:gl` and
+    // `:update`. It owns the Wi-Fi stack (brought up lazily on the first
+    // request, so the radio stays off until you sync/update) and parks on
+    // `net_tx` until signalled; the work runs off the UI loop, and its outcome
+    // returns on `net_rx` for the snackbar. (The stack is `GIT_STACK`-sized —
+    // libgit2's path-buffer nesting is what dictates it; OTA is shallow by
+    // comparison.)
+    let (net_tx, net_rx) = {
+        use firmware::infrastructure::net::{run_net_service, NetOutcome, NetRequest, GIT_STACK};
 
         // sys_loop / nvs / modem come from the wizard-gate block above — the
-        // wizard borrows the modem for its join test, then the git thread
+        // wizard borrows the modem for its join test, then the net thread
         // owns all three for good.
-        let (req_tx, req_rx) = std::sync::mpsc::channel::<GitRequest>();
-        let (res_tx, res_rx) = std::sync::mpsc::channel::<GitOutcome>();
+        let (req_tx, req_rx) = std::sync::mpsc::channel::<NetRequest>();
+        let (res_tx, res_rx) = std::sync::mpsc::channel::<NetOutcome>();
         std::thread::Builder::new()
-            .name("git".into())
+            .name("net".into())
             .stack_size(GIT_STACK)
-            .spawn(move || run_git_service(modem, sys_loop, nvs, req_rx, res_tx))?;
+            .spawn(move || run_net_service(modem, sys_loop, nvs, req_rx, res_tx))?;
         log::info!(
-            "git thread up ({} KB stack); Wi-Fi comes up on the first :gp",
+            "net thread up ({} KB stack); Wi-Fi comes up on the first :gp/:gl/:update",
             GIT_STACK / 1024
         );
         (req_tx, res_rx)
@@ -256,6 +237,11 @@ fn main() -> anyhow::Result<()> {
     let app_ms = (unsafe { esp_idf_svc::sys::esp_timer_get_time() } / 1000) as u32;
     log::info!("boot: cursor ready — {total_ms} ms since power-on ({app_ms} ms app-side)");
 
+    // OTA self-test: reaching cursor-ready is our health bar, so confirm the
+    // running slot. If this boot is the first after an over-the-air `:update`,
+    // this cancels the pending rollback; otherwise it's a logged no-op.
+    firmware::infrastructure::ota::mark_running_firmware_valid();
+
     // The palette's background file index (Ctrl-P). Kick the first walk now —
     // AFTER the first editor frame is on the panel — so the seconds-long readdir
     // over SPI doesn't starve the boot-critical SD reads or delay the first
@@ -265,22 +251,16 @@ fn main() -> anyhow::Result<()> {
     files.request_rewalk();
 
     // Share the mounted card across the storage / sync / system adapters — all on
-    // this single UI task, so `Rc` (not `Arc`) is enough. The git build's sync +
-    // system adapters reach the same dirty journal and setup marker through it.
+    // this single UI task, so `Rc` (not `Arc`) is enough. The sync + system
+    // adapters reach the same dirty journal and setup marker through it.
     let card = Rc::new(storage);
 
-    // Choose the sync + system adapters by build: a full build drives git; a
-    // light editor build injects the no-op pair (publish/pull skipped, `:setup`
-    // reports it needs the full firmware). The [`Runtime`] is identical either way.
-    #[cfg(feature = "git")]
-    let sync: Box<dyn app::SyncService> =
-        Box::new(GitSyncService::new(card.clone(), git_tx, git_rx));
-    #[cfg(not(feature = "git"))]
-    let sync: Box<dyn app::SyncService> = Box::new(NullSyncService);
-    #[cfg(feature = "git")]
+    // The net + system adapters: git + OTA over the radio-owning thread, and the
+    // reboot / reboot-into-setup control surface. Both feed the port-driven
+    // [`Runtime`].
+    let net: Box<dyn app::NetService> =
+        Box::new(NetService::new(card.clone(), net_tx, net_rx));
     let system: Box<dyn app::System> = Box::new(EspSystem(card.clone()));
-    #[cfg(not(feature = "git"))]
-    let system: Box<dyn app::System> = Box::new(NullSystem);
 
     // Assemble the run loop and drive it forever. The editor is seeded, the panel
     // holds the first frame, and every hardware / infrastructure dependency is
@@ -292,7 +272,7 @@ fn main() -> anyhow::Result<()> {
         panel,
         Box::new(usb_kbd::UsbKeyboard),
         Box::new(SdStorage(card.clone())),
-        sync,
+        net,
         Box::new(EspClock),
         system,
         Box::new(files),
@@ -303,18 +283,14 @@ fn main() -> anyhow::Result<()> {
 /// Mount the SD card, or halt with the reason on the panel. A missing CARD is
 /// fatal by design (see the boot-sequence comment in `main`): the note is the
 /// whole point of the appliance, so we refuse to run in a state where the next
-/// save could destroy it. A missing REPO is the caller's call — the git
-/// build's wizard gate enters first-boot setup, the light build halts.
+/// save could destroy it. A missing REPO is not fatal here — the wizard gate in
+/// `main` enters first-boot setup instead.
 fn boot_storage(epd: &mut Epd) -> Storage {
-    // A git build shares this mount with the git thread, and libgit2 keeps the
-    // pack + idx descriptors open across a publish — that overruns the
-    // editor's tight 4-FD budget, so mount with the 16-FD one (persistence.rs,
-    // MAX_FILES_GIT). The light build keeps the editor's own budget.
-    #[cfg(feature = "git")]
-    let mounted = Storage::mount_for_git();
-    #[cfg(not(feature = "git"))]
-    let mounted = Storage::mount();
-    match mounted {
+    // The firmware shares this mount with the net thread, and libgit2 keeps the
+    // pack + idx descriptors open across a publish — that overruns the editor's
+    // tight 4-FD budget, so mount with the 16-FD one (persistence.rs,
+    // MAX_FILES_GIT).
+    match Storage::mount_for_git() {
         Ok(s) => s,
         Err(e) => boot_halt(epd, "SD card not ready", &format!("{e:#}")),
     }

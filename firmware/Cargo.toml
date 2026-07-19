@@ -21,6 +21,10 @@ path = "src/lib.rs"
 name = "firmware"
 path = "src/main.rs"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+# The product firmware is always the full build (git `:gp`/`:gl` + `:update` OTA
+# + onboarding wizard). `full` is off by default so a bare `cargo build` and the
+# libgit2-free bench bins skip it; `just build`/`flash` pass `--features full`.
+required-features = ["full"]
 
 # Spike 6 — Wi-Fi + TLS. Standalone bench program, kept separate from the
 # editor firmware. Flash with `just flash-wifi`.
@@ -29,80 +33,13 @@ name = "wifi_tls"
 path = "src/bin/wifi_tls.rs"
 harness = false
 
-# Spike 3 — SD card (FAT) over the shared SPI2 bus. Standalone bench program.
-# Flash with `just flash-sd`.
-[[bin]]
-name = "sd_fat"
-path = "src/bin/sd_fat.rs"
-harness = false
-
-# Keyboard smoke test — USB host boot keyboard only, no SD/EPD/Wi-Fi, so a bare
-# board can prove the keyboard works. No git feature. Flash with `just flash-kbd`.
-[[bin]]
-name = "kbd"
-path = "src/bin/kbd.rs"
-harness = false
-
-# Full editor on the panel, no SD card — drives the shared ui::Panel render
-# engine (splash, windowed partials, caret debounce, focus mode) like the device
-# firmware, with storage/git stubbed. Nothing is saved. No git feature.
-# `just flash-demo`.
-[[bin]]
-name = "demo"
-path = "src/bin/demo.rs"
-harness = false
-
 # SD/FAT primitive-op micro-benchmark — attributes the ~700 ms/loose-object write
-# floor (see docs/tradeoff-curves/sync-commit-staging.md). Pure SD, no git feature.
+# floor (see docs/tradeoff-curves/sync-commit-staging.md). Pure SD, no `full` feature.
 # Flash with `just flash-bench`.
 [[bin]]
 name = "sd_bench"
 path = "src/bin/sd_bench.rs"
 harness = false
-
-# git-level micro-benchmark — localizes the ~700 ms/object libgit2 overhead (see
-# docs/tradeoff-curves/sync-commit-staging.md). Needs the `git` feature.
-[[bin]]
-name = "git_bench"
-path = "src/bin/git_bench.rs"
-harness = false
-required-features = ["git"]
-
-# Spike 9 — boot splash. Standalone bench program that paints the Typoena
-# wordmark-in-a-circle on the EPD. No git, no SD, no Wi-Fi. Flash with
-# `just flash-splash`.
-[[bin]]
-name = "splash"
-path = "src/bin/splash.rs"
-harness = false
-
-# Spike 7 Path 2 — libgit2 link/run smoke via the git2 safe API. Gated behind
-# the `git` feature so the editor build never pulls libgit2-sys/pkg-config.
-# Build: cargo build --release --bin git_smoke --features git (env in justfile).
-[[bin]]
-name = "git_smoke"
-path = "src/bin/git_smoke.rs"
-harness = false
-required-features = ["git"]
-
-# Spike 7 Path 2 finish — on-device init/commit/push over mbedTLS HTTPS. Wi-Fi +
-# SNTP + flash-FAT + libgit2 in one bench binary. Gated behind `git` like
-# git_smoke. Build/flash with `just flash-git-push` (needs the git TW_* vars in
-# .env; flashes partitions.csv so the `storage` FAT partition exists).
-[[bin]]
-name = "git_push"
-path = "src/bin/git_push.rs"
-harness = false
-required-features = ["git"]
-
-# Milestone #2A — persistent-clone publish cycle (clone + open + fast-forward
-# push), the product's real git flow. Same `git` gate + TW_* env + partition
-# table as git_push. Build/flash with `just flash-git-sync`.
-[[bin]]
-name = "git_sync"
-path = "src/bin/git_sync.rs"
-harness = false
-required-features = ["git"]
 
 [profile.release]
 opt-level = "s"
@@ -116,17 +53,19 @@ esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal.git" }
 esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc.git" }
 
 [features]
-# A Cargo feature, OFF by default — so a bare `cargo build` (and `just
-# build-light`) is a LIGHT editor build. The justfile's nominal `build`/`flash`
-# opt in via `--features git`. Enabling it (a) pulls the git2 safe API and (b)
-# turns on the `#[cfg(feature = "git")]` publish path in main.rs (see
-# `publish()`), so git code is only ever compiled with `--features git`. libgit2
-# itself is built by the esp-idf component (firmware/components/libgit2/) with
+# The full product build. The `firmware` bin `required-features` it, so the
+# shipping firmware always has it; it stays OFF by default only so a bare
+# `cargo build` and the standalone bench bins (`sd_bench`, `wifi_tls`) build
+# WITHOUT libgit2 (editor + EPD + USB + SD). `just build`/`flash` pass
+# `--features full`. It turns on the `net` thread (git `:gp`/`:gl` + `:update`
+# OTA), the onboarding wizard, and the `#[cfg(feature = "full")]` `net`/`ota`/
+# `wizard_io` modules in the lib. It also (a) pulls the git2 safe API and (b)
+# builds libgit2 as an esp-idf component (firmware/components/libgit2/) with
 # mbedTLS — but ONLY when the justfile also sets LIBGIT2_SRC (the full recipes
-# do; `build-light` doesn't, so the component is an empty no-op). git2/libgit2-sys
-# run in system mode (LIBGIT2_NO_VENDOR=1) purely for the Rust bindings, with
-# default features off to avoid dragging in openssl-sys/libssh2-sys.
-git = ["dep:git2", "dep:libgit2-sys", "dep:wizard"]
+# do; the bench recipes don't, so the component is an empty no-op). git2/
+# libgit2-sys run in system mode (LIBGIT2_NO_VENDOR=1) purely for the Rust
+# bindings, with default features off to avoid dragging in openssl-sys/libssh2-sys.
+full = ["dep:git2", "dep:libgit2-sys", "dep:wizard"]
 
 [dependencies]
 anyhow = "1"
@@ -151,14 +90,14 @@ app = { path = "../app" }
 # v0.9 onboarding slice 0. See ../conf and docs/v0.9-onboarding-wizard.md.
 conf = { path = "../conf" }
 # The onboarding wizard's host-tested state machine; src/wizard_io.rs is its
-# hardware driver (keys in, panel out, Wi-Fi join test). Only the git build
+# hardware driver (keys in, panel out, Wi-Fi join test). Only the full build
 # runs it (the wizard's end state is a clone), hence the feature gate below.
 wizard = { path = "../wizard", optional = true }
 git2 = { version = "0.20", default-features = false, optional = true }
 # Already in the tree under git2 (same system-mode build); named directly for
 # the raw `git_libgit2_opts` calls git2 doesn't wrap — the odb-cache cap
 # (GIT_OPT_SET_CACHE_MAX_SIZE) and cache telemetry (GIT_OPT_GET_CACHED_MEMORY)
-# that git_sync sets against the run-4 push OOM (2026-07-13).
+# the net thread sets against the run-4 push OOM (2026-07-13).
 libgit2-sys = { version = "0.18", default-features = false, optional = true }
 esp-idf-svc = { version = "0.52.1", features = [
   "critical-section",

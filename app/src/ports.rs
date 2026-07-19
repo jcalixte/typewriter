@@ -11,17 +11,12 @@
 //! [`Keyboard`](hal::Keyboard)) live one layer down in the `hal` crate; the
 //! ports here are application/infrastructure capabilities — persistence, the
 //! sync transport, the wall clock, platform lifecycle, and the file index.
-//!
-//! The `git` feature does not reach this layer: a light editor build injects the
-//! no-op [`SyncService`]/`System` adapters, a full build the git-backed ones.
-//! The `Runtime` is identical either way — the `Skipped`/`Unsupported` variants
-//! below carry the difference.
 
 use editor::Date;
 
 /// Durable storage of buffers on the card — the byte-level file operations the
 /// loop performs. The dirty-path journal that couples a save to a later publish
-/// lives behind [`SyncService`], not here.
+/// lives behind [`NetService`], not here.
 pub trait Storage {
     /// Atomically write `contents` to `path`. Errors are surfaced, not fatal:
     /// the in-RAM buffer stays the source of truth for a retry.
@@ -37,12 +32,10 @@ pub trait Storage {
 /// What dispatching a publish (`:gp`) did — the loop maps this to a snackbar.
 pub enum PublishDispatch {
     /// Handed to the sync backend; the result arrives later via
-    /// [`SyncService::poll_outcome`].
+    /// [`NetService::poll_outcome`].
     Dispatched,
     /// The backend is gone (thread down); nothing will report back.
     ThreadDown,
-    /// No sync backend in this build (light editor build) — a no-op.
-    Skipped,
 }
 
 /// What dispatching a pull (`:gl`) did.
@@ -54,7 +47,18 @@ pub enum PullDispatch {
     /// UI re-dispatches the pull with `commit_dirty: true`.
     NeedsCommitConfirm,
     ThreadDown,
-    Skipped,
+}
+
+/// What dispatching a firmware update (`:update`) did. The "is a newer release
+/// available" question needs the network, so it is answered later in
+/// [`UpdateOutcome`], not here — dispatch only reports whether the request
+/// reached the background thread.
+pub enum UpdateDispatch {
+    /// Handed to the background thread; the result arrives later via
+    /// [`NetService::poll_outcome`].
+    Dispatched,
+    /// The backend is gone (thread down); nothing will report back.
+    ThreadDown,
 }
 
 /// A completed publish, mirrored from the git transport into a git-free shape so
@@ -76,19 +80,38 @@ pub enum PullOutcome {
     Failed(String),
 }
 
-/// The outcome of a finished background sync operation.
-pub enum SyncOutcome {
-    Publish(PublishOutcome),
-    Pull(PullOutcome),
+/// A completed firmware update (`:update`).
+pub enum UpdateOutcome {
+    /// A newer image was fetched and written to the inactive OTA slot, which is
+    /// now the boot target. Carries the new version string for the notice; the
+    /// caller paints it and reboots into the new firmware.
+    Installed(String),
+    /// The running firmware is already the newest release — nothing to install.
+    UpToDate,
+    /// Something failed (no newer image found is *not* a failure — that is
+    /// [`UpToDate`](UpdateOutcome::UpToDate)); the string is a short reason for
+    /// the panel (full error is logged). The running slot is untouched.
+    Failed(String),
 }
 
-/// The publish/pull transport (git over the wire), plus the dirty-path journal
-/// that gates it. Fire-and-forget: [`publish`](SyncService::publish) /
-/// [`pull`](SyncService::pull) dispatch, and the result returns later via
-/// [`poll_outcome`](SyncService::poll_outcome). The backend owns the dirty
+/// The outcome of a finished background operation on the radio-owning thread.
+pub enum NetOutcome {
+    Publish(PublishOutcome),
+    Pull(PullOutcome),
+    Update(UpdateOutcome),
+}
+
+/// Everything the radio-owning background thread does: the git publish/pull
+/// transport (plus the dirty-path journal that gates it) and firmware update
+/// over the air. All three share the one thread because the device has a single
+/// Wi-Fi modem the editor loop cannot reclaim — so they multiplex over one
+/// dispatch/outcome channel rather than each owning a radio. Fire-and-forget:
+/// [`publish`](NetService::publish) / [`pull`](NetService::pull) /
+/// [`update`](NetService::update) dispatch, and the result returns later via
+/// [`poll_outcome`](NetService::poll_outcome). The backend owns the dirty
 /// journal — it takes the pending paths on publish (and on a committing pull)
 /// and settles them when the outcome lands — so the app layer never touches it.
-pub trait SyncService {
+pub trait NetService {
     /// Dispatch a publish of the whole Tracked working copy.
     fn publish(&self) -> PublishDispatch;
     /// Dispatch a fetch + fast-forward/rebase pull. `commit_dirty` false is a
@@ -97,9 +120,14 @@ pub trait SyncService {
     /// dispatching, so the UI can confirm the commit first. `commit_dirty` true
     /// (the confirmed retry) folds the journal into a local commit, then pulls.
     fn pull(&self, commit_dirty: bool) -> PullDispatch;
+    /// Dispatch a firmware-update check: fetch the latest release, and if it is
+    /// newer than the running image, download it into the inactive OTA slot and
+    /// make that the boot target. Reports back via [`UpdateOutcome`] — the caller
+    /// reboots on [`Installed`](UpdateOutcome::Installed).
+    fn update(&self) -> UpdateDispatch;
     /// Non-blocking poll for a finished operation. The backend has already
     /// settled the dirty journal by the time this returns.
-    fn poll_outcome(&self) -> Option<SyncOutcome>;
+    fn poll_outcome(&self) -> Option<NetOutcome>;
 }
 
 /// The wall clock and the idle CPU-yield the loop needs. `today` is `None` until
@@ -119,8 +147,6 @@ pub enum SetupDispatch {
     Ready,
     /// Could not persist the setup marker — stay put and report it.
     MarkerFailed,
-    /// This build has no wizard to reboot into (light editor build).
-    Unsupported,
 }
 
 /// Platform lifecycle: the device restart, and preparing a reboot-into-setup.

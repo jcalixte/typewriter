@@ -117,3 +117,18 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 # override to bite there. Kept so the production bootloader is quiet by default.
 # App-level logging (LOG_DEFAULT_LEVEL) is untouched either way.
 CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
+
+# --- OTA rollback (2026-07-19, `:update`) ---
+# A/B firmware update boots the slot `otadata` names; with this on, a freshly
+# OTA'd slot starts in the "pending verify" state and the bootloader rolls it
+# back to the previous slot on the next reset UNLESS the app confirms itself
+# healthy (`ota::mark_running_firmware_valid`, called once boot reaches
+# cursor-ready). Without it, `:update` still switches slots but a boot-looping
+# image would NOT auto-recover — you'd re-flash over USB.
+#
+# This is a 2ND-STAGE BOOTLOADER feature, so it only bites when the flash uses
+# our OWN esp-idf-built bootloader — NOT espflash's prebuilt one (see the
+# BOOTLOADER_LOG_LEVEL_NONE note above: the dev `cargo run` path injects
+# espflash's bootloader). The production `just flash-ota` recipe is where our
+# bootloader ships. Needs the ota_0/ota_1/otadata layout in partitions-ota.csv.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

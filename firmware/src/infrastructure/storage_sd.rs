@@ -103,7 +103,7 @@ const DIRTY_JOURNAL: &str = "/sd/.typoena-dirty";
 const LAST_FILE: &str = "/sd/.typoena-last";
 
 /// `:setup` reboot marker. The running editor can't reclaim the radio from the
-/// git thread, so `:setup` writes this and reboots; the boot gate sees it and
+/// net thread, so `:setup` writes this and reboots; the boot gate sees it and
 /// re-enters the wizard (prefilled from the card conf) even on a configured
 /// card. A one-shot: cleared as soon as the boot gate reads it. Card root,
 /// outside `/sd/repo` — never committed.
@@ -125,7 +125,7 @@ const MAX_FILES_GIT: i32 = 16;
 
 /// A mounted SD card. Holds the live card handle for its lifetime; v0.1 never
 /// unmounts (the card stays up for the whole power session). Not `Send` — the
-/// handle lives on the task that mounted it (the ui/main task). The git thread
+/// handle lives on the task that mounted it (the ui/main task). The net thread
 /// reaches `/sd/repo` through plain `std::fs`; FatFS's per-volume reentrancy
 /// lock serialises the two, so no extra mutex is needed here.
 pub struct Storage {
@@ -436,7 +436,7 @@ impl Storage {
 
     /// Drop the `:setup` reboot marker. The editor calls this (then reboots)
     /// so the next boot re-enters the wizard prefilled — the running editor
-    /// can't reclaim the radio from the git thread to run it inline.
+    /// can't reclaim the radio from the net thread to run it inline.
     pub fn request_setup(&self) -> Result<()> {
         Self::atomic_write(SETUP_MARKER, "1\n")
     }

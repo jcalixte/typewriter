@@ -145,7 +145,7 @@ fn walk_files(dir: &std::path::Path, depth: usize, out: &mut String, count: &mut
 }
 
 /// Free internal DRAM (excludes the 8 MB PSRAM pool, which masks DRAM
-/// exhaustion). Same reading `sync_git` logs.
+/// exhaustion). Same reading `net` logs.
 fn internal_free_heap() -> u32 {
     use esp_idf_svc::sys;
     unsafe { sys::heap_caps_get_free_size(sys::MALLOC_CAP_INTERNAL) as u32 }

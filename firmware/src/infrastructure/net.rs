@@ -1,4 +1,11 @@
-//! On-device git publish — the transport behind the editor's `:gp`.
+//! The net thread — the sole owner of the Wi-Fi modem, and the transport behind
+//! everything the editor does over the wire: git publish (`:gp`) and pull
+//! (`:gl`), plus firmware update (`:update`, whose logic lives in the sibling
+//! [`crate::infrastructure::ota`] module — this file only dispatches to it).
+//! One thread because there is one radio the editor loop can never reclaim, so
+//! all three multiplex over a single [`NetRequest`]/[`NetOutcome`] channel and
+//! back the app's [`app::NetService`] port. Most of what follows is the git
+//! machinery; the OTA hop is [`NetRequest::Update`] → [`update_cycle`].
 //!
 //! Graduated from the `src/bin/git_sync.rs` spike (milestone #2A, hardware-
 //! verified 2026-07-07). The spike proved `open` + fast-forward `push` over
@@ -9,7 +16,7 @@
 //!    saves `notes.md` into via [`crate::infrastructure::storage_sd`]), not the spike's 4 MB
 //!    flash-FAT `/spiflash/repo`. The real notes repo can't fit in flash, so the
 //!    card is the only viable home — and there's a single source of truth: git
-//!    commits the exact file the editor just wrote. The git thread reaches the
+//!    commits the exact file the editor just wrote. The net thread reaches the
 //!    card through plain `std::fs`; FatFS's per-volume reentrancy lock serialises
 //!    it against the UI task's saves (see [`crate::infrastructure::storage_sd::Storage`]).
 //! 2. **`open` only — never clone-and-wipe.** The spike re-cloned into a
@@ -70,7 +77,7 @@ const BAKED_AUTHOR_NAME: &str = env!("TW_AUTHOR_NAME");
 const BAKED_AUTHOR_EMAIL: &str = env!("TW_AUTHOR_EMAIL");
 
 /// The card's parsed `typoena.conf`, installed once by `main` after the SD
-/// mount and before the git thread spawns. `OnceLock` because the git thread
+/// mount and before the net thread spawns. `OnceLock` because the net thread
 /// reads it concurrently with the UI thread from then on.
 static CARD_CONF: std::sync::OnceLock<conf::Conf> = std::sync::OnceLock::new();
 
@@ -157,7 +164,7 @@ const CA_BUNDLE_PATH: &str = "/sd/ca.pem";
 /// and before committing (signature timestamp).
 const SNTP_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Stack for the dedicated git thread. The init→push chain measured ~67 KB;
+/// Stack for the dedicated net thread. The init→push chain measured ~67 KB;
 /// keep the proven 96 KB (see git_push.rs / postmortem #3). Wi-Fi association
 /// now also runs here, but it's shallow next to libgit2's path-buffer nesting.
 pub const GIT_STACK: usize = 96 * 1024;
@@ -202,8 +209,8 @@ pub fn tune_libgit2() {
     }
 }
 
-/// What the UI task asks the git thread to do.
-pub enum GitRequest {
+/// What the UI task asks the net thread to do.
+pub enum NetRequest {
     /// `:gp` — commit the dirty paths and push (the upload half).
     Publish(PublishRequest),
     /// `:gl` — fetch, then fast-forward or rebase (the download half). Carries
@@ -213,6 +220,11 @@ pub enum GitRequest {
     /// the apply-diff belt can't fight a device-side save. Empty for a plain
     /// fetch (nothing was dirty).
     Pull(BTreeSet<String>),
+    /// `:update` — check for a newer firmware release and, if one exists, stream
+    /// it into the inactive OTA slot over HTTPS. Carries nothing: the running
+    /// version and the manifest URL are known to the firmware. Rides this thread
+    /// because it already owns the Wi-Fi modem, not because it touches git.
+    Update,
 }
 
 /// A request to publish. The UI task has already saved every dirty buffer to
@@ -225,11 +237,12 @@ pub struct PublishRequest {
     pub paths: BTreeSet<String>,
 }
 
-/// What the git thread reports back, tagged by the request kind so the UI can
+/// What the net thread reports back, tagged by the request kind so the UI can
 /// settle the dirty snapshot for a publish and refresh buffers for a pull.
-pub enum GitOutcome {
+pub enum NetOutcome {
     Publish(PublishOutcome),
     Pull(PullOutcome),
+    Update(UpdateOutcome),
 }
 
 /// Result of a publish attempt, sent back to the UI task for the snackbar. The
@@ -267,18 +280,33 @@ pub enum PullOutcome {
     Failed(String),
 }
 
-/// The git service loop, run on the dedicated git thread. Owns the Wi-Fi stack,
+/// Result of a `:update` firmware check, sent back to the UI task for the
+/// snackbar. Not a git operation — it shares this channel only because the OTA
+/// download runs on the same Wi-Fi-owning thread.
+pub enum UpdateOutcome {
+    /// A newer image was written to the inactive OTA slot, which is now the boot
+    /// target. Carries the new version string; the UI reboots into it.
+    Installed(String),
+    /// The running firmware is already the newest release — nothing to install.
+    UpToDate,
+    /// Something failed (a missing newer release is *not* a failure — that is
+    /// `UpToDate`); short reason for the panel, full error logged. The running
+    /// slot is untouched, so the device keeps booting the current image.
+    Failed(String),
+}
+
+/// The net service loop, run on the dedicated net thread. Owns the Wi-Fi stack,
 /// bringing it up lazily on the first request and keeping it up afterwards.
 /// Blocks on `rx`; for each request it ensures connectivity + clock + trust
 /// store, runs one publish cycle, and reports the outcome on `tx`. Returns when
 /// the request channel closes (UI task gone). Errors are reported, never
 /// panicked — a failed push must not take the thread (and its Wi-Fi) down.
-pub fn run_git_service(
+pub fn run_net_service(
     modem: Modem<'static>,
     sys_loop: EspSystemEventLoop,
     nvs: EspDefaultNvsPartition,
-    rx: Receiver<GitRequest>,
-    tx: Sender<GitOutcome>,
+    rx: Receiver<NetRequest>,
+    tx: Sender<NetOutcome>,
 ) {
     tune_libgit2();
 
@@ -291,7 +319,7 @@ pub fn run_git_service(
 
     while let Ok(req) = rx.recv() {
         let msg = match req {
-            GitRequest::Publish(req) => GitOutcome::Publish(
+            NetRequest::Publish(req) => NetOutcome::Publish(
                 match publish_cycle(
                     &sys_loop,
                     &mut wifi,
@@ -308,7 +336,7 @@ pub fn run_git_service(
                     }
                 },
             ),
-            GitRequest::Pull(paths) => GitOutcome::Pull(
+            NetRequest::Pull(paths) => NetOutcome::Pull(
                 match pull_cycle(
                     &sys_loop,
                     &mut wifi,
@@ -322,6 +350,22 @@ pub fn run_git_service(
                     Err(e) => {
                         log::error!("❌ :gl failed: {e:?}");
                         PullOutcome::Failed(short_reason("pull", &e))
+                    }
+                },
+            ),
+            NetRequest::Update => NetOutcome::Update(
+                match update_cycle(
+                    &sys_loop,
+                    &mut wifi,
+                    &mut modem,
+                    &mut nvs,
+                    &mut clock_synced,
+                    &mut tls_ready,
+                ) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        log::error!("❌ :update failed: {e:?}");
+                        UpdateOutcome::Failed(short_reason("update", &e))
                     }
                 },
             ),
@@ -596,8 +640,41 @@ fn pull_cycle(
     Ok(outcome)
 }
 
+/// One firmware-update check (`:update`): ensure connectivity, then hand off to
+/// the OTA module, which compares the running version against the release
+/// manifest and — only if it is newer — streams the image into the inactive OTA
+/// slot. Always needs the network (the whole point is asking what the latest
+/// release is). Reuses the net thread's Wi-Fi + clock bring-up; it needs no git
+/// config (no remote/token), only Wi-Fi.
+fn update_cycle(
+    sys_loop: &EspSystemEventLoop,
+    wifi: &mut Option<BlockingWifi<EspWifi<'static>>>,
+    modem: &mut Option<Modem<'static>>,
+    nvs: &mut Option<EspDefaultNvsPartition>,
+    clock_synced: &mut bool,
+    tls_ready: &mut bool,
+) -> Result<UpdateOutcome> {
+    if wifi_ssid().is_empty() {
+        bail!("Wi-Fi not provisioned — run :setup / the installer first");
+    }
+    let t_total = Instant::now();
+    ensure_online(sys_loop, wifi, modem, nvs, clock_synced, tls_ready)?;
+
+    let t_ota = Instant::now();
+    let outcome = match crate::infrastructure::ota::run_update()? {
+        Some(version) => UpdateOutcome::Installed(version),
+        None => UpdateOutcome::UpToDate,
+    };
+    log::info!(
+        ":update timing — ota(check+download) {}ms, total {}ms",
+        t_ota.elapsed().as_millis(),
+        t_total.elapsed().as_millis(),
+    );
+    Ok(outcome)
+}
+
 /// Bring Wi-Fi + wall clock + TLS trust store up, each once per session; a
-/// warm call is a no-op. Shared by publish and pull, on the git thread. Logs
+/// warm call is a no-op. Shared by publish and pull, on the net thread. Logs
 /// one timing line whenever any step actually ran (the session's first
 /// operation pays them all; every later one skips straight to git).
 fn ensure_online(
@@ -1631,30 +1708,30 @@ fn log_push_heap(stage: &str) {
     );
 }
 
-// ---- app::SyncService port adapter ----------------------------------------
+// ---- app::NetService port adapter ----------------------------------------
 
 use crate::infrastructure::storage_sd::Storage;
 
-/// [`app::SyncService`] backed by the git thread (the `:gp`/`:gl` transport).
-/// Owns the request/outcome channels and a handle to the card's dirty journal,
-/// which it takes on publish and settles when the outcome lands. Lives here (the
-/// `git` build only); the light build uses [`crate::infrastructure::sync_null`].
-pub struct GitSyncService {
+/// [`app::NetService`] backed by the net thread (git `:gp`/`:gl` + `:update`
+/// OTA). Owns the request/outcome channels and a handle to the card's dirty
+/// journal, which it takes on publish and settles when the outcome lands (OTA
+/// touches no journal). Behind the `full` feature — it pulls libgit2.
+pub struct NetService {
     card: Rc<Storage>,
-    tx: Sender<GitRequest>,
-    rx: Receiver<GitOutcome>,
+    tx: Sender<NetRequest>,
+    rx: Receiver<NetOutcome>,
 }
 
-impl GitSyncService {
-    pub fn new(card: Rc<Storage>, tx: Sender<GitRequest>, rx: Receiver<GitOutcome>) -> Self {
+impl NetService {
+    pub fn new(card: Rc<Storage>, tx: Sender<NetRequest>, rx: Receiver<NetOutcome>) -> Self {
         Self { card, tx, rx }
     }
 }
 
-impl app::SyncService for GitSyncService {
+impl app::NetService for NetService {
     fn publish(&self) -> app::PublishDispatch {
         let paths = self.card.take_dirty();
-        match self.tx.send(GitRequest::Publish(PublishRequest { paths })) {
+        match self.tx.send(NetRequest::Publish(PublishRequest { paths })) {
             Ok(()) => app::PublishDispatch::Dispatched,
             Err(_) => {
                 // Thread gone — nothing will report back, so return the snapshot
@@ -1675,11 +1752,11 @@ impl app::SyncService for GitSyncService {
             return app::PullDispatch::NeedsCommitConfirm;
         }
         // Snapshot the journal into `in_flight` (empty when nothing was dirty);
-        // the git thread commits those paths before fetching, and poll_outcome
+        // the net thread commits those paths before fetching, and poll_outcome
         // settles the snapshot when the outcome lands — succeeded forgets it,
         // failed returns it to pending — exactly as publish does.
         let paths = self.card.take_dirty();
-        match self.tx.send(GitRequest::Pull(paths)) {
+        match self.tx.send(NetRequest::Pull(paths)) {
             Ok(()) => app::PullDispatch::Dispatched,
             Err(_) => {
                 // Thread gone — nothing will report back, so return the snapshot
@@ -1690,10 +1767,25 @@ impl app::SyncService for GitSyncService {
         }
     }
 
-    fn poll_outcome(&self) -> Option<app::SyncOutcome> {
+    fn update(&self) -> app::UpdateDispatch {
+        // No dirty journal to snapshot — OTA doesn't touch the working copy.
+        match self.tx.send(NetRequest::Update) {
+            Ok(()) => app::UpdateDispatch::Dispatched,
+            Err(_) => app::UpdateDispatch::ThreadDown,
+        }
+    }
+
+    fn poll_outcome(&self) -> Option<app::NetOutcome> {
         let outcome = self.rx.try_recv().ok()?;
         Some(match outcome {
-            GitOutcome::Publish(o) => {
+            NetOutcome::Update(o) => app::NetOutcome::Update(match o {
+                // OTA settles no dirty journal; just mirror the outcome across
+                // the app boundary.
+                UpdateOutcome::Installed(v) => app::UpdateOutcome::Installed(v),
+                UpdateOutcome::UpToDate => app::UpdateOutcome::UpToDate,
+                UpdateOutcome::Failed(reason) => app::UpdateOutcome::Failed(reason),
+            }),
+            NetOutcome::Publish(o) => {
                 // Settle the dirty snapshot this publish took: confirmed
                 // published (or up to date) → forget it; failed → back to pending.
                 match &o {
@@ -1702,13 +1794,13 @@ impl app::SyncService for GitSyncService {
                     }
                     PublishOutcome::Failed(_) => self.card.publish_failed(),
                 }
-                app::SyncOutcome::Publish(match o {
+                app::NetOutcome::Publish(match o {
                     PublishOutcome::Pushed(oid) => app::PublishOutcome::Pushed(oid),
                     PublishOutcome::UpToDate => app::PublishOutcome::UpToDate,
                     PublishOutcome::Failed(reason) => app::PublishOutcome::Failed(reason),
                 })
             }
-            GitOutcome::Pull(o) => {
+            NetOutcome::Pull(o) => {
                 // Settle the dirty snapshot this pull took (it folds unpublished
                 // saves into a local commit before fetching, like publish):
                 // integrated → forget it (the work is committed, and a stranded
@@ -1718,7 +1810,7 @@ impl app::SyncService for GitSyncService {
                     PullOutcome::Failed(_) => self.card.publish_failed(),
                     _ => self.card.publish_succeeded(),
                 }
-                app::SyncOutcome::Pull(match o {
+                app::NetOutcome::Pull(match o {
                     PullOutcome::Pulled(oid) => app::PullOutcome::Pulled(oid),
                     PullOutcome::Rebased(oid) => app::PullOutcome::Rebased(oid),
                     PullOutcome::UpToDate => app::PullOutcome::UpToDate,

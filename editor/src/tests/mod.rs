@@ -66,6 +66,7 @@ enum Kind {
     SavePrefs,
     Setup,
     Reboot,
+    Update,
     FocusStart,
     FocusStop,
 }
@@ -82,6 +83,7 @@ fn kinds(effects: &[Effect]) -> Vec<Kind> {
             Effect::SavePrefs { .. } => Kind::SavePrefs,
             Effect::Setup => Kind::Setup,
             Effect::Reboot => Kind::Reboot,
+            Effect::Update => Kind::Update,
             Effect::FocusStart => Kind::FocusStart,
             Effect::FocusStop => Kind::FocusStop,
         })
