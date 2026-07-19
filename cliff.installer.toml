@@ -1,0 +1,31 @@
+# git-cliff config for the INSTALLER stream (the macOS SD-card CLI). Same output
+# format as cliff.toml — keep the [changelog] body in sync between the two — but
+# scoped to the installer: run with `--tag-pattern 'installer-v.*' --include-path
+# 'installer/**'` so only installer releases and installer commits appear.
+[changelog]
+header = ""
+body = """
+{% if version -%}
+### [{{ version | trim_start_matches(pat="firmware-v") | trim_start_matches(pat="installer-v") }}]{% if timestamp %} — {{ timestamp | date(format="%Y-%m-%d") }}{% endif %}
+{% for group, commits in commits | group_by(attribute="group") -%}
+#### {{ group }}
+{% for commit in commits -%}
+- {% if commit.scope and commit.scope != "installer" %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}
+{% endfor %}
+{% endfor -%}
+{% endif -%}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+commit_parsers = [
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Changed" },
+  { message = ".*", skip = true },
+]
+filter_commits = true
+topo_order = false
+sort_commits = "oldest"

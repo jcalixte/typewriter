@@ -96,12 +96,53 @@ ship: build
     @echo "  3. Power off and box it. The customer sets their own Wi-Fi + GitHub on first"
     @echo "     boot; every firmware update after that rides over the air (:update)."
 
+# Regenerate CHANGELOG.md from the git history with git-cliff, then sync it into
+# the typoena-site repo so the /changelog page shows it. Two streams: firmware
+# (all commits except installer/case/docs/tooling scopes) and installer (the
+# macOS CLI). Version boundaries come from `firmware-v*` / `installer-v*` tags —
+# `publish-firmware` tags a release before calling this, so new versions appear
+# automatically. Safe to run standalone any time to refresh from current tags.
+changelog:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v git-cliff >/dev/null || { echo "error: git-cliff required (brew install git-cliff)" >&2; exit 1; }
+    root="{{justfile_directory()}}/.."
+    site="$root/typoena-site"
+    out="$root/CHANGELOG.md"
+    cd "$root"
+    {
+        printf '%s\n' \
+            '# Typoena changelog' \
+            '' \
+            'The Typoena firmware, release by release, newest first. Your device updates' \
+            'itself over Wi-Fi — run `:update` to pull the latest build. The macOS setup' \
+            'tool (the installer) is versioned separately and listed at the end.' \
+            '' \
+            '_Generated from the commit history with [git-cliff](https://git-cliff.org)._' \
+            '' \
+            '## Firmware' \
+            ''
+        git-cliff --config cliff.toml --tag-pattern 'firmware-v.*' 2>/dev/null
+        printf '%s\n' \
+            '' \
+            '## Installer' \
+            '' \
+            'The macOS setup tool that prepares an SD card — install it with' \
+            '`curl -fsSL https://typoena.dev/install.sh | sh`.' \
+            ''
+        git-cliff --config cliff.installer.toml --tag-pattern 'installer-v.*' --include-path 'installer/**' 2>/dev/null
+    } > "$out"
+    echo "wrote $out"
+    if [ -d "$site/.git" ]; then cp "$out" "$site/src/changelog.md"; echo "synced → typoena-site/src/changelog.md"; fi
+
 # Publish the current firmware as a Gitea release and point the update pointer at
 # it. Builds the production image, converts the ELF to the app image the device
 # streams into its inactive slot (espflash save-image → esp-idf app format), then:
-#   1. uploads it to a Gitea release tagged `firmware-v<ver>` (via the `tea` CLI), and
-#   2. writes the 6-byte latest.txt into the site's public/firmware/.
-# The binary never touches git — only the tiny version pointer lives on the site.
+#   1. uploads it to a Gitea release tagged `firmware-v<ver>` (via the `tea` CLI),
+#   2. writes the 6-byte latest.txt into the site's public/firmware/, and
+#   3. regenerates CHANGELOG.md (`just changelog`) so the site's /changelog page
+#      and this release's notes both reflect the new version.
+# The binary never touches git — only the version pointer + changelog on the site.
 #
 # The device (baked base https://typoena.dev/firmware) GETs latest.txt for the
 # version, then requests typoena-<ver>.bin, which nginx 302-redirects to the Gitea
@@ -127,12 +168,28 @@ publish-firmware: build
     bin="$work/typoena-$ver.bin"
     echo "generating OTA app image for $ver → $(basename "$bin")"
     espflash save-image --chip esp32s3 "{{elf}}" "$bin"
+    # Tag this release locally so git-cliff attributes the new commits to $ver,
+    # then regenerate CHANGELOG.md and sync it into the site. tea creates the
+    # matching tag on Gitea below; this local tag is what the changelog reads.
+    git tag -f "$tag" HEAD >/dev/null
+    just changelog
+    # Release note = this version's section from the regenerated CHANGELOG.md.
+    # Falls back to a one-liner if the section is missing.
+    changelog="{{justfile_directory()}}/../CHANGELOG.md"
+    note="Over-the-air firmware image for Typoena $ver."
+    section="$(awk -v ver="$ver" '
+        /^## / { infw = ($0 == "## Firmware") }
+        infw && $0 ~ ("^### \\[" ver "\\]") { grab = 1; next }
+        grab && (/^### \[/ || /^## /) { exit }
+        grab { print }
+    ' "$changelog" | sed -e '/./,$!d')"
+    [ -n "$section" ] && note="$(printf 'Typoena firmware v%s\n\n%s' "$ver" "$section")"
     # Create the Gitea release + upload the asset. `if !` so a duplicate tag gives
     # guidance instead of a bare failure — and latest.txt is only bumped on success.
     echo "creating Gitea release $tag …"
     if ! tea release create --repo typoena/typewriter --login julien \
         --tag "$tag" --title "Typoena firmware v$ver" \
-        --note "Over-the-air firmware image for Typoena $ver." \
+        --note "$note" \
         --asset "$bin"; then
         echo "error: could not create release $tag (already exists?). To replace it:" >&2
         echo "       tea release delete --repo typoena/typewriter --login julien $tag" >&2
@@ -143,9 +200,9 @@ publish-firmware: build
     dir="$site/public/firmware"; mkdir -p "$dir"
     printf '%s\n' "$ver" > "$dir/latest.txt"
     echo ""
-    echo "✅ published $tag to Gitea and set latest.txt = $ver"
-    echo "deploy the pointer (the device won't see $ver until this ships):"
-    echo "  git -C \"$site\" add public/firmware/latest.txt && git -C \"$site\" commit -m \"firmware: point latest at $ver\" && git -C \"$site\" push"
+    echo "✅ published $tag to Gitea, set latest.txt = $ver, and regenerated the changelog"
+    echo "deploy the pointer + changelog (the device won't see $ver until this ships):"
+    echo "  git -C \"$site\" add public/firmware/latest.txt src/changelog.md && git -C \"$site\" commit -m \"firmware: release $ver\" && git -C \"$site\" push"
 
 # flash + monitor the ALREADY-BUILT firmware — no cargo, no rebuild. Flashes
 # whatever `build` last produced. Same espflash flags as the cargo runner in
