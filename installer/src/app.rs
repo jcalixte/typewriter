@@ -642,6 +642,14 @@ impl App {
                     self.status = Some(match result {
                         Ok(t) => {
                             self.config.pat = t.access_token;
+                            // Fill the username from the signed-in account so a
+                            // bare repo name (`notes`) completes to `<login>/notes`
+                            // — the sign-in already knows who you are, so you
+                            // shouldn't have to retype it. Empty only if the login
+                            // lookup failed; then keep whatever was derived/typed.
+                            if !t.login.trim().is_empty() {
+                                self.config.gh_user = t.login;
+                            }
                             // Probe access right away (no-op until the remote is
                             // set) so the not-installed case flags at Configure
                             // instead of 403ing at the clone.
@@ -846,6 +854,51 @@ mod tests {
             *remote,
             app.config.remote(),
             "mismatch is what the UI keys the hide on"
+        );
+    }
+
+    #[test]
+    fn sign_in_fills_the_github_username_for_bare_repo_completion() {
+        use crate::auth::{AuthEvent, Token};
+        let mut app = signing_in_app();
+        // The user never typed a username; a bare repo name is waiting.
+        app.config.gh_user.clear();
+        app.config.remote_url = "notes".into();
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.auth_rx = Some(rx);
+        tx.send(AuthEvent::Done(Ok(Token {
+            access_token: "ghu_abc".into(),
+            login: "octocat".into(),
+            expires_in: None,
+        })))
+        .unwrap();
+        app.drain_auth();
+        assert_eq!(app.config.gh_user, "octocat", "sign-in fills the username");
+        assert_eq!(
+            app.config.remote(),
+            "https://github.com/octocat/notes.git",
+            "so the bare repo name now completes against it"
+        );
+    }
+
+    #[test]
+    fn a_failed_login_lookup_keeps_the_derived_username() {
+        use crate::auth::{AuthEvent, Token};
+        let mut app = signing_in_app();
+        app.config.gh_user = "derived-name".into();
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.auth_rx = Some(rx);
+        // Token arrives but the /user lookup came back empty (network blip).
+        tx.send(AuthEvent::Done(Ok(Token {
+            access_token: "ghu_abc".into(),
+            login: String::new(),
+            expires_in: None,
+        })))
+        .unwrap();
+        app.drain_auth();
+        assert_eq!(
+            app.config.gh_user, "derived-name",
+            "an empty login must not clobber what was already there"
         );
     }
 

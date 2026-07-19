@@ -39,6 +39,10 @@ pub enum AuthEvent {
 
 pub struct Token {
     pub access_token: String,
+    /// The signed-in account's GitHub login, fetched with the fresh token.
+    /// Fills the username field so a bare repo name (`notes`) completes to
+    /// `<login>/notes` without the user retyping it. Empty if the lookup failed.
+    pub login: String,
     /// Set when the app has "expire user authorization tokens" enabled — the
     /// token dies after this many seconds, worth surfacing to the user.
     pub expires_in: Option<u64>,
@@ -83,8 +87,10 @@ fn device_flow(tx: &Sender<AuthEvent>, cancel: &AtomicBool) -> Result<Token, Str
             ],
         )?;
         if let Some(token) = get(&fields, "access_token") {
+            let login = fetch_login(&token);
             return Ok(Token {
                 access_token: token,
+                login,
                 expires_in: num(&fields, "expires_in"),
             });
         }
@@ -122,6 +128,53 @@ fn post_form(url: &str, params: &[(&str, &str)]) -> Result<Vec<(String, String)>
         });
     }
     Ok(parse_form(&body))
+}
+
+/// The signed-in user's GitHub login, read from `GET /user` with the fresh
+/// token, so the installer can complete a bare repo name (`notes` →
+/// `<login>/notes`) without asking the user to retype a username the sign-in
+/// already knows. Best-effort: an empty string on any transport/parse trouble,
+/// so a network blip degrades to "type it yourself" rather than failing the
+/// whole sign-in.
+fn fetch_login(token: &str) -> String {
+    let out = Command::new("curl")
+        .args(["-sS", "--max-time", "10"])
+        .args(["-H", &format!("Authorization: Bearer {token}")])
+        .args(["-H", "X-GitHub-Api-Version: 2022-11-28"])
+        .arg("https://api.github.com/user")
+        .output();
+    match out {
+        Ok(o) if o.status.success() => {
+            json_string_field(&String::from_utf8_lossy(&o.stdout), "login").unwrap_or_default()
+        }
+        _ => String::new(),
+    }
+}
+
+/// Pull a top-level string value out of a small JSON object by key (e.g.
+/// `login` from GitHub's `/user` reply). Deliberately tiny — this module keeps
+/// its GitHub parsing dependency-free: find `"<key>"`, skip the colon, then
+/// read the next double-quoted run, decoding the handful of escapes a GitHub
+/// field can carry. Returns None if the key is absent or its value isn't a
+/// string (e.g. `null` for a private email).
+fn json_string_field(body: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\"");
+    let after_key = &body[body.find(&needle)? + needle.len()..];
+    let inner = after_key.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+    let mut out = String::new();
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => return Some(out),
+            '\\' => match chars.next()? {
+                'n' => out.push('\n'),
+                't' => out.push('\t'),
+                other => out.push(other), // \" \\ \/ and the rest: take literally
+            },
+            other => out.push(other),
+        }
+    }
+    None
 }
 
 /// Re-open the verification page (also fired automatically when the code
@@ -305,6 +358,25 @@ mod tests {
     fn malformed_percent_sequences_pass_through() {
         assert_eq!(percent_decode("100%zz"), "100%zz");
         assert_eq!(percent_decode("a%2"), "a%2");
+    }
+
+    #[test]
+    fn extracts_a_string_field_from_a_user_reply() {
+        let body = r#"{"login":"octocat","id":1,"name":"The Octocat","company":null}"#;
+        assert_eq!(
+            json_string_field(body, "login").as_deref(),
+            Some("octocat"),
+            "the login completes a bare repo name"
+        );
+        // Whitespace around the colon (pretty-printed JSON) is tolerated.
+        assert_eq!(
+            json_string_field("{ \"login\" : \"octo-cat\" }", "login").as_deref(),
+            Some("octo-cat")
+        );
+        // A null value (a private field) is absent, not the string "null".
+        assert!(json_string_field(body, "company").is_none());
+        // A missing key is absent.
+        assert!(json_string_field(body, "email").is_none());
     }
 
     #[test]
