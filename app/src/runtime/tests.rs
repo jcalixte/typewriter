@@ -309,6 +309,6 @@ fn up_to_date_update_does_not_reboot() {
     // reboot never fires) is the assertion; Failed takes the same non-reboot path.
     let mut rt =
         runtime(Editor::new(), RecStorage::default(), RecSync::new(), RecFiles::default());
-    rt.handle_net_outcome(NetOutcome::Update(UpdateOutcome::UpToDate));
+    rt.handle_net_outcome(NetOutcome::Update(UpdateOutcome::UpToDate("0.7.7".into())));
     rt.handle_net_outcome(NetOutcome::Update(UpdateOutcome::Failed("no wifi".into())));
 }

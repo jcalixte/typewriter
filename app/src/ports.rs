@@ -87,7 +87,8 @@ pub enum UpdateOutcome {
     /// caller paints it and reboots into the new firmware.
     Installed(String),
     /// The running firmware is already the newest release — nothing to install.
-    UpToDate,
+    /// Carries the running version, shown in the notice.
+    UpToDate(String),
     /// Something failed (no newer image found is *not* a failure — that is
     /// [`UpToDate`](UpdateOutcome::UpToDate)); the string is a short reason for
     /// the panel (full error is logged). The running slot is untouched.

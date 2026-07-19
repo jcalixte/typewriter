@@ -330,14 +330,15 @@ impl<S: Screen> Runtime<S> {
                     log::info!(":update — installed {ver}; rebooting into the new image");
                     self.system.reboot();
                 }
-                UpdateOutcome::UpToDate => "firmware up to date".to_string(),
+                UpdateOutcome::UpToDate(ver) => format!("firmware up to date ({ver})"),
                 UpdateOutcome::Failed(reason) => reason,
             },
         };
         self.ed.set_notice(notice);
-        // Behind the rest curtain the panel is masked: settle the state but defer
-        // the repaint — the notice shows when the writer leaves Rest.
-        if self.ed.mode() == Mode::Rest {
+        // Behind a full-screen card (the rest curtain or the `:about` splash) the
+        // panel is masked: settle the state but defer the repaint — the notice
+        // shows when the writer leaves the card.
+        if matches!(self.ed.mode(), Mode::Rest | Mode::About) {
             return;
         }
         self.panel.show_notice(&mut self.ed);

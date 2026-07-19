@@ -288,7 +288,8 @@ pub enum UpdateOutcome {
     /// target. Carries the new version string; the UI reboots into it.
     Installed(String),
     /// The running firmware is already the newest release — nothing to install.
-    UpToDate,
+    /// Carries the running version, shown in the notice.
+    UpToDate(String),
     /// Something failed (a missing newer release is *not* a failure — that is
     /// `UpToDate`); short reason for the panel, full error logged. The running
     /// slot is untouched, so the device keeps booting the current image.
@@ -663,7 +664,7 @@ fn update_cycle(
     let t_ota = Instant::now();
     let outcome = match crate::infrastructure::ota::run_update()? {
         Some(version) => UpdateOutcome::Installed(version),
-        None => UpdateOutcome::UpToDate,
+        None => UpdateOutcome::UpToDate(crate::infrastructure::ota::FW_VERSION.to_string()),
     };
     log::info!(
         ":update timing — ota(check+download) {}ms, total {}ms",
@@ -1782,7 +1783,7 @@ impl app::NetService for NetService {
                 // OTA settles no dirty journal; just mirror the outcome across
                 // the app boundary.
                 UpdateOutcome::Installed(v) => app::UpdateOutcome::Installed(v),
-                UpdateOutcome::UpToDate => app::UpdateOutcome::UpToDate,
+                UpdateOutcome::UpToDate(v) => app::UpdateOutcome::UpToDate(v),
                 UpdateOutcome::Failed(reason) => app::UpdateOutcome::Failed(reason),
             }),
             NetOutcome::Publish(o) => {
