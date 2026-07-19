@@ -50,6 +50,8 @@ jobs:
       - name: Checksum sidecar
         run: shasum -a 256 typoena-installer-macos > typoena-installer-macos.sha256
 
+      # Publish the binary + checksum sidecar as a public GitHub release — this
+      # is what install.sh downloads via the /releases/latest/download shortcut.
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
