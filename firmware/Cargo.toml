@@ -41,6 +41,14 @@ name = "sd_bench"
 path = "src/bin/sd_bench.rs"
 harness = false
 
+# Bench QC fixture — go/no-go bring-up self-test for the carrier PCB. Reports
+# OK/NOK per connection over serial + WS2812 + panel. Light build (no git),
+# same as the other bench bins. Flash with `just qc`. See docs/bench-qc.md.
+[[bin]]
+name = "qc"
+path = "src/bin/qc.rs"
+harness = false
+
 [profile.release]
 opt-level = "s"
 

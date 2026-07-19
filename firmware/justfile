@@ -239,6 +239,23 @@ flash-bench:
 monitor-bench:
     espflash monitor --elf target/xtensa-esp32s3-espidf/release/sd_bench
 
+# Bench QC fixture — go/no-go bring-up self-test for the carrier PCB. Reports
+# OK/NOK per connection (EPD, SD, USB-C keyboard, Wi-Fi, LED, charger, GPIO
+# short/open scan) over serial + WS2812 aggregate + a panel mirror; visual
+# checks are confirmed with the BOOT button. Light build (no git). See
+# docs/bench-qc.md.
+# build + flash + monitor the QC fixture
+qc:
+    {{esp_env}} cargo run --release --bin qc
+
+# compile the QC fixture only (no flash) — the offline build check
+build-qc:
+    {{esp_env}} cargo build --release --bin qc
+
+# serial monitor for the QC fixture, with decoded backtraces
+monitor-qc:
+    espflash monitor --elf target/xtensa-esp32s3-espidf/release/qc
+
 # detect board, print chip/MAC/flash size
 info:
     espflash board-info
