@@ -204,6 +204,16 @@ pub enum Effect {
     /// switched away by the time this drains, so `scope` is informational; the host
     /// reports the outcome on the snackbar (mirrors [`Save`](Effect::Save)).
     Delete { path: String, scope: Scope },
+    /// `:pub`/`:publish` — publish the active file by renaming it from
+    /// `<name>.md` to `<name>.pub.md`. The host writes `contents` to `to`
+    /// (recording it dirty), then unlinks `from` (recording *that* dirty too), so
+    /// the next `:gp` reconstructs the tree with `from` spliced out and `to` added
+    /// — git sees a rename. Carries `contents` because the in-RAM buffer, not the
+    /// on-disk `from`, is the source of truth (it may hold unsaved edits). Always
+    /// Tracked (Local is refused in-core), so it needs no `scope`; it is
+    /// [`Save`](Effect::Save) + [`Delete`](Effect::Delete) done as one step so the
+    /// snackbar reads as a single publish.
+    Rename { from: String, to: String, contents: String },
     /// Persist the preferences file ([`PREFS_PATH`]) after a palette `>` command
     /// changed a pref. Carries the already-serialized TOML ([`Prefs::to_toml`]),
     /// so the host only does the atomic write — no re-serialization or buffer
@@ -1153,6 +1163,7 @@ impl Editor {
             "delete" | "d" => self.request_delete(),
             "settings" => self.open_settings(),
             "fmt" => self.format_buffer(),
+            "pub" | "publish" => self.publish_active(),
             "w" | "wq" | "x" => self.write_active(),
             // fmt → save → push, shared with the `>` publish command.
             "gp" => self.run_publish(),

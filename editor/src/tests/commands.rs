@@ -487,3 +487,88 @@ fn cmd_backspace_clears_the_command_line() {
     assert_eq!(e.cmdline, "");
     assert_eq!(e.mode(), Mode::Command);
 }
+
+// ---- `:pub` / `:publish` — rename `<name>.md` to `<name>.pub.md` ----
+
+#[test]
+fn publish_renames_the_active_md_file_to_pub_md() {
+    // `:publish` renames the buffer in-core and queues the disk move (write the
+    // new path, unlink the old) — the next `:gp` carries it to the remote.
+    let (e, effs) = command("publish");
+    assert_eq!(e.path(), "/sd/repo/notes.pub.md");
+    assert_eq!(
+        effs,
+        vec![Effect::Rename {
+            from: "/sd/repo/notes.md".into(),
+            to: "/sd/repo/notes.pub.md".into(),
+            contents: String::new(),
+        }]
+    );
+    assert_eq!(e.mode(), Mode::Normal);
+}
+
+#[test]
+fn pub_is_an_alias_for_publish() {
+    let (e, effs) = command("pub");
+    assert_eq!(e.path(), "/sd/repo/notes.pub.md");
+    assert_eq!(kinds(&effs), vec![Kind::Rename]);
+}
+
+#[test]
+fn publish_carries_the_buffer_contents_to_the_new_path() {
+    // The in-RAM buffer (with unsaved edits) is the source of truth, not the
+    // on-disk `.md` — so the rename write ships the current text.
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "draft".into());
+    ex(&mut e, "publish");
+    assert!(matches!(
+        e.take_effects().as_slice(),
+        [Effect::Rename { to, contents, .. }]
+            if to == "/sd/repo/notes.pub.md" && contents == "draft"
+    ));
+}
+
+#[test]
+fn publish_on_an_already_pub_file_is_a_noop_with_a_notice() {
+    let mut e = Editor::with_file("/sd/repo/notes.pub.md".into(), Scope::Tracked, String::new());
+    ex(&mut e, "publish");
+    assert!(e.take_effects().is_empty(), "already-.pub.md must queue nothing");
+    assert_eq!(e.path(), "/sd/repo/notes.pub.md", "path unchanged");
+    assert_eq!(e.notice.as_deref(), Some("already published"));
+}
+
+#[test]
+fn publish_is_refused_in_a_local_buffer() {
+    // `.pub.md` marks a file for the remote; a Local file never reaches one.
+    let mut e = Editor::with_file("/sd/local/journal.md".into(), Scope::Local, String::new());
+    ex(&mut e, "publish");
+    assert!(e.take_effects().is_empty());
+    assert_eq!(e.path(), "/sd/local/journal.md", "path unchanged");
+    assert!(
+        e.notice.as_deref().unwrap_or_default().contains("Local"),
+        "expected a Local-scope notice, got {:?}",
+        e.notice,
+    );
+}
+
+#[test]
+fn publish_refuses_to_clobber_an_existing_pub_file() {
+    // A sibling `notes.pub.md` already on the card must not be overwritten.
+    let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
+    e.set_file_list(vec!["/sd/repo/notes.md".into(), "/sd/repo/notes.pub.md".into()]);
+    ex(&mut e, "publish");
+    assert!(e.take_effects().is_empty(), "must not clobber the existing target");
+    assert_eq!(e.path(), "/sd/repo/notes.md", "path unchanged");
+    assert!(
+        e.notice.as_deref().unwrap_or_default().contains("exists"),
+        "expected a target-exists notice, got {:?}",
+        e.notice,
+    );
+}
+
+#[test]
+fn publish_on_an_unnamed_scratch_warns() {
+    let mut e = Editor::new(); // unnamed scratch — no path
+    ex(&mut e, "publish");
+    assert!(e.take_effects().is_empty());
+    assert_eq!(e.notice.as_deref(), Some("no file to publish"));
+}

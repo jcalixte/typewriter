@@ -419,6 +419,51 @@ impl Editor {
         }
     }
 
+    /// `:pub` / `:publish` — mark the active file for publication by renaming it
+    /// from `<name>.md` to `<name>.pub.md`. This is a rename in the git working
+    /// copy (the old path splices out of the next tree, the new one in), so a later
+    /// `:gp` carries the move to the remote as a rename — see [`Effect::Rename`].
+    /// Distinct from the git *push* (`:gp` and the `>` `push` command,
+    /// [`run_publish`](Self::run_publish)): "publish" marks *this file*, "push"
+    /// ships the whole repo.
+    ///
+    /// A no-op with a notice when there is nothing to publish (unnamed scratch), the
+    /// file is Local (a permanently-private scope that never reaches a remote), it is
+    /// *already* `.pub.md`, it is not a `.md` file at all, or the target `.pub.md`
+    /// name is already taken (open or on the card) — it never silently clobbers.
+    pub(crate) fn publish_active(&mut self) {
+        if self.path.is_empty() {
+            self.set_notice("no file to publish");
+            return;
+        }
+        if self.scope == Scope::Local {
+            self.set_notice("Local files can't be published");
+            return;
+        }
+        if self.path.ends_with(".pub.md") {
+            self.set_notice("already published");
+            return;
+        }
+        let Some(stem) = self.path.strip_suffix(".md") else {
+            self.set_notice("not a .md file");
+            return;
+        };
+        let to = format!("{stem}.pub.md");
+        if self.file_list_contains(&to) || self.parked.iter().any(|b| b.path == to) {
+            self.set_notice(format!("{} exists", palette_label(&to)));
+            return;
+        }
+        // Rename in-core now (path, file list, MRU), then queue the disk move: the
+        // host persists `contents` under `to` and unlinks `from`, and `mark_saved`
+        // clears the dirty flag once the write lands (mirrors the `:w` save path).
+        let from = core::mem::replace(&mut self.path, to.clone());
+        self.remove_from_file_list(&from);
+        self.recent.retain(|p| p != &from);
+        self.add_to_file_list(&to);
+        self.note_recent(&to);
+        self.requests.push(Effect::Rename { from, to, contents: self.text.clone() });
+    }
+
     /// The `i`-th file path in the palette's sorted base order (a slice into
     /// [`file_blob`](Self::file_blob)).
     pub(crate) fn file_at(&self, i: usize) -> &str {

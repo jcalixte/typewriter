@@ -48,7 +48,7 @@ pub(crate) enum PaletteCmd {
 pub(crate) enum CmdKind {
     /// Applies live and keeps the palette open (the pref toggles/rotations).
     Toggle,
-    /// Runs once and closes the palette (`format`, `publish`).
+    /// Runs once and closes the palette (`format`, `push`).
     OneShot,
     /// Opens a second input step in the palette (`new file`).
     Param,
@@ -338,7 +338,7 @@ impl Editor {
         match cmd {
             PaletteCmd::NewFile => "new file...".to_string(),
             PaletteCmd::Format => "format".to_string(),
-            PaletteCmd::Publish => "publish".to_string(),
+            PaletteCmd::Publish => "push".to_string(),
             PaletteCmd::Setup => "setup...".to_string(),
             PaletteCmd::Reboot => "reboot".to_string(),
             PaletteCmd::Update => "update firmware".to_string(),
@@ -496,13 +496,15 @@ impl Editor {
         folders
     }
 
-    /// The publish path shared by `:gp` and the `>` `publish` command: format on
+    /// The push path shared by `:gp` and the `>` `push` command: format on
     /// save (if enabled), queue the buffer save, then the git push — the host
     /// services them in order. Tracked-only: a Local buffer never reaches the
-    /// remote, so it is a no-op with a notice.
+    /// remote, so it is a no-op with a notice. (Method name is historical — the
+    /// user-facing verb for shipping the repo is "push"; "publish" now marks a
+    /// single file `.pub.md`, see [`publish_active`](Self::publish_active).)
     pub(crate) fn run_publish(&mut self) {
         if self.scope == Scope::Local {
-            self.set_notice("Publish unavailable (Local)");
+            self.set_notice("Push unavailable (Local)");
             return;
         }
         if self.prefs.format_on_save {

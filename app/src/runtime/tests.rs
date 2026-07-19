@@ -187,9 +187,9 @@ fn publish_notice_covers_every_variant() {
 #[test]
 fn pull_notice_covers_every_variant() {
     assert_eq!(pull_notice(&PullOutcome::Pulled("abc".into())), "pulled abc");
-    assert_eq!(pull_notice(&PullOutcome::Rebased("def".into())), "rebased def - :gp to publish");
+    assert_eq!(pull_notice(&PullOutcome::Rebased("def".into())), "rebased def - :gp to push");
     assert_eq!(pull_notice(&PullOutcome::UpToDate), "up to date");
-    assert_eq!(pull_notice(&PullOutcome::LocalAhead), "ahead - :gp to publish");
+    assert_eq!(pull_notice(&PullOutcome::LocalAhead), "ahead - :gp to push");
     assert_eq!(pull_notice(&PullOutcome::Failed("boom".into())), "boom");
 }
 
@@ -223,6 +223,23 @@ fn delete_effect_unlinks_through_storage() {
     let mut rt = runtime(Editor::new(), storage.clone(), RecSync::new(), RecFiles::default());
     rt.service_one(Effect::Delete { path: "/sd/local/scratch.md".into(), scope: Scope::Local });
     assert_eq!(storage.0.borrow().deletes, vec!["/sd/local/scratch.md".to_string()]);
+}
+
+#[test]
+fn rename_effect_writes_the_new_path_then_unlinks_the_old() {
+    // `:pub`/`:publish` is a write-new + unlink-old at the storage layer, so the
+    // file is never missing and both paths land in the dirty journal for `:gp`.
+    let storage = RecStorage::default();
+    let ed = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "body".into());
+    let mut rt = runtime(ed, storage.clone(), RecSync::new(), RecFiles::default());
+    rt.service_one(Effect::Rename {
+        from: "/sd/repo/notes.md".into(),
+        to: "/sd/repo/notes.pub.md".into(),
+        contents: "body".into(),
+    });
+    let log = storage.0.borrow();
+    assert_eq!(log.saves, vec![("/sd/repo/notes.pub.md".into(), "body".into())]);
+    assert_eq!(log.deletes, vec!["/sd/repo/notes.md".to_string()]);
 }
 
 #[test]

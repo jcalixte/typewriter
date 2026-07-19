@@ -594,7 +594,9 @@ fn command_labels_for_the_new_actions() {
     let e = Editor::new();
     assert_eq!(e.command_label(PaletteCmd::NewFile), "new file...");
     assert_eq!(e.command_label(PaletteCmd::Format), "format");
-    assert_eq!(e.command_label(PaletteCmd::Publish), "publish");
+    // The git-push command's label is "push"; "publish" now names the `.pub.md`
+    // file rename (`:pub`/`:publish`), so the word means one thing to the writer.
+    assert_eq!(e.command_label(PaletteCmd::Publish), "push");
 }
 
 #[test]
@@ -615,10 +617,10 @@ fn format_command_runs_and_closes() {
 }
 
 #[test]
-fn publish_command_saves_and_pushes_then_closes() {
+fn push_command_saves_and_pushes_then_closes() {
     let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, "hi".into());
     e.handle(Key::Palette);
-    for c in ">publish".chars() {
+    for c in ">push".chars() {
         e.handle(Key::Char(c));
     }
     e.handle(Key::Enter);
@@ -627,10 +629,10 @@ fn publish_command_saves_and_pushes_then_closes() {
 }
 
 #[test]
-fn publish_command_is_unavailable_in_a_local_buffer() {
+fn push_command_is_unavailable_in_a_local_buffer() {
     let mut e = Editor::with_file("/sd/local/j.md".into(), Scope::Local, "hi".into());
     e.handle(Key::Palette);
-    for c in ">publish".chars() {
+    for c in ">push".chars() {
         e.handle(Key::Char(c));
     }
     e.handle(Key::Enter);

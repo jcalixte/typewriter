@@ -195,6 +195,7 @@ impl<S: Screen> Runtime<S> {
                 PullDispatch::ThreadDown => self.ed.set_notice("pull: git thread down"),
             },
             Effect::Delete { path, scope } => self.delete_buffer(path, scope),
+            Effect::Rename { from, to, contents } => self.rename_buffer(&from, &to, &contents),
             Effect::SavePrefs { contents } => self.save_prefs(&contents),
             Effect::Setup => match self.system.prepare_setup() {
                 SetupDispatch::Ready => {
@@ -396,13 +397,41 @@ impl<S: Screen> Runtime<S> {
             Ok(()) => {
                 log::info!("deleted {path} ({scope:?})");
                 self.ed.set_notice(match scope {
-                    Scope::Tracked => format!("deleted {label} - :gp to publish"),
+                    Scope::Tracked => format!("deleted {label} - :gp to push"),
                     Scope::Local => format!("deleted {label}"),
                 });
             }
             Err(e) => {
                 log::error!("delete {path} FAILED ({e:#})");
                 self.ed.set_notice(format!("delete FAILED: {label}"));
+            }
+        }
+    }
+
+    /// `:pub`/`:publish` — persist the active buffer under its new `.pub.md` name,
+    /// then unlink the old path. The write lands first so the file is never
+    /// missing; the removal — plus the dirty-journal entries `save_path` and
+    /// `delete_path` record — makes the next `:gp` carry the move to the remote as
+    /// a rename. The unlink is best-effort: if it fails the new file already exists,
+    /// so the publish stands and the stale `.md` is dropped on the next card
+    /// re-walk. A failed *write* keeps the buffer dirty for a retry (like a `:w`
+    /// save failure); the editor already switched to the new name, so `:w` re-saves
+    /// it there.
+    fn rename_buffer(&mut self, from: &str, to: &str, contents: &str) {
+        // Scope-qualified label (`repo/notes.pub.md`), matching the delete snackbar.
+        let label = to.strip_prefix("/sd/").unwrap_or(to);
+        match self.storage.save_path(to, contents) {
+            Ok(()) => {
+                if let Err(e) = self.storage.delete_path(from) {
+                    log::warn!("publish: wrote {to} but couldn't unlink {from} ({e:#})");
+                }
+                log::info!("published {from} -> {to}");
+                self.ed.mark_saved(to);
+                self.ed.set_notice(format!("published {label} - :gp to push"));
+            }
+            Err(e) => {
+                log::error!("publish (rename {from} -> {to}) FAILED ({e:#})");
+                self.ed.set_notice("publish FAILED - retry :w");
             }
         }
     }
@@ -431,9 +460,9 @@ fn publish_notice(o: &PublishOutcome) -> String {
 fn pull_notice(o: &PullOutcome) -> String {
     match o {
         PullOutcome::Pulled(oid) => format!("pulled {oid}"),
-        PullOutcome::Rebased(oid) => format!("rebased {oid} - :gp to publish"),
+        PullOutcome::Rebased(oid) => format!("rebased {oid} - :gp to push"),
         PullOutcome::UpToDate => "up to date".to_string(),
-        PullOutcome::LocalAhead => "ahead - :gp to publish".to_string(),
+        PullOutcome::LocalAhead => "ahead - :gp to push".to_string(),
         PullOutcome::Failed(reason) => reason.clone(),
     }
 }
