@@ -52,6 +52,17 @@ harness = false
 [profile.release]
 opt-level = "s"
 
+# The onboarding wizard's `run` (src/infrastructure/wizard_io.rs) is an enormous
+# function, and at `opt-level = "s"` the Xtensa backend miscompiled it: spilled
+# argument slots and by-value struct copies were left reading 0xa5a5a5a5
+# (FreeRTOS stack-fill) → a LoadProhibited boot loop on every card that entered
+# the wizard. The exact fault moved with every codegen change (arg order/count,
+# inline hints, by-ref vs by-value) but never cleared at "s". Compiling this one
+# package at opt-level 2 emits the same code correctly. Scoped to `firmware` so
+# the bench bins and the workspace crates keep the size-tuned "s". (2026-07-20)
+[profile.release.package.firmware]
+opt-level = 2
+
 [profile.dev]
 debug = true # Symbols are nice, and they don't increase the size on Flash
 opt-level = "z"
