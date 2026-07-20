@@ -5,7 +5,7 @@ use super::*;
 
 /// Tracked files live here (the git working copy).
 pub const REPO_DIR: &str = "/sd/repo";
-/// Local files live here (never published).
+/// Local files live here (never pushed).
 pub const LOCAL_DIR: &str = "/sd/local";
 
 /// Resolve a `:e`/`:enew` argument (or palette pick) to an absolute path +
@@ -369,7 +369,7 @@ impl Editor {
     }
 
     /// `:delete` / `:d` — guard the destructive [`delete_current`](Self::delete_current)
-    /// behind a `y`/`n` prompt. A delete stages a git removal on the next Publish
+    /// behind a `y`/`n` prompt. A delete stages a git removal on the next Push
     /// (Tracked) or unlinks a Local file, and `:d` makes it a two-key command, so
     /// it earns a confirmation: drop into [`Mode::Confirm`] and wait (see
     /// [`confirm_key`](Self::confirm_key)). An unnamed scratch has nothing on disk,
@@ -424,7 +424,7 @@ impl Editor {
     /// copy (the old path splices out of the next tree, the new one in), so a later
     /// `:gp` carries the move to the remote as a rename — see [`Effect::Rename`].
     /// Distinct from the git *push* (`:gp` and the `>` `push` command,
-    /// [`run_publish`](Self::run_publish)): "publish" marks *this file*, "push"
+    /// [`run_push`](Self::run_push)): "publish" marks *this file*, "push"
     /// ships the whole repo.
     ///
     /// A no-op with a notice when there is nothing to publish (unnamed scratch), the

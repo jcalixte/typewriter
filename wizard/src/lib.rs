@@ -192,7 +192,7 @@ enum Screen {
     /// with an unconditional `remove_tree` and re-downloads the new one
     /// (minutes), so — like a factory reset — the user types the target repo's
     /// short name to confirm, not a plain Enter. The mandatory dirty guard
-    /// covers unpublished *device* notes, but not edits made directly on the
+    /// covers unpushed *device* notes, but not edits made directly on the
     /// card off-device; the typed word forces a deliberate acknowledgement of
     /// *which* repo replaces the current one. `typed` is that in-progress input;
     /// `new_url` is the target's expanded remote, committed to the conf on Enter.
@@ -243,7 +243,7 @@ pub struct Wizard {
     /// First boot walks the steps linearly; `:setup` shows the reset menu and
     /// each completed sub-flow returns to it.
     mode: Mode,
-    /// Whether the card carries unpublished work (a non-empty `.typoena-dirty`
+    /// Whether the card carries unpushed work (a non-empty `.typoena-dirty`
     /// journal, read by the driver at construction). Only meaningful in reset
     /// mode: the factory-reset confirmation warns louder when it's set — the
     /// wipe would discard notes that never reached the remote.
@@ -309,7 +309,7 @@ impl Wizard {
             show_pass: true,
             mode: Mode::FirstBoot,
             // First boot / power-pull resume provisions the card — there is no
-            // unpublished work relative to a not-yet-chosen repo.
+            // unpushed work relative to a not-yet-chosen repo.
             dirty: false,
             // No confirmed clone yet; the repo-switch no-op check is reset-only.
             repo_on_disk: None,
@@ -320,7 +320,7 @@ impl Wizard {
     /// reset menu so the user can change just Wi-Fi or the account without
     /// re-walking the whole flow. Each completed sub-flow returns to the menu;
     /// `Done` hands the (possibly changed) conf back to the boot path. `dirty`
-    /// is the card's unpublished-work state (the driver reads the journal) —
+    /// is the card's unpushed-work state (the driver reads the journal) —
     /// it only sharpens the factory-reset warning.
     pub fn setup(c: conf::Conf, dirty: bool) -> Wizard {
         // :setup is only reached from a normally-booted, configured card, so the
@@ -636,11 +636,11 @@ impl Wizard {
                         }
                         SETUP_REPO_ROW => {
                             // Switch repos. The dirty guard is mandatory: the
-                            // switch deletes the working copy, so any unpublished
+                            // switch deletes the working copy, so any unpushed
                             // note must be pushed first (a wipe would lose it).
                             if self.dirty {
                                 self.notice = Some(
-                                    "publish first (:gp) - a repo switch discards unpublished notes"
+                                    "push first (:gp) - a repo switch discards unpushed notes"
                                         .into(),
                                 );
                                 vec![]
@@ -1146,7 +1146,7 @@ impl Wizard {
                     line(
                         f,
                         6,
-                        "  Unpublished notes will be LOST - :gp first to keep them.",
+                        "  Unpushed notes will be LOST - :gp first to keep them.",
                         ink,
                     );
                 }
@@ -1172,7 +1172,7 @@ impl Wizard {
                 line(f, 2, &format!("  From: {}", repo_display(&self.conf.remote_url)), ink);
                 line(f, 3, &format!("  To:   {full_name}"), ink);
                 line(f, 5, "  This deletes the current copy and re-downloads it.", ink);
-                line(f, 6, "  Only the published version comes back.", ink);
+                line(f, 6, "  Only the pushed version comes back.", ink);
                 let word = repo_switch_word(full_name);
                 let prompt = format!("  Type \"{word}\" to confirm: ");
                 let row = 8;

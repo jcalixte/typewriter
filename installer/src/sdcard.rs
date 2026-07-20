@@ -113,7 +113,7 @@ pub fn card_has_repo(vol: &Path) -> bool {
     vol.join("repo").exists()
 }
 
-/// Read-only inspection of an existing card (origin, HEAD, unpublished-edit count).
+/// Read-only inspection of an existing card (origin, HEAD, unpushed-edit count).
 pub fn inspect_card(vol: &Path) -> CardInspect {
     let repo = vol.join("repo");
     let git = |args: &[&str]| -> Option<String> {

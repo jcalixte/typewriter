@@ -493,7 +493,7 @@ fn render_sdcard(frame: &mut Frame, area: Rect, app: &App, block: Block) {
             if info.dirty > 0 {
                 lines.push(Line::styled(
                     format!(
-                        "  {} unpublished edit(s) will be LOST (not yet published from the device).",
+                        "  {} unpushed edit(s) will be LOST (not yet pushed from the device).",
                         info.dirty
                     ),
                     Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -980,8 +980,8 @@ mod tests {
             "must warn the card is in use:\n{s}"
         );
         assert!(
-            s.contains("unpublished"),
-            "must flag unpublished edits:\n{s}"
+            s.contains("unpushed"),
+            "must flag unpushed edits:\n{s}"
         );
     }
 }

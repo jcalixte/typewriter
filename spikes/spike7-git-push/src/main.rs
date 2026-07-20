@@ -17,8 +17,8 @@
 //!
 //!   1. open the working copy
 //!   2. stage everything — `git add --all` semantics, so deletions propagate
-//!      too (matters for v0.5 file-delete → next Publish's staged set)
-//!   3. short-circuit when nothing is staged ("nothing to publish")
+//!      too (matters for v0.5 file-delete → next Push's staged set)
+//!   3. short-circuit when nothing is staged ("nothing to push")
 //!   4. commit with the configured author, message = an ISO-8601 timestamp
 //!   5. push HEAD to `origin/<branch>` over HTTPS with a PAT in the credential
 //!      callback (never logged)
@@ -120,7 +120,7 @@ fn run() -> Result<String> {
     // Stage + commit, or short-circuit.
     let branch = match commit_if_changes(&repo, &cfg)? {
         Some(b) => b,
-        None => return Ok("nothing to publish (index matches HEAD)".into()),
+        None => return Ok("nothing to push (index matches HEAD)".into()),
     };
     let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
 
@@ -154,7 +154,7 @@ fn ensure_origin(repo: &Repository, url: &str) -> Result<()> {
 }
 
 /// Stage everything and commit, or return `None` if the index already matches
-/// HEAD (nothing to publish). Returns the branch shorthand on commit.
+/// HEAD (nothing to push). Returns the branch shorthand on commit.
 fn commit_if_changes(repo: &Repository, cfg: &Config) -> Result<Option<String>> {
     // `add_all(["*"], …)` is libgit2's `git add --all <pathspec>`: it stages
     // new + modified + **deleted** paths, which plain `git add .` would miss on
@@ -172,7 +172,7 @@ fn commit_if_changes(repo: &Repository, cfg: &Config) -> Result<Option<String>> 
         Err(_) => None,
     };
 
-    // Nothing to publish: index tree == HEAD tree (or empty tree, unborn repo).
+    // Nothing to push: index tree == HEAD tree (or empty tree, unborn repo).
     match &parent {
         Some(p) if p.tree_id() == tree_oid => return Ok(None),
         None if repo.find_tree(tree_oid)?.is_empty() => return Ok(None),
@@ -277,7 +277,7 @@ fn pull_no_edit(repo: &Repository, cfg: &Config, branch: &str) -> Result<()> {
     let mut idx = repo.index()?;
     if idx.has_conflicts() {
         repo.cleanup_state().ok();
-        bail!("merge conflicts on pull — resolve manually; Publish will not auto-resolve");
+        bail!("merge conflicts on pull — resolve manually; Push will not auto-resolve");
     }
     let tree = repo.find_tree(idx.write_tree()?)?;
     let sig = cfg.signature()?;

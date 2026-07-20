@@ -1,5 +1,5 @@
 //! Full-card reformat (`--wipe`): show exactly what's about to be destroyed
-//! (device, size, and any unpublished device edits), confirm, then `diskutil
+//! (device, size, and any unpushed device edits), confirm, then `diskutil
 //! eraseVolume` it to a blank FAT32 volume and eject — the "blank slate for
 //! first-boot-wizard testing" the firmware `just wipe` recipe drives.
 //!
@@ -43,7 +43,7 @@ struct Target {
     size: String,
     fs: String,
     // Present only when the card already holds a Typoena working copy — so the
-    // user sees what they're wiping, including any never-published edits.
+    // user sees what they're wiping, including any never-pushed edits.
     origin: Option<String>,
     head: Option<String>,
     dirty: usize,
@@ -192,7 +192,7 @@ fn resolve_card<'a>(cards: &'a [Card], want: Option<&str>) -> anyhow::Result<&'a
 }
 
 /// The plain-text equivalent of the TUI confirm screen: what device, how big,
-/// and any never-published device edits the erase would lose.
+/// and any never-pushed device edits the erase would lose.
 fn print_target(t: &Target, label: &str) {
     println!("erase {} → blank FAT32 '{label}'", t.volume.display());
     println!("  device   {}", t.device);
@@ -203,7 +203,7 @@ fn print_target(t: &Target, label: &str) {
         let head = t.head.as_deref().unwrap_or("(unknown HEAD)");
         print!("  repo     {origin} @ {head}");
         if t.dirty > 0 {
-            print!(", {} unpublished edit(s) WILL BE LOST", t.dirty);
+            print!(", {} unpushed edit(s) WILL BE LOST", t.dirty);
         }
         println!();
     }
@@ -619,7 +619,7 @@ fn confirm_lines(t: &Target, label: &str) -> Vec<Line<'static>> {
         if t.dirty > 0 {
             lines.push(Line::styled(
                 format!(
-                    "   {} unpublished device edit(s) will be LOST (never pushed).",
+                    "   {} unpushed device edit(s) will be LOST (never pushed).",
                     t.dirty
                 ),
                 red_bold,
@@ -778,8 +778,8 @@ mod tests {
         assert!(s.contains("/dev/disk4s1"), "must name the device:\n{s}");
         assert!(s.contains("31.9 GB"), "must show the size:\n{s}");
         assert!(
-            s.contains("unpublished"),
-            "must flag unpublished device edits:\n{s}"
+            s.contains("unpushed"),
+            "must flag unpushed device edits:\n{s}"
         );
         assert!(s.contains("cannot be undone"), "must be explicit:\n{s}");
     }

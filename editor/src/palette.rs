@@ -16,7 +16,7 @@ pub(crate) fn palette_label(path: &str) -> &str {
 /// A `>` palette command — a real action registry, not a settings box (v0.6).
 /// Three dispatch shapes, distinguished by [`PaletteCmd::kind`]:
 /// - a **[one-shot](CmdKind::OneShot)** ([`Format`](PaletteCmd::Format),
-///   [`Publish`](PaletteCmd::Publish)) runs and closes the palette;
+///   [`Push`](PaletteCmd::Push)) runs and closes the palette;
 /// - a **[parameterised](CmdKind::Param)** command ([`NewFile`](PaletteCmd::NewFile))
 ///   morphs the palette into a filename input step;
 /// - a **[toggle](CmdKind::Toggle)** — the boolean prefs and the preset
@@ -30,7 +30,7 @@ pub(crate) fn palette_label(path: &str) -> &str {
 pub(crate) enum PaletteCmd {
     NewFile,
     Format,
-    Publish,
+    Push,
     Setup,
     Reboot,
     Update,
@@ -61,7 +61,7 @@ impl PaletteCmd {
         match self {
             PaletteCmd::NewFile => CmdKind::Param,
             PaletteCmd::Format
-            | PaletteCmd::Publish
+            | PaletteCmd::Push
             | PaletteCmd::Setup
             | PaletteCmd::Reboot
             | PaletteCmd::Update => CmdKind::OneShot,
@@ -75,7 +75,7 @@ impl PaletteCmd {
 pub(crate) const PALETTE_CMDS: [PaletteCmd; 13] = [
     PaletteCmd::NewFile,
     PaletteCmd::Format,
-    PaletteCmd::Publish,
+    PaletteCmd::Push,
     PaletteCmd::Setup,
     PaletteCmd::Reboot,
     PaletteCmd::Update,
@@ -338,7 +338,7 @@ impl Editor {
         match cmd {
             PaletteCmd::NewFile => "new file...".to_string(),
             PaletteCmd::Format => "format".to_string(),
-            PaletteCmd::Publish => "push".to_string(),
+            PaletteCmd::Push => "push".to_string(),
             PaletteCmd::Setup => "setup...".to_string(),
             PaletteCmd::Reboot => "reboot".to_string(),
             PaletteCmd::Update => "update firmware".to_string(),
@@ -372,7 +372,7 @@ impl Editor {
     /// [`kind`](PaletteCmd::kind):
     /// - a **[toggle](CmdKind::Toggle)** flips its pref and the palette **stays
     ///   open** (flip several in a row; the label updates in place);
-    /// - a **[one-shot](CmdKind::OneShot)** (`format`/`publish`) runs and **closes**
+    /// - a **[one-shot](CmdKind::OneShot)** (`format`/`push`) runs and **closes**
     ///   — an action switches you back to writing, a toggle does not;
     /// - a **[parameterised](CmdKind::Param)** command (`new file`) opens the
     ///   filename input step ([`begin_new_file_step`](Self::begin_new_file_step)).
@@ -393,7 +393,7 @@ impl Editor {
                         self.format_buffer();
                         self.set_notice("formatted");
                     }
-                    PaletteCmd::Publish => self.run_publish(),
+                    PaletteCmd::Push => self.run_push(),
                     PaletteCmd::Setup => self.request_setup(),
                     PaletteCmd::Reboot => self.request_reboot(),
                     PaletteCmd::Update => self.request_update(),
@@ -502,7 +502,7 @@ impl Editor {
     /// remote, so it is a no-op with a notice. (Method name is historical — the
     /// user-facing verb for shipping the repo is "push"; "publish" now marks a
     /// single file `.pub.md`, see [`publish_active`](Self::publish_active).)
-    pub(crate) fn run_publish(&mut self) {
+    pub(crate) fn run_push(&mut self) {
         if self.scope == Scope::Local {
             self.set_notice("Push unavailable (Local)");
             return;
@@ -511,7 +511,7 @@ impl Editor {
             self.format_buffer();
         }
         self.request_save_active();
-        self.requests.push(Effect::Publish);
+        self.requests.push(Effect::Push);
     }
 
     /// Advance the pref a command targets to its next value, apply it live (the
@@ -545,7 +545,7 @@ impl Editor {
             // panicking the firmware on a would-be routing bug.
             PaletteCmd::NewFile
             | PaletteCmd::Format
-            | PaletteCmd::Publish
+            | PaletteCmd::Push
             | PaletteCmd::Setup
             | PaletteCmd::Reboot
             | PaletteCmd::Update => {

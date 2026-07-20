@@ -1,5 +1,5 @@
 //! The net thread — the sole owner of the Wi-Fi modem, and the transport behind
-//! everything the editor does over the wire: git publish (`:gp`) and pull
+//! everything the editor does over the wire: git push (`:gp`) and pull
 //! (`:gl`), plus firmware update (`:update`, whose logic lives in the sibling
 //! [`crate::infrastructure::ota`] module — this file only dispatches to it).
 //! One thread because there is one radio the editor loop can never reclaim, so
@@ -28,7 +28,7 @@
 //!    so we just commit + push what's on disk.
 //! 4. **The commit is an O(depth) TreeBuilder splice, not an index pass.**
 //!    The request carries the repo-relative paths saved/deleted since the last
-//!    confirmed publish (`Storage`'s journaled dirty set); `stage_and_commit`
+//!    confirmed push (`Storage`'s journaled dirty set); `stage_and_commit`
 //!    patches exactly those onto HEAD's tree. The index pipeline it replaced
 //!    (`add_all` → `index.write` → `write_tree`) is O(N_tree) and measured up
 //!    to 611 s on the real 1179-file / 570 MB-pack clone — see
@@ -67,7 +67,7 @@ use crate::infrastructure::storage_sd::{LOCAL_DIR, REPO_DIR};
 // Since the runtime conf (v0.9 onboarding slice 0) these are the per-field
 // FALLBACK: the card's /sd/typoena.conf overrides them, so a provisioned card
 // works on a firmware built with an empty .env. A field empty in both is
-// caught by the publish/pull guards with a clear message.
+// caught by the push/pull guards with a clear message.
 const BAKED_WIFI_SSID: &str = env!("TW_WIFI_SSID");
 const BAKED_WIFI_PASS: &str = env!("TW_WIFI_PASS");
 const BAKED_REMOTE_URL: &str = env!("TW_REMOTE_URL");
@@ -212,10 +212,10 @@ pub fn tune_libgit2() {
 /// What the UI task asks the net thread to do.
 pub enum NetRequest {
     /// `:gp` — commit the dirty paths and push (the upload half).
-    Publish(PublishRequest),
+    Push(PushRequest),
     /// `:gl` — fetch, then fast-forward or rebase (the download half). Carries
     /// the dirty-journal snapshot (`Storage::take_dirty`): before fetching, the
-    /// thread folds those saved-but-unpublished paths into a local commit so the
+    /// thread folds those saved-but-unpushed paths into a local commit so the
     /// fetch can replant them onto origin, then the working copy matches HEAD and
     /// the apply-diff belt can't fight a device-side save. Empty for a plain
     /// fetch (nothing was dirty).
@@ -227,27 +227,27 @@ pub enum NetRequest {
     Update,
 }
 
-/// A request to publish. The UI task has already saved every dirty buffer to
+/// A request to push. The UI task has already saved every dirty buffer to
 /// the card before sending this; `paths` is `Storage::take_dirty`'s snapshot —
 /// the repo-relative paths saved or `:delete`d since the last confirmed
-/// publish. The working tree stays the source of truth: at commit time a path
+/// push. The working tree stays the source of truth: at commit time a path
 /// that exists on the card is spliced into the tree from disk, a missing one
 /// is spliced out. An unchanged path is a no-op, so over-reporting is safe.
-pub struct PublishRequest {
+pub struct PushRequest {
     pub paths: BTreeSet<String>,
 }
 
 /// What the net thread reports back, tagged by the request kind so the UI can
-/// settle the dirty snapshot for a publish and refresh buffers for a pull.
+/// settle the dirty snapshot for a push and refresh buffers for a pull.
 pub enum NetOutcome {
-    Publish(PublishOutcome),
+    Push(PushOutcome),
     Pull(PullOutcome),
     Update(UpdateOutcome),
 }
 
-/// Result of a publish attempt, sent back to the UI task for the snackbar. The
+/// Result of a push attempt, sent back to the UI task for the snackbar. The
 /// detailed error always goes to the serial log; the panel gets a short line.
-pub enum PublishOutcome {
+pub enum PushOutcome {
     /// Committed and pushed. Carries the short commit id for the panel.
     Pushed(String),
     /// The working tree matched HEAD — nothing new to push.
@@ -274,7 +274,7 @@ pub enum PullOutcome {
     /// Origin's tip is our HEAD — nothing to pull.
     UpToDate,
     /// We are strictly ahead of origin (e.g. a stranded commit whose push
-    /// failed) — nothing to pull; the next `:gp` publishes it.
+    /// failed) — nothing to pull; the next `:gp` pushes it.
     LocalAhead,
     /// Something failed; short reason for the panel (full error is logged).
     Failed(String),
@@ -299,7 +299,7 @@ pub enum UpdateOutcome {
 /// The net service loop, run on the dedicated net thread. Owns the Wi-Fi stack,
 /// bringing it up lazily on the first request and keeping it up afterwards.
 /// Blocks on `rx`; for each request it ensures connectivity + clock + trust
-/// store, runs one publish cycle, and reports the outcome on `tx`. Returns when
+/// store, runs one push cycle, and reports the outcome on `tx`. Returns when
 /// the request channel closes (UI task gone). Errors are reported, never
 /// panicked — a failed push must not take the thread (and its Wi-Fi) down.
 pub fn run_net_service(
@@ -311,7 +311,7 @@ pub fn run_net_service(
 ) {
     tune_libgit2();
 
-    // Lazily initialised on the first request, then reused across publishes.
+    // Lazily initialised on the first request, then reused across pushes.
     let mut wifi: Option<BlockingWifi<EspWifi<'static>>> = None;
     let mut modem = Some(modem);
     let mut nvs = Some(nvs);
@@ -320,8 +320,8 @@ pub fn run_net_service(
 
     while let Ok(req) = rx.recv() {
         let msg = match req {
-            NetRequest::Publish(req) => NetOutcome::Publish(
-                match publish_cycle(
+            NetRequest::Push(req) => NetOutcome::Push(
+                match push_cycle(
                     &sys_loop,
                     &mut wifi,
                     &mut modem,
@@ -333,7 +333,7 @@ pub fn run_net_service(
                     Ok(o) => o,
                     Err(e) => {
                         log::error!("❌ :gp failed: {e:?}");
-                        PublishOutcome::Failed(short_reason("sync", &e))
+                        PushOutcome::Failed(short_reason("sync", &e))
                     }
                 },
             ),
@@ -571,9 +571,9 @@ fn materialize_tree(
     Ok(())
 }
 
-/// One full publish: ensure Wi-Fi + clock + trust store (each done once), then
+/// One full push: ensure Wi-Fi + clock + trust store (each done once), then
 /// open the repo, stage, commit, and fast-forward push.
-fn publish_cycle(
+fn push_cycle(
     sys_loop: &EspSystemEventLoop,
     wifi: &mut Option<BlockingWifi<EspWifi<'static>>>,
     modem: &mut Option<Modem<'static>>,
@@ -581,7 +581,7 @@ fn publish_cycle(
     clock_synced: &mut bool,
     tls_ready: &mut bool,
     paths: &BTreeSet<String>,
-) -> Result<PublishOutcome> {
+) -> Result<PushOutcome> {
     if remote_url().is_empty() || gh_user().is_empty() || token().is_empty() || wifi_ssid().is_empty() {
         bail!("git config missing — provision the card's typoena.conf (installer / wizard) or set TW_* in firmware/.env and rebuild");
     }
@@ -590,30 +590,30 @@ fn publish_cycle(
     // `:gp` has nothing to do — say so without touching the radio (~150 ms
     // instead of a Wi-Fi + TLS round). A stranded local commit (committed but
     // never pushed, e.g. a push that failed mid-air) makes the check false and
-    // takes the full path below, where publish_once pushes it.
+    // takes the full path below, where push_once pushes it.
     if paths.is_empty() && remote_current().unwrap_or(false) {
         log::info!(":gp — no dirty paths and origin has HEAD; up to date, radio untouched");
-        return Ok(PublishOutcome::UpToDate);
+        return Ok(PushOutcome::UpToDate);
     }
 
     // Phases are timed so a cold :gp reports where the seconds go. Wi-Fi, clock
     // and TLS run only on the first sync of a session; a warm sync skips them, so
-    // they read 0 ms and the total collapses to just publish(fetch+commit+push).
+    // they read 0 ms and the total collapses to just push(fetch+commit+push).
     let t_total = Instant::now();
     ensure_online(sys_loop, wifi, modem, nvs, clock_synced, tls_ready)?;
 
-    let t_publish = Instant::now();
-    let outcome = publish_once(paths)?;
+    let t_push = Instant::now();
+    let outcome = push_once(paths)?;
     log::info!(
-        ":gp timing — publish(commit+push) {}ms, total {}ms",
-        t_publish.elapsed().as_millis(),
+        ":gp timing — push(commit+push) {}ms, total {}ms",
+        t_push.elapsed().as_millis(),
         t_total.elapsed().as_millis(),
     );
     Ok(outcome)
 }
 
 /// One full pull (`:gl`): ensure connectivity, then fetch + fast-forward/rebase.
-/// Always needs the network — there is no radio-free shortcut like publish's
+/// Always needs the network — there is no radio-free shortcut like push's
 /// up-to-date check, because the whole point is asking origin what's new.
 /// `paths` is the dirty-journal snapshot to commit locally before fetching.
 fn pull_cycle(
@@ -675,7 +675,7 @@ fn update_cycle(
 }
 
 /// Bring Wi-Fi + wall clock + TLS trust store up, each once per session; a
-/// warm call is a no-op. Shared by publish and pull, on the net thread. Logs
+/// warm call is a no-op. Shared by push and pull, on the net thread. Logs
 /// one timing line whenever any step actually ran (the session's first
 /// operation pays them all; every later one skips straight to git).
 fn ensure_online(
@@ -736,9 +736,9 @@ fn ensure_online(
 ///
 /// Never clones or wipes: a `/sd/repo` that isn't a valid repo is a provisioning
 /// error, surfaced as such.
-fn publish_once(paths: &BTreeSet<String>) -> Result<PublishOutcome> {
+fn push_once(paths: &BTreeSet<String>) -> Result<PushOutcome> {
     log::info!(
-        "publish started — {} dirty path(s), free heap {} ({} internal)",
+        "push started — {} dirty path(s), free heap {} ({} internal)",
         paths.len(),
         free_heap(),
         internal_free_heap()
@@ -764,7 +764,7 @@ fn publish_once(paths: &BTreeSet<String>) -> Result<PublishOutcome> {
             // doesn't already have HEAD.
             let head = repo.head()?.peel_to_commit()?.id();
             if tracking_tip(&repo, &branch) == Some(head) {
-                return Ok(PublishOutcome::UpToDate);
+                return Ok(PushOutcome::UpToDate);
             }
             log::info!(
                 "tree unchanged but origin/{branch} lacks HEAD {} — pushing the stranded commit",
@@ -798,7 +798,7 @@ fn publish_once(paths: &BTreeSet<String>) -> Result<PublishOutcome> {
             // The note was already on origin (nothing to replay) — treat as done.
             None => {
                 log::info!("nothing to replay after reconcile — already up to date");
-                return Ok(PublishOutcome::UpToDate);
+                return Ok(PushOutcome::UpToDate);
             }
         }
     }
@@ -809,12 +809,12 @@ fn publish_once(paths: &BTreeSet<String>) -> Result<PublishOutcome> {
         internal_free_heap(),
         min_free_heap()
     );
-    Ok(PublishOutcome::Pushed(short(oid)))
+    Ok(PushOutcome::Pushed(short(oid)))
 }
 
 /// Build the commit for `paths` as an O(depth) TreeBuilder splice onto HEAD's
 /// tree and return the new commit id — or `None` when the result matches the
-/// parent (nothing to publish). Called on the first attempt and again to
+/// parent (nothing to push). Called on the first attempt and again to
 /// replay the dirty paths after a reconcile.
 ///
 /// This replaces the index pipeline (`add_all` → `index.write` → `write_tree`),
@@ -874,13 +874,13 @@ fn stage_and_commit(repo: &Repository, paths: &BTreeSet<String>) -> Result<Optio
 
     if let Some(p) = &parent {
         if p.tree_id() == tree.id() {
-            log::info!("nothing to publish — tree unchanged @ {}", short(p.id()));
+            log::info!("nothing to push — tree unchanged @ {}", short(p.id()));
             return Ok(None);
         }
     }
 
     let sig = Signature::now(author_name(), author_email()).context("building signature")?;
-    let message = format!("Typoena publish — unix {}", now_unix());
+    let message = format!("Typoena push — unix {}", now_unix());
     let parents: Vec<&Commit> = parent.iter().collect();
     let t_commit = Instant::now();
     let oid = repo
@@ -954,7 +954,7 @@ fn tracking_tip(repo: &Repository, branch: &str) -> Option<Oid> {
 
 /// Whether origin is known to already have HEAD (local refs only, no network).
 /// Errors read as "not current", so the caller falls through to the full
-/// publish path where the real failure surfaces with context.
+/// push path where the real failure surfaces with context.
 fn remote_current() -> Result<bool> {
     let repo = Repository::open(REPO_DIR)?;
     let head = repo.head()?.peel_to_commit()?.id();
@@ -1072,10 +1072,10 @@ fn try_push(repo: &Repository, refspec: &str) -> Result<(), PushFailure> {
 /// reset also rewrote the index — pure waste now that the splice commit never
 /// reads the index, and on the real repo an index write is exactly the
 /// racy-clean wall the splice exists to avoid. Neither flavor touches the
-/// working tree, so the notes being published survive on the card and the
+/// working tree, so the notes being pushed survive on the card and the
 /// replay splices them onto the new tip. For a single-writer appliance this
 /// resolves last-writer-wins: a concurrent remote *edit* to a note we're
-/// publishing loses to ours, while a remote-only added/changed file is simply
+/// pushing loses to ours, while a remote-only added/changed file is simply
 /// carried forward — origin's tree is now the splice base, so the replay
 /// keeps it (an improvement over the old `add --all` replay, which dropped
 /// files the card didn't have). A real merge stays increment-B work.
@@ -1093,7 +1093,7 @@ fn reconcile_onto_origin(repo: &Repository, branch: &str) -> Result<()> {
 
 /// Fetch `branch` from origin and return the fetched tip's commit id. Shared
 /// by the pull and the post-rejection reconcile. Also refreshes the
-/// remote-tracking ref, keeping [`tracking_tip`] (and with it publish's
+/// remote-tracking ref, keeping [`tracking_tip`] (and with it push's
 /// radio-free up-to-date check) honest about what origin has.
 fn fetch_origin(repo: &Repository, branch: &str) -> Result<Oid> {
     let mut remote = repo.find_remote("origin")?;
@@ -1113,7 +1113,7 @@ fn fetch_origin(repo: &Repository, branch: &str) -> Result<Oid> {
 }
 
 /// Point the remote-tracking ref at `tip` (which must already be in the local
-/// odb). Keeps [`tracking_tip`] — and with it publish's radio-free up-to-date
+/// odb). Keeps [`tracking_tip`] — and with it push's radio-free up-to-date
 /// check — honest about what origin has.
 fn update_tracking(repo: &Repository, branch: &str, tip: Oid) -> Result<()> {
     repo.reference(
@@ -1131,10 +1131,10 @@ fn update_tracking(repo: &Repository, branch: &str, tip: Oid) -> Result<()> {
 /// [`PullOutcome`]: already current, we're strictly ahead (a stranded commit —
 /// `:gp`'s job), a clean fast-forward, or a divergence — where instead of
 /// refusing we replant our local commit(s) onto origin ([`rebase_local_onto`])
-/// and end `LocalAhead` for `:gp` to publish.
+/// and end `LocalAhead` for `:gp` to push.
 ///
 /// `paths` is the dirty-journal snapshot. Before touching the network we fold
-/// those saved-but-unpublished paths into a local commit ([`stage_and_commit`],
+/// those saved-but-unpushed paths into a local commit ([`stage_and_commit`],
 /// the commit half of `:gp` without the push): that makes `:gl` self-sufficient
 /// — the ff/rebase below replants the commit onto origin so a plain `:gp`
 /// finishes it, no computer needed — and, because the working copy now matches
@@ -1147,13 +1147,13 @@ fn update_tracking(repo: &Repository, branch: &str, tip: Oid) -> Result<()> {
 /// After the pre-fetch commit the card matches HEAD, so in normal use nothing
 /// conflicts; the belt catches files edited behind git's back (e.g. desktop
 /// edits made directly on the card — deliberately never committed by the device
-/// since the splice landed). One FAT caveat, matching publish's index-avoidance:
+/// since the splice landed). One FAT caveat, matching push's index-avoidance:
 /// the splice never updates the index, so its stat cache is stale and SAFE
 /// re-hashes each file the pull wants to change — fine for a few notes, and
 /// still O(changed), never O(tree).
 fn pull_once(paths: &BTreeSet<String>) -> Result<PullOutcome> {
     log::info!(
-        "pull started — {} unpublished path(s) to fold in, free heap {} ({} internal)",
+        "pull started — {} unpushed path(s) to fold in, free heap {} ({} internal)",
         paths.len(),
         free_heap(),
         internal_free_heap()
@@ -1168,7 +1168,7 @@ fn pull_once(paths: &BTreeSet<String>) -> Result<PullOutcome> {
         .to_string();
     let mut head = repo.head()?.peel_to_commit()?.id();
 
-    // Fold any saved-but-unpublished work into a local commit before the fetch,
+    // Fold any saved-but-unpushed work into a local commit before the fetch,
     // so a divergence rebases it onto origin instead of refusing (and the card
     // ends matching HEAD, keeping the SAFE belt below quiet). Local only — no
     // network. stage_and_commit moves the branch ref (commits onto "HEAD") and
@@ -1177,7 +1177,7 @@ fn pull_once(paths: &BTreeSet<String>) -> Result<PullOutcome> {
     if !paths.is_empty() {
         if let Some(committed) = stage_and_commit(&repo, paths)? {
             log::info!(
-                "pull: committed {} unpublished path(s) locally as {} before fetch",
+                "pull: committed {} unpushed path(s) locally as {} before fetch",
                 paths.len(),
                 short(committed)
             );
@@ -1221,7 +1221,7 @@ fn pull_once(paths: &BTreeSet<String>) -> Result<PullOutcome> {
         let _ = remote.disconnect();
         update_tracking(&repo, &branch, theirs)?;
         log::info!(
-            "pull: HEAD {} is ahead of origin {} — nothing to pull, :gp publishes it (ls-refs {ls_ms}ms, no fetch)",
+            "pull: HEAD {} is ahead of origin {} — nothing to pull, :gp pushes it (ls-refs {ls_ms}ms, no fetch)",
             short(head),
             short(theirs)
         );
@@ -1251,7 +1251,7 @@ fn pull_once(paths: &BTreeSet<String>) -> Result<PullOutcome> {
         .context("descendant check (fast-forward)")?
     {
         // Diverged: both sides moved. Rather than refuse, replant our local
-        // commit(s) onto origin's tip so a plain `:gp` publishes them — no
+        // commit(s) onto origin's tip so a plain `:gp` pushes them — no
         // computer needed. The branch ref moves LAST (after the card reflects
         // the rebased tree), so a power-pull mid-rebase leaves HEAD at the old
         // tip and the next `:gl` recomputes the identical commit idempotently.
@@ -1461,9 +1461,9 @@ fn apply_tree_diff(repo: &Repository, head: Oid, theirs: Oid) -> Result<usize> {
 /// edits spliced back on top. This is `:gl`'s answer to a divergence (a
 /// stranded local commit while origin also moved): rather than refuse and send
 /// the user to a computer, we replant our work on the new base so a plain `:gp`
-/// publishes it.
+/// pushes it.
 ///
-/// Last-writer-wins by design, exactly like publish's post-rejection reconcile
+/// Last-writer-wins by design, exactly like push's post-rejection reconcile
 /// ([`reconcile_onto_origin`]): the replay set is the paths our side changed
 /// since the fork point (`merge_base..head`), each spliced from the **card**
 /// (the source of truth) onto origin's tree. A note both sides edited resolves
@@ -1715,7 +1715,7 @@ use crate::infrastructure::storage_sd::Storage;
 
 /// [`app::NetService`] backed by the net thread (git `:gp`/`:gl` + `:update`
 /// OTA). Owns the request/outcome channels and a handle to the card's dirty
-/// journal, which it takes on publish and settles when the outcome lands (OTA
+/// journal, which it takes on push and settles when the outcome lands (OTA
 /// touches no journal). Behind the `full` feature — it pulls libgit2.
 pub struct NetService {
     card: Rc<Storage>,
@@ -1730,21 +1730,21 @@ impl NetService {
 }
 
 impl app::NetService for NetService {
-    fn publish(&self) -> app::PublishDispatch {
+    fn push(&self) -> app::PushDispatch {
         let paths = self.card.take_dirty();
-        match self.tx.send(NetRequest::Publish(PublishRequest { paths })) {
-            Ok(()) => app::PublishDispatch::Dispatched,
+        match self.tx.send(NetRequest::Push(PushRequest { paths })) {
+            Ok(()) => app::PushDispatch::Dispatched,
             Err(_) => {
                 // Thread gone — nothing will report back, so return the snapshot
                 // to pending ourselves.
-                self.card.publish_failed();
-                app::PublishDispatch::ThreadDown
+                self.card.push_failed();
+                app::PushDispatch::ThreadDown
             }
         }
     }
 
     fn pull(&self, commit_dirty: bool) -> app::PullDispatch {
-        // A bare `:gl` with unpublished saves doesn't refuse anymore — it folds
+        // A bare `:gl` with unpushed saves doesn't refuse anymore — it folds
         // them into a local commit first so the fetch can rebase them onto
         // origin. But that commit is user-visible, so the first pass asks the UI
         // to confirm; the confirmed retry arrives with commit_dirty = true.
@@ -1755,14 +1755,14 @@ impl app::NetService for NetService {
         // Snapshot the journal into `in_flight` (empty when nothing was dirty);
         // the net thread commits those paths before fetching, and poll_outcome
         // settles the snapshot when the outcome lands — succeeded forgets it,
-        // failed returns it to pending — exactly as publish does.
+        // failed returns it to pending — exactly as push does.
         let paths = self.card.take_dirty();
         match self.tx.send(NetRequest::Pull(paths)) {
             Ok(()) => app::PullDispatch::Dispatched,
             Err(_) => {
                 // Thread gone — nothing will report back, so return the snapshot
-                // to pending ourselves (mirrors publish's ThreadDown path).
-                self.card.publish_failed();
+                // to pending ourselves (mirrors push's ThreadDown path).
+                self.card.push_failed();
                 app::PullDispatch::ThreadDown
             }
         }
@@ -1786,30 +1786,30 @@ impl app::NetService for NetService {
                 UpdateOutcome::UpToDate(v) => app::UpdateOutcome::UpToDate(v),
                 UpdateOutcome::Failed(reason) => app::UpdateOutcome::Failed(reason),
             }),
-            NetOutcome::Publish(o) => {
-                // Settle the dirty snapshot this publish took: confirmed
-                // published (or up to date) → forget it; failed → back to pending.
+            NetOutcome::Push(o) => {
+                // Settle the dirty snapshot this push took: confirmed
+                // pushed (or up to date) → forget it; failed → back to pending.
                 match &o {
-                    PublishOutcome::Pushed(_) | PublishOutcome::UpToDate => {
-                        self.card.publish_succeeded()
+                    PushOutcome::Pushed(_) | PushOutcome::UpToDate => {
+                        self.card.push_succeeded()
                     }
-                    PublishOutcome::Failed(_) => self.card.publish_failed(),
+                    PushOutcome::Failed(_) => self.card.push_failed(),
                 }
-                app::NetOutcome::Publish(match o {
-                    PublishOutcome::Pushed(oid) => app::PublishOutcome::Pushed(oid),
-                    PublishOutcome::UpToDate => app::PublishOutcome::UpToDate,
-                    PublishOutcome::Failed(reason) => app::PublishOutcome::Failed(reason),
+                app::NetOutcome::Push(match o {
+                    PushOutcome::Pushed(oid) => app::PushOutcome::Pushed(oid),
+                    PushOutcome::UpToDate => app::PushOutcome::UpToDate,
+                    PushOutcome::Failed(reason) => app::PushOutcome::Failed(reason),
                 })
             }
             NetOutcome::Pull(o) => {
-                // Settle the dirty snapshot this pull took (it folds unpublished
-                // saves into a local commit before fetching, like publish):
+                // Settle the dirty snapshot this pull took (it folds unpushed
+                // saves into a local commit before fetching, like push):
                 // integrated → forget it (the work is committed, and a stranded
                 // local commit is pushed by the next `:gp`); failed → back to
                 // pending. Empty snapshot → both are no-ops.
                 match &o {
-                    PullOutcome::Failed(_) => self.card.publish_failed(),
-                    _ => self.card.publish_succeeded(),
+                    PullOutcome::Failed(_) => self.card.push_failed(),
+                    _ => self.card.push_succeeded(),
                 }
                 app::NetOutcome::Pull(match o {
                     PullOutcome::Pulled(oid) => app::PullOutcome::Pulled(oid),

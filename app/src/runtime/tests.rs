@@ -10,7 +10,7 @@ use editor::{Editor, Effect, Scope};
 
 use super::*;
 use crate::ports::{
-    Clock, FileIndex, PublishDispatch, PublishOutcome, PullDispatch, PullOutcome, SetupDispatch,
+    Clock, FileIndex, PushDispatch, PushOutcome, PullDispatch, PullOutcome, SetupDispatch,
     Storage, NetOutcome, NetService, System, UpdateDispatch, UpdateOutcome,
 };
 use crate::render::Panel;
@@ -76,7 +76,7 @@ impl Storage for RecStorage {
 
 #[derive(Default)]
 struct SyncLog {
-    publishes: u32,
+    pushes: u32,
     pulls: u32,
     updates: u32,
     outcome: Option<NetOutcome>,
@@ -86,7 +86,7 @@ struct SyncLog {
 #[derive(Clone)]
 struct RecSync {
     log: Rc<RefCell<SyncLog>>,
-    publish_ret: Rc<dyn Fn() -> PublishDispatch>,
+    push_ret: Rc<dyn Fn() -> PushDispatch>,
     pull_ret: Rc<dyn Fn() -> PullDispatch>,
     update_ret: Rc<dyn Fn() -> UpdateDispatch>,
 }
@@ -94,16 +94,16 @@ impl RecSync {
     fn new() -> Self {
         Self {
             log: Rc::new(RefCell::new(SyncLog::default())),
-            publish_ret: Rc::new(|| PublishDispatch::Dispatched),
+            push_ret: Rc::new(|| PushDispatch::Dispatched),
             pull_ret: Rc::new(|| PullDispatch::Dispatched),
             update_ret: Rc::new(|| UpdateDispatch::Dispatched),
         }
     }
 }
 impl NetService for RecSync {
-    fn publish(&self) -> PublishDispatch {
-        self.log.borrow_mut().publishes += 1;
-        (self.publish_ret)()
+    fn push(&self) -> PushDispatch {
+        self.log.borrow_mut().pushes += 1;
+        (self.push_ret)()
     }
     fn pull(&self, _commit_dirty: bool) -> PullDispatch {
         self.log.borrow_mut().pulls += 1;
@@ -178,10 +178,10 @@ fn file_stem_strips_dir_and_extension() {
 }
 
 #[test]
-fn publish_notice_covers_every_variant() {
-    assert_eq!(publish_notice(&PublishOutcome::Pushed("abc123".into())), "synced abc123");
-    assert_eq!(publish_notice(&PublishOutcome::UpToDate), "up to date");
-    assert_eq!(publish_notice(&PublishOutcome::Failed("no wifi".into())), "no wifi");
+fn push_notice_covers_every_variant() {
+    assert_eq!(push_notice(&PushOutcome::Pushed("abc123".into())), "synced abc123");
+    assert_eq!(push_notice(&PushOutcome::UpToDate), "up to date");
+    assert_eq!(push_notice(&PushOutcome::Failed("no wifi".into())), "no wifi");
 }
 
 #[test]
@@ -243,11 +243,11 @@ fn rename_effect_writes_the_new_path_then_unlinks_the_old() {
 }
 
 #[test]
-fn publish_effect_dispatches_to_sync() {
+fn push_effect_dispatches_to_sync() {
     let sync = RecSync::new();
     let mut rt = runtime(Editor::new(), RecStorage::default(), sync.clone(), RecFiles::default());
-    rt.service_one(Effect::Publish);
-    assert_eq!(sync.log.borrow().publishes, 1);
+    rt.service_one(Effect::Push);
+    assert_eq!(sync.log.borrow().pushes, 1);
 }
 
 #[test]

@@ -29,7 +29,7 @@ fn main() {
     // carry Wi-Fi creds. Source them from firmware/.env (loaded by `just`).
     //
     // The TW_REMOTE_URL / TW_GH_USER / TW_TOKEN / TW_AUTHOR_* vars back the
-    // product firmware's git publish config (src/infrastructure/net.rs) as the
+    // product firmware's git push config (src/infrastructure/net.rs) as the
     // `BAKED_*` fallbacks for the card's typoena.conf. env!() bakes a value only
     // into a binary that references it, so the bench bins carry none of these.
     // NOTE: a baked TW_TOKEN lands in the flash image — fine for a personal dev
@@ -57,7 +57,7 @@ fn main() {
         }
     }
 
-    // A full build with an empty publish config used to be refused here
+    // A full build with an empty push config used to be refused here
     // (env!() only bakes what `just` dotenv-loads from firmware/.env; a bare
     // `cargo build --features full` silently produced a firmware whose `:gp` /
     // `:gl` could never work — bit the 2026-07-13 flash). Since the runtime conf
@@ -75,7 +75,7 @@ fn main() {
             .collect();
         if !missing.is_empty() {
             println!(
-                "cargo:warning=git build without baked publish config ({} unset/empty): \
+                "cargo:warning=git build without baked push config ({} unset/empty): \
                  the device needs a provisioned typoena.conf on the card, or build \
                  through `just build` to bake firmware/.env.",
                 missing.join(", ")

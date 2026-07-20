@@ -89,7 +89,7 @@ const MOUNT_C: &std::ffi::CStr = c"/sd";
 /// Dirty-path journal — one repo-relative path per line, mirroring the in-RAM
 /// dirty set (see [`Storage::take_dirty`]). At the card root, *outside*
 /// `/sd/repo`, so it can never itself be committed. Without it a power pull
-/// would strand every file saved-but-not-yet-published in that session: the
+/// would strand every file saved-but-not-yet-pushed in that session: the
 /// splice commit only visits recorded paths (nothing walks the tree anymore),
 /// so an unrecorded change would never reach the remote.
 const DIRTY_JOURNAL: &str = "/sd/.typoena-dirty";
@@ -109,7 +109,7 @@ const LAST_FILE: &str = "/sd/.typoena-last";
 /// outside `/sd/repo` — never committed.
 const SETUP_MARKER: &str = "/sd/.typoena-setup";
 
-/// Local scratch — [`REPO_DIR`]'s never-published sibling (mirrors the editor
+/// Local scratch — [`REPO_DIR`]'s never-pushed sibling (mirrors the editor
 /// crate's `LOCAL_DIR`). Here it bounds what [`Storage::last_file`] will
 /// resume.
 pub const LOCAL_DIR: &str = "/sd/local";
@@ -131,7 +131,7 @@ const MAX_FILES_GIT: i32 = 16;
 pub struct Storage {
     card: *mut sys::sdmmc_card_t,
     /// Repo-relative paths saved or `:delete`d since the last confirmed
-    /// publish — the editor-side half of the O(depth) splice commit
+    /// push — the editor-side half of the O(depth) splice commit
     /// (`git_sync::stage_and_commit` visits exactly these paths and nothing
     /// else). Mirrored to [`DIRTY_JOURNAL`] whenever it changes, so the record
     /// survives a power pull. `RefCell` because recording happens inside
@@ -140,8 +140,8 @@ pub struct Storage {
 }
 
 /// The two halves of the dirty record: `pending` accumulates between syncs;
-/// `take_dirty` moves it to `in_flight` for the duration of a publish so a
-/// failure can put it back (and a save landing *during* the publish re-enters
+/// `take_dirty` moves it to `in_flight` for the duration of a push so a
+/// failure can put it back (and a save landing *during* the push re-enters
 /// `pending`, riding the next one). The journal always carries the union.
 #[derive(Default)]
 struct Dirty {
@@ -296,7 +296,7 @@ impl Storage {
         let carried = storage.load_dirty_journal();
         if carried > 0 {
             log::info!(
-                "dirty journal: {carried} unpublished path(s) carried over from a previous \
+                "dirty journal: {carried} unpushed path(s) carried over from a previous \
                  session — the next :gp will commit them"
             );
         }
@@ -429,7 +429,7 @@ impl Storage {
 
     /// Persist the device conf (wizard `WriteConf`). Same atomic swap as
     /// [`Storage::save_path`] but never journaled — `typoena.conf` is card
-    /// infrastructure, not a note for `:gp` to publish.
+    /// infrastructure, not a note for `:gp` to push.
     pub fn write_conf(&self, contents: &str) -> Result<()> {
         Self::atomic_write(CONF_PATH, contents)
     }
@@ -495,7 +495,7 @@ impl Storage {
     /// leaving the conf, `/sd/local`, and the markers in place. Idempotent (a
     /// missing repo is success), so a retry after a partial delete is safe. The
     /// caller only reaches here past the wizard's mandatory dirty guard, so
-    /// nothing unpublished is lost. Minutes on FAT (~1100 files) — the wizard
+    /// nothing unpushed is lost. Minutes on FAT (~1100 files) — the wizard
     /// shows a progress line while it runs.
     pub fn wipe_repo(&self) -> Result<()> {
         Self::remove_tree(Path::new(REPO_DIR)).context("removing the old repo")
@@ -532,7 +532,7 @@ impl Storage {
                 }
             }
         }
-        // Nothing unpublished can survive a full wipe.
+        // Nothing unpushed can survive a full wipe.
         *self.dirty.borrow_mut() = Dirty::default();
         Ok(())
     }
@@ -577,7 +577,7 @@ impl Storage {
     /// already-gone file is a success, so the call is idempotent. Also clears a
     /// stray `{path}.tmp` best-effort, so a crash-interrupted save can't leave the
     /// file half-present after a delete. For a Tracked file this leaves the
-    /// working copy short one file; the next publish's `add --all` stages it.
+    /// working copy short one file; the next push's `add --all` stages it.
     pub fn delete_path(&self, path: &str) -> Result<()> {
         // Same record-first rule as `save_path`: the splice treats a recorded
         // path with no file behind it as "remove from the tree".
@@ -641,8 +641,8 @@ impl Storage {
         }
     }
 
-    /// Whether any saved-but-unpublished paths are recorded (pending or riding
-    /// an in-flight publish/pull). A bare `:gl` uses this to decide whether to
+    /// Whether any saved-but-unpushed paths are recorded (pending or riding
+    /// an in-flight push/pull). A bare `:gl` uses this to decide whether to
     /// prompt: while it's true the pull would fold those saves into a local
     /// commit first, so the UI asks to confirm before dispatching.
     pub fn has_dirty(&self) -> bool {
@@ -650,10 +650,10 @@ impl Storage {
         !d.pending.is_empty() || !d.in_flight.is_empty()
     }
 
-    /// Snapshot the dirty paths for a publish (repo-relative). The snapshot
+    /// Snapshot the dirty paths for a push (repo-relative). The snapshot
     /// moves to `in_flight` — the journal keeps carrying it — until the UI
-    /// task reports the outcome: [`Storage::publish_succeeded`] forgets it,
-    /// [`Storage::publish_failed`] returns it to pending for the next `:gp`.
+    /// task reports the outcome: [`Storage::push_succeeded`] forgets it,
+    /// [`Storage::push_failed`] returns it to pending for the next `:gp`.
     pub fn take_dirty(&self) -> BTreeSet<String> {
         let mut d = self.dirty.borrow_mut();
         let taken = std::mem::take(&mut d.pending);
@@ -661,18 +661,18 @@ impl Storage {
         taken
     }
 
-    /// The publish that took the last snapshot committed (or confirmed
+    /// The push that took the last snapshot committed (or confirmed
     /// up-to-date): drop its paths and shrink the journal. Anything saved
     /// while it ran is still in `pending` and rides the next sync.
-    pub fn publish_succeeded(&self) {
+    pub fn push_succeeded(&self) {
         self.dirty.borrow_mut().in_flight.clear();
         self.persist_dirty();
     }
 
-    /// The publish failed: return its snapshot to pending so the next `:gp`
+    /// The push failed: return its snapshot to pending so the next `:gp`
     /// retries it (the splice is idempotent, so a retry of an already-clean
     /// path is free). The journal already carries these paths — no rewrite.
-    pub fn publish_failed(&self) {
+    pub fn push_failed(&self) {
         let mut d = self.dirty.borrow_mut();
         let inflight = std::mem::take(&mut d.in_flight);
         d.pending.extend(inflight);
@@ -698,7 +698,7 @@ impl Storage {
     }
 
     /// Seed the dirty set from the journal at mount — the paths a previous
-    /// session saved but never got confirmed as published (power pull, failed
+    /// session saved but never got confirmed as pushed (power pull, failed
     /// sync, or simply no `:gp` before shutdown). Returns how many.
     fn load_dirty_journal(&self) -> usize {
         let Ok(text) = fs::read_to_string(DIRTY_JOURNAL) else {

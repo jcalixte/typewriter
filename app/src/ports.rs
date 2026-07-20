@@ -15,7 +15,7 @@
 use editor::Date;
 
 /// Durable storage of buffers on the card — the byte-level file operations the
-/// loop performs. The dirty-path journal that couples a save to a later publish
+/// loop performs. The dirty-path journal that couples a save to a later push
 /// lives behind [`NetService`], not here.
 pub trait Storage {
     /// Atomically write `contents` to `path`. Errors are surfaced, not fatal:
@@ -29,8 +29,8 @@ pub trait Storage {
     fn record_last_file(&self, path: &str);
 }
 
-/// What dispatching a publish (`:gp`) did — the loop maps this to a snackbar.
-pub enum PublishDispatch {
+/// What dispatching a push (`:gp`) did — the loop maps this to a snackbar.
+pub enum PushDispatch {
     /// Handed to the sync backend; the result arrives later via
     /// [`NetService::poll_outcome`].
     Dispatched,
@@ -42,7 +42,7 @@ pub enum PublishDispatch {
 pub enum PullDispatch {
     Dispatched,
     /// The dirty journal is non-empty: pulling would fold those saved-but-
-    /// unpublished paths into a local commit first, so the UI asks the user to
+    /// unpushed paths into a local commit first, so the UI asks the user to
     /// confirm before that happens (the commit is user-visible). On confirm the
     /// UI re-dispatches the pull with `commit_dirty: true`.
     NeedsCommitConfirm,
@@ -61,9 +61,9 @@ pub enum UpdateDispatch {
     ThreadDown,
 }
 
-/// A completed publish, mirrored from the git transport into a git-free shape so
+/// A completed push, mirrored from the git transport into a git-free shape so
 /// the app layer stays pure.
-pub enum PublishOutcome {
+pub enum PushOutcome {
     /// Pushed a new commit — the short oid.
     Pushed(String),
     UpToDate,
@@ -97,24 +97,24 @@ pub enum UpdateOutcome {
 
 /// The outcome of a finished background operation on the radio-owning thread.
 pub enum NetOutcome {
-    Publish(PublishOutcome),
+    Push(PushOutcome),
     Pull(PullOutcome),
     Update(UpdateOutcome),
 }
 
-/// Everything the radio-owning background thread does: the git publish/pull
+/// Everything the radio-owning background thread does: the git push/pull
 /// transport (plus the dirty-path journal that gates it) and firmware update
 /// over the air. All three share the one thread because the device has a single
 /// Wi-Fi modem the editor loop cannot reclaim — so they multiplex over one
 /// dispatch/outcome channel rather than each owning a radio. Fire-and-forget:
-/// [`publish`](NetService::publish) / [`pull`](NetService::pull) /
+/// [`push`](NetService::push) / [`pull`](NetService::pull) /
 /// [`update`](NetService::update) dispatch, and the result returns later via
 /// [`poll_outcome`](NetService::poll_outcome). The backend owns the dirty
-/// journal — it takes the pending paths on publish (and on a committing pull)
+/// journal — it takes the pending paths on push (and on a committing pull)
 /// and settles them when the outcome lands — so the app layer never touches it.
 pub trait NetService {
-    /// Dispatch a publish of the whole Tracked working copy.
-    fn publish(&self) -> PublishDispatch;
+    /// Dispatch a push of the whole Tracked working copy.
+    fn push(&self) -> PushDispatch;
     /// Dispatch a fetch + fast-forward/rebase pull. `commit_dirty` false is a
     /// bare `:gl`: if the dirty journal is non-empty it returns
     /// [`NeedsCommitConfirm`](PullDispatch::NeedsCommitConfirm) instead of

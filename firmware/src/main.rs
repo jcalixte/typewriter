@@ -289,7 +289,7 @@ fn main() -> anyhow::Result<()> {
 /// `main` enters first-boot setup instead.
 fn boot_storage(epd: &mut Epd) -> Storage {
     // The firmware shares this mount with the net thread, and libgit2 keeps the
-    // pack + idx descriptors open across a publish — that overruns the editor's
+    // pack + idx descriptors open across a push — that overruns the editor's
     // tight 4-FD budget, so mount with the 16-FD one (persistence.rs,
     // MAX_FILES_GIT).
     match Storage::mount_for_git() {

@@ -68,7 +68,7 @@ pub enum Mode {
     View,
     /// `:` command line — keys accumulate a command shown in the status strip;
     /// Enter runs it, Esc cancels. Handles `:fmt` (in-core) plus `:w`/`:gp`
-    /// (which ask the host to persist/publish via an [`Effect`]).
+    /// (which ask the host to persist/push via an [`Effect`]).
     Command,
     /// File palette (`Cmd-P`, reachable from every mode) — a modal transient
     /// panel over the writing column. Typing fuzzy-filters the file list
@@ -112,7 +112,7 @@ pub(crate) enum Confirm {
     /// reboot into it). Gated behind a confirm because it moves the device to new
     /// firmware and restarts it. On `y` the editor queues [`Effect::Update`].
     Update,
-    /// `:gl` with unpublished saves — commit the dirty journal locally, then
+    /// `:gl` with unpushed saves — commit the dirty journal locally, then
     /// pull (fetch + fast-forward/rebase). Guards the commit `:gl` would
     /// otherwise make on the user's behalf. On `y` the editor queues
     /// [`Effect::Pull`] `{ commit_dirty: true }`.
@@ -121,7 +121,7 @@ pub(crate) enum Confirm {
 
 /// Which of the two file scopes ([`CONTEXT.md`]) a buffer belongs to. Fixed at
 /// creation — there is no move-between-scopes operation. **Tracked** files live
-/// under [`REPO_DIR`] and can be Published (`:gp`); **Local** files live under
+/// under [`REPO_DIR`] and can be pushed (`:gp`); **Local** files live under
 /// [`LOCAL_DIR`] and never leave the device, so `:gp` is refused in-core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
@@ -163,7 +163,7 @@ impl Date {
 }
 
 /// A side effect the host (firmware) must carry out. The editor core is pure and
-/// does no IO, so persistence, publishing, and file reads can't happen here —
+/// does no IO, so persistence, pushing, and file reads can't happen here —
 /// they are queued and drained by [`Editor::take_effects`] after a key batch,
 /// then actioned by the main loop. `:fmt` is pure text work and stays in-core,
 /// so it queues nothing.
@@ -184,13 +184,13 @@ pub enum Effect {
     /// [`Editor::install_loaded`]. Queued when switching to a file that is not
     /// resident in memory (`:e`, palette pick).
     Load { path: String, scope: Scope },
-    /// `:gp` — publish the Tracked working copy (git push). Preceded by a
+    /// `:gp` — push the Tracked working copy to the remote. Preceded by a
     /// [`Save`](Effect::Save) of the current buffer in the same batch. Never
     /// queued from a Local buffer (blocked in-core).
-    Publish,
+    Push,
     /// `:gl` — pull from the remote: fetch, then fast-forward (or rebase local
     /// work onto origin — never a content merge). When `commit_dirty` is set the
-    /// host first folds any saved-but-unpublished work into a local commit, so
+    /// host first folds any saved-but-unpushed work into a local commit, so
     /// the fetch can replant it onto origin instead of refusing. A bare `:gl`
     /// sends `commit_dirty: false`; if the dirty journal is non-empty the host
     /// asks to confirm (the commit is user-visible — see
@@ -198,7 +198,7 @@ pub enum Effect {
     /// retry sets `commit_dirty: true`. Complements `:gp` (push) as the download half.
     Pull { commit_dirty: bool },
     /// `:delete` — unlink `path` from the card. For a **Tracked** file the removal
-    /// lands in the git working copy, so the next [`Publish`](Effect::Publish)'s
+    /// lands in the git working copy, so the next [`Push`](Effect::Push)'s
     /// `add --all` stages the deletion (no eager `git rm` needed); a **Local** file
     /// is just unlinked. The editor has already dropped the file from its model and
     /// switched away by the time this drains, so `scope` is informational; the host
@@ -235,7 +235,7 @@ pub enum Effect {
     Reboot,
     /// `:update` (or `> update`) — check for a newer firmware release and, if one
     /// exists, download it over the air into the inactive OTA slot and reboot into
-    /// it. Runs on the same radio-owning background thread as [`Publish`](Effect::Publish)
+    /// it. Runs on the same radio-owning background thread as [`Push`](Effect::Push)
     /// (the editor can't reclaim the modem), so it is fire-and-forget: dispatch
     /// shows `updating...`, and the terminal outcome (installed → reboot, already
     /// current, or failed) returns later like a sync outcome. Only queued when no
@@ -292,7 +292,7 @@ pub struct Editor {
     /// Fed from `usb_kbd::keyboard_present()` by the main loop.
     keyboard_present: bool,
     /// Transient side-panel message ("snackbar") — the last host event
-    /// (save/publish result). Shown until the next keystroke dismisses it
+    /// (save/push result). Shown until the next keystroke dismisses it
     /// (cleared in [`Editor::handle`]); `None` means nothing to show.
     notice: Option<String>,
     /// Editor preferences (mirrors [`PREFS_PATH`]). Held here so the palette `>`
@@ -333,7 +333,7 @@ pub struct Editor {
     /// `/sd/repo/notes.md`). Empty for an unnamed scratch buffer (the boot-message
     /// layout use); `:w` on an empty path posts "no file name" rather than saving.
     path: String,
-    /// The active buffer's scope. Gates Publish — `:gp` is refused in Local.
+    /// The active buffer's scope. Gates Push — `:gp` is refused in Local.
     scope: Scope,
     /// Whether the active buffer has unsaved edits. Set at each change-group
     /// ([`checkpoint`](Self::checkpoint)) and cleared when the host confirms a
@@ -499,7 +499,7 @@ impl Editor {
     /// file-open path. Same boot posture as [`with_text`](Self::with_text)
     /// (Normal mode, caret on the last character) but records the file's `path`
     /// and `scope` so `:w` knows where to persist and `:gp` knows whether
-    /// Publish is offered.
+    /// Push is offered.
     pub fn with_file(path: String, scope: Scope, text: String) -> Self {
         let mut ed = Editor { text, path, scope, ..Editor::new() };
         ed.caret = ed.text.len();
@@ -540,7 +540,7 @@ impl Editor {
         self.dirty || self.parked.iter().any(|b| b.dirty)
     }
 
-    /// Drain the queued host effects (save/load/publish/pull). The main loop
+    /// Drain the queued host effects (save/load/push/pull). The main loop
     /// calls this after applying a key batch and services them in order.
     pub fn take_effects(&mut self) -> Vec<Effect> {
         core::mem::take(&mut self.requests)
@@ -591,7 +591,7 @@ impl Editor {
     }
 
     /// Post a transient side-panel notice ("snackbar") — e.g. the result of a
-    /// save or publish. Shown from the next [`Editor::draw`] until the next
+    /// save or push. Shown from the next [`Editor::draw`] until the next
     /// keystroke dismisses it (see [`Editor::handle`]). The host calls this from
     /// its `:` command effect handlers.
     pub fn set_notice(&mut self, msg: impl Into<String>) {
@@ -682,7 +682,7 @@ impl Editor {
 
         // Any keystroke dismisses the transient notice ("snackbar"). The host
         // sets a fresh one *after* the key batch (on a `:` command's effect), so
-        // a save/publish message survives to the next draw, then clears the
+        // a save/push message survives to the next draw, then clears the
         // moment you move on — no timed repaint (which on e-ink would cost a
         // full ~630 ms flash just to erase text).
         self.notice = None;
@@ -1165,8 +1165,8 @@ impl Editor {
             "fmt" => self.format_buffer(),
             "pub" | "publish" => self.publish_active(),
             "w" | "wq" | "x" => self.write_active(),
-            // fmt → save → push, shared with the `>` publish command.
-            "gp" => self.run_publish(),
+            // fmt → save → push, shared with the `>` push command.
+            "gp" => self.run_push(),
             "gl" => self.requests.push(Effect::Pull { commit_dirty: false }),
             "setup" => self.request_setup(),
             "reboot" => self.request_reboot(),
@@ -1246,7 +1246,7 @@ impl Editor {
         self.requests.push(Effect::Reboot);
     }
 
-    /// The host calls this when a bare `:gl` found saved-but-unpublished work in
+    /// The host calls this when a bare `:gl` found saved-but-unpushed work in
     /// the dirty journal: open a y/n prompt before committing it. A pull now
     /// folds that work into a local commit so the fetch can rebase it onto origin
     /// (rather than refuse), and that commit is user-visible — so it earns a

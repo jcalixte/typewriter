@@ -493,7 +493,7 @@ impl Editor {
     /// count at the top, and the mode indicator + pending-command echo at the
     /// bottom-left, with a keyboard-disconnect flag just above the mode while the
     /// keyboard is dropped. Small 6×10 font. This is the surface every later field
-    /// (clock, Wi-Fi, publish state) will add to. Word count is a throttled
+    /// (clock, Wi-Fi, push state) will add to. Word count is a throttled
     /// snapshot and the rest is event-driven, so the panel never repaints per
     /// keystroke.
     pub(crate) fn draw_panel(&self, f: &mut Frame) {
@@ -527,7 +527,7 @@ impl Editor {
             .unwrap();
 
         // Transient notice ("snackbar"), just under the word count: the last
-        // save/publish result. Word-wrapped to the panel width (so a message like
+        // save/push result. Word-wrapped to the panel width (so a message like
         // "save FAILED - retry :w" keeps its actionable tail instead of clipping
         // mid-word) and capped at a few lines so it can't reach the bottom mode
         // strip; cleared on the next keystroke.

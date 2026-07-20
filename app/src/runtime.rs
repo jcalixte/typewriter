@@ -22,7 +22,7 @@ use editor::{Editor, Effect, Mode, Scope, PREFS_PATH};
 use hal::{Keyboard, Screen};
 
 use crate::ports::{
-    Clock, FileIndex, PublishDispatch, PublishOutcome, PullDispatch, PullOutcome, SetupDispatch,
+    Clock, FileIndex, PushDispatch, PushOutcome, PullDispatch, PullOutcome, SetupDispatch,
     Storage, NetOutcome, NetService, System, UpdateDispatch, UpdateOutcome,
 };
 use crate::render::{FocusTimer, Panel};
@@ -162,7 +162,7 @@ impl<S: Screen> Runtime<S> {
     }
 
     /// Service the host-side effects the key batch queued, in order, draining to
-    /// empty. The queue strictly shrinks (a Save/Publish/Pull queues nothing; a
+    /// empty. The queue strictly shrinks (a Save/Push/Pull queues nothing; a
     /// Load queues at most one eviction Save), so this terminates.
     fn service_effects(&mut self) {
         loop {
@@ -183,13 +183,13 @@ impl<S: Screen> Runtime<S> {
             // Non-blocking: the ~10 s push never stalls the editor; the outcome
             // returns via `poll_outcome` in the idle branch. The Save that
             // preceded this in the batch already persisted the buffer.
-            Effect::Publish => match self.net.publish() {
-                PublishDispatch::Dispatched => self.ed.set_notice("syncing..."),
-                PublishDispatch::ThreadDown => self.ed.set_notice("sync: git thread down"),
+            Effect::Push => match self.net.push() {
+                PushDispatch::Dispatched => self.ed.set_notice("syncing..."),
+                PushDispatch::ThreadDown => self.ed.set_notice("sync: git thread down"),
             },
             Effect::Pull { commit_dirty } => match self.net.pull(commit_dirty) {
                 PullDispatch::Dispatched => self.ed.set_notice("pulling..."),
-                // Unpublished saves: ask before folding them into a commit. On
+                // Unpushed saves: ask before folding them into a commit. On
                 // `y` the editor re-queues Pull { commit_dirty: true }.
                 PullDispatch::NeedsCommitConfirm => self.ed.confirm_pull_commit(),
                 PullDispatch::ThreadDown => self.ed.set_notice("pull: git thread down"),
@@ -215,7 +215,7 @@ impl<S: Screen> Runtime<S> {
                 self.panel.blit_full(&Frame::reboot());
                 self.system.reboot();
             }
-            // Non-blocking, like Publish: the multi-second download + flash runs on
+            // Non-blocking, like Push: the multi-second download + flash runs on
             // the radio-owning thread while the editor keeps running; the terminal
             // outcome returns via `poll_outcome` in the idle branch. `:update` was
             // gated on a clean buffer set in the editor, so the eventual reboot on
@@ -290,7 +290,7 @@ impl<S: Screen> Runtime<S> {
     /// the sync backend before this returned.
     fn handle_net_outcome(&mut self, outcome: NetOutcome) {
         let notice = match outcome {
-            NetOutcome::Publish(o) => publish_notice(&o),
+            NetOutcome::Push(o) => push_notice(&o),
             NetOutcome::Pull(o) => {
                 // Pulled and Rebased both move the working copy under us; the
                 // stale resident buffers must re-read the disk.
@@ -447,12 +447,12 @@ pub fn file_stem(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-/// The snackbar line for a finished publish. Pure — the notice mapping only.
-fn publish_notice(o: &PublishOutcome) -> String {
+/// The snackbar line for a finished push. Pure — the notice mapping only.
+fn push_notice(o: &PushOutcome) -> String {
     match o {
-        PublishOutcome::Pushed(oid) => format!("synced {oid}"),
-        PublishOutcome::UpToDate => "up to date".to_string(),
-        PublishOutcome::Failed(reason) => reason.clone(),
+        PushOutcome::Pushed(oid) => format!("synced {oid}"),
+        PushOutcome::UpToDate => "up to date".to_string(),
+        PushOutcome::Failed(reason) => reason.clone(),
     }
 }
 

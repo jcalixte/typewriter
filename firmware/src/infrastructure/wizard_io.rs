@@ -97,7 +97,7 @@ pub fn run(
 ) -> Result<conf::Conf> {
     // `:setup` opens the reset menu prefilled from the card conf; first boot /
     // power-pull resume walks the steps linearly from the first unmet one. The
-    // dirty flag (unpublished-work journal) only sharpens the factory-reset
+    // dirty flag (unpushed-work journal) only sharpens the factory-reset
     // warning, so it's read once at construction.
     let mut wiz = if setup {
         Wizard::setup(start.clone(), storage.has_dirty())

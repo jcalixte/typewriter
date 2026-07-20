@@ -41,7 +41,7 @@ pub struct Prefs {
     /// value other than `"dark"` reads as light. The palette rotates it through
     /// [`THEME_OPTIONS`]; a hand-typed value still round-trips.
     pub theme: String,
-    /// Max-staleness cap for opportunistic auto-publish, as a duration string.
+    /// Max-staleness cap for opportunistic auto-push, as a duration string.
     /// The palette rotates it through [`AUTO_SYNC_OPTIONS`] (`"2m"`..`"30m"`);
     /// hand-editing can still set any string. **Persisted-but-inert in v0.5** —
     /// the periodic push that reads it rides v0.7/v0.8, so cycling it changes the
@@ -175,7 +175,7 @@ pub(crate) fn parse_bool(v: &str) -> Option<bool> {
 /// The panel-polarity presets the palette rotates [`Prefs::theme`] through.
 pub(crate) const THEME_OPTIONS: [&str; 2] = ["light", "dark"];
 
-/// The auto-publish intervals the palette rotates [`Prefs::auto_sync`] through.
+/// The auto-push intervals the palette rotates [`Prefs::auto_sync`] through.
 /// Hand-editing the TOML can still set any duration string; these are just the
 /// values the `>` palette cycles.
 pub(crate) const AUTO_SYNC_OPTIONS: [&str; 5] = ["2m", "5m", "10m", "15m", "30m"];

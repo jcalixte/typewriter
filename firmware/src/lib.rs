@@ -8,7 +8,7 @@
 //!   panel, the USB-host keyboard, Wi-Fi bring-up, and the esp clock/system
 //!   adapters.
 //! - [`infrastructure`] — adapters that fulfil the `app` ports over libraries
-//!   and protocols: SD/FAT storage, the git publish transport, the background
+//!   and protocols: SD/FAT storage, the git push transport, the background
 //!   file index, and the onboarding wizard's hardware I/O.
 //!
 //! The hardware and application frontiers themselves are the separate `hal` and

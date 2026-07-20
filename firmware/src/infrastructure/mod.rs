@@ -2,7 +2,7 @@
 //! protocols.
 //!
 //! SD/FAT storage ([`storage_sd`], `app::Storage`), the background palette file
-//! index ([`file_index`], `app::FileIndex`), the git publish transport plus its
+//! index ([`file_index`], `app::FileIndex`), the git push transport plus its
 //! `app::NetService` ([`net`]), and the onboarding wizard's hardware I/O
 //! ([`wizard_io`]). Mirrors the `infrastructure/` tier of the C
 //! `../typing-machine` reference.

@@ -596,7 +596,7 @@ fn command_labels_for_the_new_actions() {
     assert_eq!(e.command_label(PaletteCmd::Format), "format");
     // The git-push command's label is "push"; "publish" now names the `.pub.md`
     // file rename (`:pub`/`:publish`), so the word means one thing to the writer.
-    assert_eq!(e.command_label(PaletteCmd::Publish), "push");
+    assert_eq!(e.command_label(PaletteCmd::Push), "push");
 }
 
 #[test]
@@ -625,7 +625,7 @@ fn push_command_saves_and_pushes_then_closes() {
     }
     e.handle(Key::Enter);
     assert_eq!(e.mode(), Mode::Normal);
-    assert_eq!(kinds(&e.take_effects()), vec![Kind::Save, Kind::Publish]);
+    assert_eq!(kinds(&e.take_effects()), vec![Kind::Save, Kind::Push]);
 }
 
 #[test]

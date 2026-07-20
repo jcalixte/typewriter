@@ -17,9 +17,9 @@ fn w_command_signals_save_and_returns_to_normal() {
 }
 
 #[test]
-fn gp_command_saves_then_publishes() {
-    // `:gp` queues a save of the current buffer, then the git publish.
-    assert_eq!(kinds(&command("gp").1), vec![Kind::Save, Kind::Publish]);
+fn gp_command_saves_then_pushes() {
+    // `:gp` queues a save of the current buffer, then the git push.
+    assert_eq!(kinds(&command("gp").1), vec![Kind::Save, Kind::Push]);
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn gl_command_signals_pull() {
 
 #[test]
 fn pull_commit_confirm_queues_a_committing_pull() {
-    // The host opens this prompt when `:gl` found unpublished saves. Answering
+    // The host opens this prompt when `:gl` found unpushed saves. Answering
     // `y` queues a pull that folds the journal into a commit first.
     let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
     e.confirm_pull_commit();
@@ -246,7 +246,7 @@ fn about_splash_renders_the_injected_version() {
 }
 
 #[test]
-fn gp_formats_the_buffer_before_publishing() {
+fn gp_formats_the_buffer_before_pushing() {
     // fmt → save → commit → push: `:gp` runs :fmt in-core first (default on).
     let mut e = Editor::with_file(
         "/sd/repo/notes.md".into(),
@@ -258,13 +258,13 @@ fn gp_formats_the_buffer_before_publishing() {
         e.handle(Key::Char(c));
     }
     e.handle(Key::Enter);
-    assert_eq!(kinds(&e.take_effects()), vec![Kind::Save, Kind::Publish]);
+    assert_eq!(kinds(&e.take_effects()), vec![Kind::Save, Kind::Push]);
     assert_eq!(e.text(), "hello\nworld"); // :fmt stripped the trailing whitespace
 }
 
 #[test]
 fn gp_is_refused_in_a_local_buffer() {
-    // Publish is Tracked-only; `:gp` in Local queues nothing and warns.
+    // Push is Tracked-only; `:gp` in Local queues nothing and warns.
     let mut e = Editor::with_file(
         "/sd/local/journal.md".into(),
         Scope::Local,
@@ -398,7 +398,7 @@ fn cmd_s_from_insert_does_not_reformat_mid_session() {
     // format_on_save is on by default, but a Cmd+S while still in Insert must
     // NOT reflow the line — stripping the trailing spaces the user is mid-way
     // through and yanking the caret to line start would be hostile. `:w` from
-    // Normal still formats (see `gp_formats_the_buffer_before_publishing`).
+    // Normal still formats (see `gp_formats_the_buffer_before_pushing`).
     let mut e = Editor::with_file("/sd/repo/notes.md".into(), Scope::Tracked, String::new());
     assert!(e.prefs.format_on_save);
     e.handle(Key::Char('i'));

@@ -527,7 +527,7 @@ fn factory_reset_backspace_past_empty_cancels() {
 
 #[test]
 fn factory_reset_confirm_warns_louder_when_dirty() {
-    // The dirty warning line is drawn only when the card carries unpublished
+    // The dirty warning line is drawn only when the card carries unpushed
     // work — the two renders must differ.
     let clean = to_confirm_wipe(false);
     let dirty = to_confirm_wipe(true);
@@ -561,7 +561,7 @@ fn to_setup_repo_pick() -> Wizard {
 
 #[test]
 fn setup_repo_switch_dirty_guard_refuses() {
-    // Unpublished work on the card: a switch (which deletes the working copy)
+    // Unpushed work on the card: a switch (which deletes the working copy)
     // must refuse rather than lose it. Stays on the menu, nothing pending.
     let mut w = Wizard::setup(full_conf(), true);
     w.key(Key::Down); // GitHub
