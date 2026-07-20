@@ -292,7 +292,7 @@ competitive-perception zone (source of truth + rationale:
   \pgfmathsetmacro{\qfdWhatTextW}{\qfdWhatW - 0.2}
   \foreach \r/\t in {%
     1/{W1 Sub-second visible response to typing},
-    2/{W2 Publishing is one deliberate action away},
+    2/{W2 Pushing is one deliberate action away},
     3/{W3 Pulling power never corrupts the file},
     4/{W4 Provisioning never interrupts a writing session},
     5/{W5 Quick boot to a writing cursor},
@@ -324,10 +324,10 @@ competitive-perception zone (source of truth + rationale:
     3/{H3 Full-refresh cadence},
     4/{H4 Boot latency (cold)},
     5/{H5 Continuous-typing endurance},
-    6/{H6 Publish reliability},
-    7/{H7 Publish latency},
+    6/{H6 Push reliability},
+    7/{H7 Push latency},
     8/{H8 Save durability},
-    9/{H9 Heap headroom (Publish)},
+    9/{H9 Heap headroom (Push)},
     10/{H10 Firmware binary size},
     11/{H11 Total stack budget},
     12/{H12 Network reconnect time},
@@ -599,8 +599,8 @@ requirement comes from.
 |     | **Trust: words survive power and time**                                           |        |                                                                                                                                    |
 | W3  | Pulling power never corrupts the file                                              |   10   | [product → Recover](v0.1-mvp-product.md#user-stories), [acceptance](v0.1-mvp-product.md#acceptance-criteria)                       |
 | W6  | Long sessions without crash / lag / drift                                          |   9    | [product → acceptance](v0.1-mvp-product.md#acceptance-criteria) (1 h soak)                                                         |
-|     | **Publish & scopes**                                                               |        |                                                                                                                                    |
-| W2  | **Publishing** is one deliberate action away                                       |   9    | [product → Publish](v0.1-mvp-product.md#user-stories), [CONTEXT → Publish](../CONTEXT.md#user-facing-actions)                      |
+|     | **Push & scopes**                                                               |        |                                                                                                                                    |
+| W2  | **Pushing** is one deliberate action away                                       |   9    | [product → Push](v0.1-mvp-product.md#user-stories), [CONTEXT → Push](../CONTEXT.md#user-facing-actions)                      |
 | W12 | Local-only file scope coexists with git scope (v0.5+)                              |   5    | [README → scopes](../README.md#vision), [macroplan → v0.5](macroplan.md#v05--file-palette--multi-file--)                           |
 |     | **Ownership & evolution**                                                          |        |                                                                                                                                    |
 | W9  | Codebase absorbs the planned roadmap without rewrite                               |   8    | [macroplan](macroplan.md)                                                                                                          |
@@ -665,7 +665,7 @@ of these functions, or of artifacts they produce.
 | Type      | keypress → glyph rendered + buffer mutated |
 | Navigate  | intent → active file / buffer / caret repositioned |
 | Save      | dirty buffer → persisted file on SD        |
-| Publish   | persisted file → commit on remote          |
+| Push   | persisted file → commit on remote          |
 | Recover   | degraded file state → readable file        |
 | Boot      | power-on → cursor ready                    |
 | Provision | uninitialized device → configured device   |
@@ -680,7 +680,7 @@ SD card from a Mac. Both write the same artifact (`/sd/typoena.conf` + a
 cloned `/sd/repo`) and both authenticate through the Typoena GitHub App
 device flow. Sub-functions referenced
 inside HOW names: **Render** (buffer → e-ink frame, inside Type),
-**Reconnect** (network outage → restored, inside Publish).
+**Reconnect** (network outage → restored, inside Push).
 
 ### Characteristics
 
@@ -699,15 +699,15 @@ the diagram and every matrix stay flat).
 | H8  | Save durability (post-confirm power loss)      |  →  | 100 %                    | 100 %               |
 |     | **Reach: everything one motion away**          |     |                          |                     |
 | H17 | Reach cost (keystrokes to any file / command / edit point) | ↓ | ≤ 6 median ⊳    | same                |
-|     | **Publish & network**                          |     |                          |                     |
-| H6  | Publish reliability (network up)               |  ↑  | ≥ 95 %                   | ≥ 99 %              |
-| H7  | Publish latency (one file)                     |  ↓  | ≤ 30 s ‡                 | ≤ 10 s ‡            |
-| H9  | Heap headroom during Publish                   |  ↑  | ≥ 1 MB PSRAM free at peak ¶ | same             |
+|     | **Push & network**                          |     |                          |                     |
+| H6  | Push reliability (network up)               |  ↑  | ≥ 95 %                   | ≥ 99 %              |
+| H7  | Push latency (one file)                     |  ↓  | ≤ 30 s ‡                 | ≤ 10 s ‡            |
+| H9  | Heap headroom during Push                   |  ↑  | ≥ 1 MB PSRAM free at peak ¶ | same             |
 | H12 | Network reconnect time (transient outage)      |  ↓  | ≤ 30 s                   | ≤ 10 s              |
 |     | **Artifact & platform**                        |     |                          |                     |
 | H10 | Firmware binary size                           |  ↓  | ≤ 2 MB                   | ≤ 1.5 MB            |
 | H11 | Stack budget across all tasks                  |  ↓  | ≤ 128 KB (sum) ∥         | same                |
-| H13 | Idle / typing / Publish current draw           |  ↓  | measured only            | sized for >2 days   |
+| H13 | Idle / typing / Push current draw           |  ↓  | measured only            | sized for >2 days   |
 | H15 | Build time (clean, release)                    |  ↓  | ≤ 7 min                  | ≤ 5 min             |
 |     | **First run**                                  |     |                          |                     |
 | H16 | Onboarding duration (blank card → writing cursor) | ↓ | ≤ 10 min (v0.9, unmeasured) | same            |
@@ -722,11 +722,11 @@ build and the 1100-file card walk; the walk now lands mid-session instead of
 blocking boot. Breakdown + levers:
 [`notes/boot-time-budget.md`](notes/boot-time-budget.md).
 
-‡ **Publish latency, re-measured on the real repo 2026-07-13/14:** on the
+‡ **Push latency, re-measured on the real repo 2026-07-13/14:** on the
 author's real notes repo (~63 k objects), a cold `:gp` is **~24 s** and a warm
-clean publish **~19 s**, inside the ≤ 30 s v0.1 target, but the earlier toy-repo
+clean push **~19 s**, inside the ≤ 30 s v0.1 target, but the earlier toy-repo
 figures (~16 s cold / ~10 s warm, 2026-07-11) turned out not to transfer:
-publish cost scales with repo shape. The mix also inverted: the push leg is
+push cost scales with repo shape. The mix also inverted: the push leg is
 **5.9 s** (TLS session resumption); the splice-commit dominates at **10.3 s**
 for one depth-4 file, and the convicted residual is **FAT linear directory
 scans** (~0.1 ms/entry, `objects/` fan-out ≈ 256 dirs; see
@@ -748,7 +748,7 @@ was tighter than [ADR-003]'s own accepted "~200–300 ms" e-ink cost); v1.0 rese
 from ≤ 150 ms to ≤ 300 ms. The open item is now the **erase/caret tier**
 (~630 ms full-area partial per event), not additive typing.
 
-¶ **Heap during Publish: measured and re-plumbed 2026-07-13.** The ≥ 1 MB
+¶ **Heap during Push: measured and re-plumbed 2026-07-13.** The ≥ 1 MB
 PSRAM bar is now **met** (min-ever 4.5 MB free on the first real-repo push,
 run 9), but only after capping libgit2's mmap working set (mwindow
 64 KB/1.5 MB, was 256 KB/4 MB; whole-file `.idx`/midx maps sit **outside** that
@@ -802,7 +802,7 @@ priority list below come from the basement.
 - **Basement rows** are: v0.1 target → column sum (`Σ` of `weight × strength`) →
   relative weight as integer % of total (1804). Rounded relative weights sum
   to ~100 (99 with 16 columns' rounding).
-- **H7, H10, H15** (Publish latency, binary size, build time) sit at the bottom
+- **H7, H10, H15** (Push latency, binary size, build time) sit at the bottom
   of the basement, knowingly-paid costs per [§7](qfd-tradeoffs.md#7-tradeoffs-and-their-why-linked-to-adrs), not signals to optimise harder.
 
 ### Top engineering priorities (from importance)
@@ -838,7 +838,7 @@ H17 (reach cost, 117) enters at **#9 on day one, above H5 endurance**:
 a brand-new characteristic out-voting a soak target reads right for a
 product whose center is flow, and is exactly the statement W16 was added
 to make. Its two voters are W16 (strong) and W2 (medium: `:gp` is the
-reach grammar applied to Publish).
+reach grammar applied to Push).
 
 H13 (current draw, 137) sits at #7, close to the top-six cutoff because
 W14 promotes the "wall-power for v0.1, measure first" stance from
@@ -847,11 +847,11 @@ acknowledged tradeoff to watched metric. The v0.1 "measured only" target
 gain a second audience: sizing the v0.8 cell against a real portability
 target, not just informing ADR-008's deferral.
 
-H6 (Publish reliability, 134) sits just below the top six. Its ADR ownership
+H6 (Push reliability, 134) sits just below the top six. Its ADR ownership
 is [ADR-004], whose spike-7 kill-switch **fired** (2026-07-06, gix has no
 HTTPS push; the shipped transport is libgit2), plus [ADR-005] token auth.
 The matrix simply reads W14's mobile-use voter as a louder signal for
-reconnect (H12) than for the Publish transport itself.
+reconnect (H12) than for the Push transport itself.
 
 H16 (onboarding duration, 93) sits in the lower half rather than at the
 bottom: W15 is its only strong voter, but W16's "the product itself is one
@@ -873,7 +873,7 @@ the same pass, see [§8](qfd-changelog.md#8-inconsistencies-spotted-and-fixed)).
 override is no longer the load-bearing argument for H8's prominence;
 its acceptance-criteria override for H4/H5 still is. See [§6](qfd-budget.md#6-critical-performance-budget).
 
-The bottom three (H7 Publish latency, H15 build time, H10 binary size) are real
+The bottom three (H7 Push latency, H15 build time, H10 binary size) are real
 costs but ones we knowingly took on ([ADR-001]) and are not in the critical
 path of user experience. The tightened H15 v0.1 target (≤ 7 min) reflects
 user preference for faster iteration, not matrix-derived priority; if it
@@ -947,19 +947,19 @@ design are called out below.
   campaign traced full-PSRAM exhaustion to its mmap working set and settled
   it with hard caps (mwindow 64 KB/1.5 MB, odb cache 1 MB; §2 ¶).
 - **H9 heap ↔ H5 soak** (strong). A long writing session grows the rope
-  and the glyph cache; Publishing on top can OOM. Mitigations shipped: 256 KB
+  and the glyph cache; Pushing on top can OOM. Mitigations shipped: 256 KB
   file cap (v0.1 tech doc), the persistent two-frame draw in `main.rs`
   (repaints never allocate: added after a mid-push `HalfPageUp` OOM-aborted
   the UI thread, run 4), and the palette file list interned to one PSRAM
   blob (was 182 KB of internal DRAM).
-- **H6 Publish reliability ↔ H12 network reconnect** (reinforcing). Both come
+- **H6 Push reliability ↔ H12 network reconnect** (reinforcing). Both come
   from the same network stack; the TLS session-resumption vendored delta
   (2026-07-14) proved the correlation: added for reconnect cost, it also
   removed the idle keep-alive push failure's sting (run 8's `SSL Generic
   error` during the 31 s marking gap; durable fix, reconnect-on-stale in
   the http layer, still open).
 - **H12 reconnect ↔ H16 onboarding** (reinforcing). The wizard's clone leg
-  rides the same TLS + Wi-Fi bring-up as Publish; every second shaved off
+  rides the same TLS + Wi-Fi bring-up as Push; every second shaved off
   connect/reconnect shortens first-run too (ls-refs fast path, session
   resumption).
 - **H10 binary ↔ H15 build time** (strong). std builds are slow. Accepted
@@ -990,6 +990,6 @@ design are called out below.
 [ADR-007]: adr.md#adr-007-storage-split--fat-on-sd-for-working-copy-littlefs-on-flash-for-config
 [ADR-008]: adr.md#adr-008-mvp-power--wall-powered-battery-deferred-to-v08
 [ADR-009]: adr.md#adr-009-keyboard-transport--usb-host-tinyusb
-[ADR-010]: adr.md#adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
+[ADR-010]: adr.md#adr-010-push-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
 [ADR-011]: adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest
 [ADR-012]: adr.md#adr-012-sd-on-its-own-spi3-host-not-shared-with-the-epd-on-spi2

@@ -1,14 +1,14 @@
 # Typoena
 
 A single-purpose writing appliance: e-ink + mechanical keyboard + ESP32-S3. The
-user opens the lid, writes Markdown, and (when they choose) publishes to a git
+user opens the lid, writes Markdown, and (when they choose) pushes to a git
 remote. This glossary fixes the language of that workflow, and of the screen
 the writer looks at while doing it.
 
 **Related docs:**
 [`README.md`](README.md) — project overview, hardware, macro roadmap.
 [`docs/adr.md`](docs/adr.md) — load-bearing decisions; **ADR-010** is the
-formal record of the **Publish** UX defined below.
+formal record of the **Push** UX defined below.
 [`docs/qfd.md`](docs/qfd.md) — requirements ↔ functions ↔ components, ranked
 by user-facing weight. References the terms in this file as canonical.
 [`docs/v0.1-mvp-product.md`](docs/v0.1-mvp-product.md) — the v0.1 product
@@ -24,12 +24,12 @@ are in).
 ### File scopes
 
 **Tracked**:
-A file that lives in the device's git working copy and can be published to the
+A file that lives in the device's git working copy and can be pushed to the
 remote. Lives under `/sd/repo/`.
 _Avoid_: synced, public, remote, committable.
 
 **Local**:
-A file that exists only on the device and can never be published. A
+A file that exists only on the device and can never be pushed. A
 permanently-private scope, not a draft staging area — files are born Local and
 stay Local for their lifetime. Lives under `/sd/local/`.
 _Avoid_: draft, private, untracked, scratch (these all imply impermanence or
@@ -64,9 +64,9 @@ The act of durably writing the current buffer to the SD card. Triggered by
 **Tracked** and **Local** files.
 _Avoid_: write, flush, persist (use them only in implementation talk).
 
-**Publish**:
+**Push**:
 The atomic act of pushing the current state of the entire **Tracked** working
-copy to the git remote. Workspace-scoped, not buffer-scoped: a **Publish**
+copy to the git remote. Workspace-scoped, not buffer-scoped: a **Push**
 ships every dirty **Tracked** file on the device, not just the one the user is
 viewing. Triggered by `:gp`. Internally: splice the journaled dirty paths
 onto HEAD's tree → commit with a timestamped message → push → on a rejected
@@ -77,7 +77,7 @@ into user-facing language).
 
 > **Commit** is deliberately _not_ a user-facing term. The device authors all
 > commit messages itself (a timestamped message); the user never sees a commit
-> prompt. A **Publish** is the only user-observable unit of "shipping work";
+> prompt. A **Push** is the only user-observable unit of "shipping work";
 > internal commits are an implementation detail of that.
 
 ### First run
@@ -123,7 +123,7 @@ full-width text region before the side panel carved out its right edge).
 The right region (~160 px / ~17 cols at its `FONT_9X15` metadata font, full
 height) holding all metadata:
 filename + dirty dot, word count, elapsed time, clock, Wi-Fi,
-keyboard-disconnect flag, publish state, and the mode indicator at its
+keyboard-disconnect flag, push state, and the mode indicator at its
 bottom-left. Sits entirely in the master half
 (right of the `x = 396` seam). Every field is static, event-driven, or
 throttled — never per-keystroke.
@@ -138,22 +138,22 @@ _side panel_ vs _transient panel_.
 
 - A **File** belongs to exactly one scope (**Tracked** or **Local**), fixed at
   creation. There is no operation that moves a file between scopes.
-- **Save** applies to any **File**; **Publish** applies only to **Tracked**.
-- A single **Publish** is atomic from the user's view: a Wi-Fi failure or
+- **Save** applies to any **File**; **Push** applies only to **Tracked**.
+- A single **Push** is atomic from the user's view: a Wi-Fi failure or
   remote divergence surfaces as a single retry-able outcome, not as a multi-
   step progression the user has to reason about.
 
 ## Example dialogue
 
 > **Dev:** "If I'm in a **Local** file and I run `:gp`, what happens?"
-> **Domain expert:** "Nothing — **Publish** is unavailable in **Local**. The
+> **Domain expert:** "Nothing — **Push** is unavailable in **Local**. The
 > side panel says so. There is no path from **Local** to the remote."
-> **Dev:** "So if I want to publish something that started as a journal entry,
+> **Dev:** "So if I want to push something that started as a journal entry,
 > I have to copy-paste it into a **Tracked** file?"
 > **Domain expert:** "Yes, deliberately. Promotion is a manual gesture, not a
 > built-in operation."
 > **Dev:** "And if the remote has changed since I last pulled — does
-> **Publish** fail?"
+> **Push** fail?"
 > **Domain expert:** "It fetches, replays the device's commit onto the remote
 > tip — no merge commit — and pushes again. From the user's view it's one
 > action with one outcome — success or retry."
@@ -162,17 +162,17 @@ _side panel_ vs _transient panel_.
 
 - **The device is a writing tool, not a sync engine.** Every git operation is
   the direct, in-session consequence of a `:gp` (or `:gl` pull) the user ran. The
-  device does not auto-publish, auto-pull, retry-on-boot, or otherwise
-  reconcile remote state in the background. If a previous **Publish** ended
+  device does not auto-push, auto-pull, retry-on-boot, or otherwise
+  reconcile remote state in the background. If a previous **Push** ended
   mid-flight and left a local commit unpushed, the next user-initiated
-  **Publish** picks it up; until then, the device is silent about it.
-- **Publish is sync, not history.** The user's mental model is a Google Doc
+  **Push** picks it up; until then, the device is silent about it.
+- **Push is sync, not history.** The user's mental model is a Google Doc
   that happens to be backed by git: the point is "I want to read this on my
   phone later," not "I want a curated commit log." Commits are a transport
   detail the device authors itself. Branches are out of scope for the same
   reason — the device tracks one linear stream of work on whichever branch
   the remote was cloned on, and never switches.
-- **Durability before delivery.** A **Publish**'s user-meaningful moment is
+- **Durability before delivery.** A **Push**'s user-meaningful moment is
   when the local commit lands (a few seconds — the splice), not when the push
   completes (the rest of a ~12–24 s `:gp` on the real notes repo). The side
   panel surfaces the commit-landed state as soon as
@@ -180,7 +180,7 @@ _side panel_ vs _transient panel_.
   thing. Long-form rationale:
   [`docs/notes/ctrl-g-perceived-latency.md`](docs/notes/ctrl-g-perceived-latency.md).
 - **No state the user didn't ask for.** No banners about pending work, no
-  prompts about divergence, no "did you mean to publish" warnings. The side
+  prompts about divergence, no "did you mean to push" warnings. The side
   panel reflects the _current_ action's outcome, nothing else.
 
 ## Flagged ambiguities
@@ -190,6 +190,6 @@ _side panel_ vs _transient panel_.
   files inside the working copy. Resolved: (b). Each **File**'s scope is fixed
   at creation; there is no promotion operation.
 - "Commit" was used loosely across early docs as if it were a user-facing
-  action. Resolved: it is not. The user has **Save** and **Publish**. Commits
-  are an internal unit inside **Publish**, never authored or named by the
+  action. Resolved: it is not. The user has **Save** and **Push**. Commits
+  are an internal unit inside **Push**, never authored or named by the
   user.

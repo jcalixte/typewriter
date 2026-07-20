@@ -39,7 +39,7 @@ works with no config present.
 | `line_numbers`      | bool   | `true`    | `true` / `false`                    | Show the absolute line-number gutter. Off reclaims its columns for text.                                               |
 | `open_last_on_boot` | bool   | `true`    | `true` / `false`                    | Boot into the file that was active at power-off, instead of `notes.md`.                                                |
 | `theme`             | string | `"light"` | `light` / `dark`                    | Panel colour polarity. `dark` inverts the whole frame to white-on-black.                                               |
-| `auto_sync`         | string | `"10m"`   | `2m` / `5m` / `10m` / `15m` / `30m` | Max-staleness cap for opportunistic auto-publish. **Value only — no behaviour yet** (rides v0.8, with the sleep work). |
+| `auto_sync`         | string | `"10m"`   | `2m` / `5m` / `10m` / `15m` / `30m` | Max-staleness cap for opportunistic auto-push. **Value only — no behaviour yet** (rides v0.8, with the sleep work). |
 
 The **Options** column is what the palette rotates through on **Enter**; a
 boolean is just the two-option case. Hand-editing a string key can still set any
@@ -127,7 +127,7 @@ the palette repaints inverted at once.
 
 ### `auto_sync`
 
-A duration string that will one day cap how stale the published copy is allowed
+A duration string that will one day cap how stale the pushed copy is allowed
 to get — an _opportunistic, rate-limited_ push, not a wall-clock timer. The
 palette rotates it through the presets `2m` / `5m` / `10m` / `15m` / `30m`
 (hand-editing can still set any string, e.g. `"0"`/empty to disable). **The value

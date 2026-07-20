@@ -34,7 +34,7 @@ everything within one motion: every file one Cmd-P away, every action one
 `:command` away, every edit one home-row motion away, the whole product one
 `curl | sh` away).
 
-**What the house says instead:** House 1 ranks heap-during-Publish,
+**What the house says instead:** House 1 ranks heap-during-Push,
 partial-refresh area, reconnect time, and save durability as the top
 characteristics; House 2 sends the next unit of effort to C5/C12; the
 onboarding-and-editing surface (C17–C20) ranks #15–18.

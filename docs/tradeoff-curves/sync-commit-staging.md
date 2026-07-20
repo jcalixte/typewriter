@@ -472,7 +472,7 @@ not per-file `stat` (one raw `stat` is ~5 ms, so N ≈ 2 can't be the 1.4 s). Th
 O(N) slope only bites on the real `jcalixte/notes` clone (N ≈ 1179), which this run
 did **not** exercise. That slope is still unmeasured.
 
-For orientation: `publish(commit+push)` was 9846 ms cold, so the **network half is
+For orientation: `push(commit+push)` was 9846 ms cold, so the **network half is
 ~6.5 s** — still the biggest single block of a warm sync (10.1 s total), a separate
 floor ([`../notes/sync-latency.md`](../notes/sync-latency.md)).
 
@@ -552,7 +552,7 @@ missing intermediate directory on the way down, and a directory emptied by a
 remove is pruned on the way up (the empty tree is never re-inserted).
 `stage_and_commit` folds every dirty path through it (threading the running
 root tree), then `commit(Some("HEAD"), …)` exactly as before — the
-`tree unchanged → nothing to publish` check and the `commit split —` timing
+`tree unchanged → nothing to push` check and the `commit split —` timing
 log survive. The benched reference is `git_bench`'s `splice stage→tree` op.
 
 ### `firmware/src/git_sync.rs` — how it landed
@@ -599,17 +599,17 @@ log survive. The benched reference is `git_bench`'s `splice stage→tree` op.
   path in a `RefCell<Dirty>` (paths outside `/sd/repo` are skipped), and the
   set is **journaled to `/sd/.typoena-dirty`** — atomic write, rewritten only
   when the set actually grows. Without the journal a power pull would strand
-  every file saved-but-not-published that session: nothing walks the tree
+  every file saved-but-not-pushed that session: nothing walks the tree
   anymore, so an unrecorded change would never reach the remote. The journal
   is loaded at mount and its paths ride the next `:sync`.
-- Lifecycle: `take_dirty()` snapshots pending → in-flight for one publish
+- Lifecycle: `take_dirty()` snapshots pending → in-flight for one push
   (journal keeps carrying the union); the outcome settles it —
-  `publish_succeeded()` forgets the snapshot and shrinks the journal,
-  `publish_failed()` returns it to pending for the next `:sync`. A save landing
-  _while_ a publish runs re-enters pending and rides the next one. Recording
+  `push_succeeded()` forgets the snapshot and shrinks the journal,
+  `push_failed()` returns it to pending for the next `:sync`. A save landing
+  _while_ a push runs re-enters pending and rides the next one. Recording
   happens _before_ the file write, so a crash between the two only
   over-approximates (a no-op splice), never under-records.
-- `Effect::Publish` in `main.rs` sends `PublishRequest { paths: take_dirty() }`;
+- `Effect::Push` in `main.rs` sends `PushRequest { paths: take_dirty() }`;
   the outcome handler in the idle branch calls the matching settle method.
 - **FD budget:** a git build now mounts `Storage::mount_for_git()` (16 FDs) in
   `boot_storage` — libgit2 keeps the pack + `.idx` descriptors open and opens

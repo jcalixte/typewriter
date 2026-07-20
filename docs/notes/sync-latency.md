@@ -1,14 +1,14 @@
 # Sync latency — where the ~16 s cold `:gp` goes
 
 > **Measured 2026-07-11** on hardware, via the timing log line in
-> [`firmware::git_sync`](../../firmware/src/git_sync.rs) (`publish_cycle`;
-> the command was `:sync` then, renamed `:gp` 2026-07-14). A **cold** publish
+> [`firmware::git_sync`](../../firmware/src/git_sync.rs) (`push_cycle`;
+> the command was `:sync` then, renamed `:gp` 2026-07-14). A **cold** push
 > (first of a power cycle) is **~16.0 s** power-on of Wi-Fi → `push done`; a
-> **warm** one skips the one-time setup and is just the ~10 s publish. This
+> **warm** one skips the one-time setup and is just the ~10 s push. This
 > note breaks the number down and records why most of it is a floor, not a
 > bug.
 >
-> **Update (2026-07-13/14) — the publish half below is superseded.** The
+> **Update (2026-07-13/14) — the push half below is superseded.** The
 > `add_all` index staging was replaced by the O(depth) splice over the
 > journaled dirty set ([kaizen](../kaizen/real-repo-sync.md) · [measurement
 > trail](../tradeoff-curves/sync-commit-staging.md)), reconcile became fetch +
@@ -28,19 +28,19 @@
 ## The waterfall (cold sync)
 
 From the serial log, first `:sync` after a cold boot
-(`… wifi 3654ms, clock 2108ms, tls 304ms, publish(commit+push) 9944ms, total 16012ms`):
+(`… wifi 3654ms, clock 2108ms, tls 304ms, push(commit+push) 9944ms, total 16012ms`):
 
 | Phase                             |        ~ms | One-time?             | Lever                                                                      |
 | --------------------------------- | ---------: | --------------------- | -------------------------------------------------------------------------- |
 | Wi-Fi assoc + DHCP                |      ~3650 | yes (per power cycle) | radio off until first `:sync`; association floor                           |
 | SNTP first sync                   |      ~2100 | yes                   | varies with NTP RTT (4.2 s the prior run); needed before TLS + commit time |
 | TLS trust store install           |       ~300 | yes                   | write ~6 KB CA bundle to SD + set libgit2 option                           |
-| **publish** = stage+commit + push |  **~9900** | **every sync**        | see below                                                                  |
+| **push** = stage+commit + push |  **~9900** | **every sync**        | see below                                                                  |
 | **Total**                         | **~16000** |                       |                                                                            |
 
 The three one-time phases (~6.1 s) only pay on the _first_ sync of a power cycle —
 Wi-Fi, the clock, and the trust store are set up once and reused, so a **warm sync
-is just the ~10 s publish**. Publish splits as:
+is just the ~10 s push**. Push splits as:
 
 | Sub-phase                     |   ~ms | Note                                                                 |
 | ----------------------------- | ----: | -------------------------------------------------------------------- |

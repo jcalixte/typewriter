@@ -12,7 +12,7 @@ libgit2 #3, C2 std runtime #4**: C7's jump past libgit2 is the headline
 of the 2026-07-17 W16/H17 re-score (the reach vote lands where the
 palette and modal grammar live); C11/C15 sit parenthesised and unranked
 (unbuilt). The roof's `−−` between C10 (FAT) and C12 (libgit2) is
-Publish's convicted residual; the three `−−` on C6/C7 × C12/C13 are the
+Push's convicted residual; the three `−−` on C6/C7 × C12/C13 are the
 July crash record: conflicts mediated by shared memory pools, priced in
 [§5's shared-pool budget](#shared-pool-budget--who-allocates-from-what).
 Source-of-truth matrix + reading:
@@ -262,10 +262,10 @@ Source-of-truth matrix + reading:
     3/{H3 Full-refresh cadence},
     4/{H4 Boot latency (cold)},
     5/{H5 Continuous-typing endurance},
-    6/{H6 Publish reliability},
-    7/{H7 Publish latency},
+    6/{H6 Push reliability},
+    7/{H7 Push latency},
     8/{H8 Save durability},
-    9/{H9 Heap headroom (Publish)},
+    9/{H9 Heap headroom (Push)},
     10/{H10 Firmware binary size},
     11/{H11 Total stack budget},
     12/{H12 Network reconnect time},
@@ -483,9 +483,9 @@ point at [§7](qfd-tradeoffs.md#7-tradeoffs-and-their-why-linked-to-adrs)'s trad
     - C5 GDEY0579T93 panel · C6 `embedded-graphics` + driver
   - **How: custom dirty-rect widget layer** ([ADR-002], T2; rejected: Ratatui, regions don't align to e-ink refresh areas)
     - C7 widget layer · C8 rope buffer
-  - **How: USB host keyboard** ([ADR-009], T9; rejected: BLE-HID, radio contention with Wi-Fi during Publish)
+  - **How: USB host keyboard** ([ADR-009], T9; rejected: BLE-HID, radio contention with Wi-Fi during Push)
     - C9 TinyUSB host · C3 threads
-- **Navigate** (intent → active file / buffer / caret repositioned): serves W16 (10), and W2's one-action Publish rides the same grammar · measured by H17, each motion's repaint priced by H1/H2
+- **Navigate** (intent → active file / buffer / caret repositioned): serves W16 (10), and W2's one-action Push rides the same grammar · measured by H17, each motion's repaint priced by H1/H2
   - **How: fuzzy file palette over both scopes** (Cmd-P; MRU recents under 2 chars, background card walk interned to one PSRAM blob; rejected: a file-manager screen, a destination that competes with prose)
     - C7 widget layer · C10 FAT walk · C8 rope
   - **How: modal editing grammar** (vim Normal/Visual/ex, counts, `.` repeat, `/` smartcase + accent-folded search; rejected: chorded shortcuts, reach cost grows with document and file count instead of staying O(one motion))
@@ -493,7 +493,7 @@ point at [§7](qfd-tradeoffs.md#7-tradeoffs-and-their-why-linked-to-adrs)'s trad
 - **Save** (dirty buffer → persisted file on SD): serves W3 (10), W6 (9), W12 (5) · measured by H8
   - **How: atomic-rename + fsync on FAT** ([ADR-007], T7; unlink-first + `*.tmp` boot recovery because FatFS `f_rename` won't overwrite; rejected: LittleFS working copy, a desktop can't read it)
     - C10 FAT on SD (own SPI3, [ADR-012]) · C2 std VFS
-- **Publish** (persisted file → commit on remote; sub-function Reconnect): serves W2 (9), W6 (9), W14 (8) · measured by H6, H7, H9, H12
+- **Push** (persisted file → commit on remote; sub-function Reconnect): serves W2 (9), W6 (9), W14 (8) · measured by H6, H7, H9, H12
   - **How: libgit2 as an esp-idf CMake component** ([ADR-004] kill-switch outcome, T4; rejected: gitoxide, no HTTPS push)
     - C12 libgit2 + vendored `esp_mbedtls_stream.c` · C13 mbedTLS · C14 token auth
   - **How: splice commit onto the local tip** (T11; rejected: full index write, 611 s / OOM on the real repo)
@@ -611,7 +611,7 @@ truth**: re-score here first, then mirror the drawing, same day.
   error path reported upstream, plus TLS session resumption). The overload
   prediction held: the real-repo push campaign (2026-07-13) was fought
   entirely inside C12's memory profile. [ADR-010] pins the _shape_ of the
-  publish sequence; swapping the library under it never changed the user
+  push sequence; swapping the library under it never changed the user
   contract, exactly as designed.
 - **C11** (LittleFS) is **still unused, and v0.9 decided against it for
   config**: the wizard/installer write plaintext `/sd/typoena.conf` on the
@@ -724,6 +724,6 @@ page's derived component Σ down as row importance.
 [ADR-007]: adr.md#adr-007-storage-split--fat-on-sd-for-working-copy-littlefs-on-flash-for-config
 [ADR-008]: adr.md#adr-008-mvp-power--wall-powered-battery-deferred-to-v08
 [ADR-009]: adr.md#adr-009-keyboard-transport--usb-host-tinyusb
-[ADR-010]: adr.md#adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
+[ADR-010]: adr.md#adr-010-push-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
 [ADR-011]: adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest
 [ADR-012]: adr.md#adr-012-sd-on-its-own-spi3-host-not-shared-with-the-epd-on-spi2

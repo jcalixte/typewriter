@@ -5,7 +5,7 @@ mechanical keyboard. You write Markdown, you commit, you push. Nothing else
 runs on it.
 
 > **Status: v0.7 shipped, hardware on bench.** v0.1 (MVP — boots, edits,
-> publishes) shipped 2026-07-11; v0.2 through v0.7 (vim navigation and editing,
+> pushes) shipped 2026-07-11; v0.2 through v0.7 (vim navigation and editing,
 > file palette + multi-buffer, Markdown affordances, `/` search, `:gp` push /
 > `:gl` pull) followed within the week. Firmware is at 0.7.0; next up is v0.8
 > (battery + sleep). Live per-item status:
@@ -26,13 +26,13 @@ push (or don't) → close lid.
 Two file scopes coexist on the SD card — formal definitions in
 [`CONTEXT.md`](CONTEXT.md):
 
-- **Tracked** — lives in the git working copy, gets **Published** when the
+- **Tracked** — lives in the git working copy, gets **Pushed** when the
   user runs `:gp`.
 - **Local** — never leaves the device. Permanently-private: journal entries,
   scratch, things that aren't anyone else's business. There is no "promote
   to Tracked" gesture — scope is fixed at file creation.
 
-Same editor, same keymap; the difference is just whether `:gp` (publish to
+Same editor, same keymap; the difference is just whether `:gp` (push to
 the remote) is offered.
 
 ---
@@ -73,7 +73,7 @@ surface (mostly `usb_kbd.rs`) is in [`MEMORY_AUDIT.md`](MEMORY_AUDIT.md).
 | UI layer      | Custom thin widget layer                                                                            | Ratatui's API _shape_ without its char-grid terminal model ([ADR-002](docs/adr.md#adr-002-ui-strategy--custom-widgets-on-embedded-graphics-not-ratatui)).                                                                                                                                                                                                                                                                                     |
 | Editor core   | Custom, in-tree (`editor/` crate)                                                                   | Modal (Normal / Insert / Visual / VisualLine / View / Command / Palette), motions, operators + text objects; UTF-8 buffer fed by the dead-key composer; smartcase + accent-folded `/` search. Host-built and host-tested off the xtensa target.                                                                                                                                                                                               |
 | USB host      | `esp-idf` TinyUSB bindings                                                                          | Boot-protocol HID; verified on hardware (Spike 4).                                                                                                                                                                                                                                                                                                                                                                                            |
-| Git           | **libgit2 via `git2`**, built as an esp-idf component with mbedTLS (`firmware/components/libgit2/`) | `gix` was the original pick but can't push over HTTPS — the [ADR-004](docs/adr.md#adr-004-git-implementation--gitoxide-gix) kill-switch fired ([postmortem](docs/postmortems/2026-07-05-spike7-gix-https-push.md)). `:gp` publish + `:gl` pull verified on device; ~16 s cold-`:gp` [latency breakdown](docs/notes/sync-latency.md); how the real notes repo went from a 611 s brick to a 24 s sync: [kaizen](docs/kaizen/real-repo-sync.md). |
+| Git           | **libgit2 via `git2`**, built as an esp-idf component with mbedTLS (`firmware/components/libgit2/`) | `gix` was the original pick but can't push over HTTPS — the [ADR-004](docs/adr.md#adr-004-git-implementation--gitoxide-gix) kill-switch fired ([postmortem](docs/postmortems/2026-07-05-spike7-gix-https-push.md)). `:gp` push + `:gl` pull verified on device; ~16 s cold-`:gp` [latency breakdown](docs/notes/sync-latency.md); how the real notes repo went from a 611 s brick to a 24 s sync: [kaizen](docs/kaizen/real-repo-sync.md). |
 | TLS           | `mbedtls` via `esp-idf`                                                                             | GitHub HTTPS with the chain checked against embedded roots; ≈35 KB heap measured during handshake (Spike 6).                                                                                                                                                                                                                                                                                                                                  |
 | Auth          | HTTPS + GitHub PAT                                                                                  | v0.1 bakes credentials in at build time via `TW_*` env vars; provisioning + at-rest protection is [ADR-011](docs/adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest) (open), on-device settings land in v0.9.                                                                                                                                                                                    |
 | Filesystem    | FAT on SD (`esp_vfs_fat`)                                                                           | Working copy lives here (`/sd/repo` + `/sd/local`); editor prefs are a git-tracked [`.typoena.toml`](docs/typoena-toml.md) in the repo.                                                                                                                                                                                                                                                                                                       |
@@ -104,7 +104,7 @@ source live in [`docs/macroplan.md`](docs/macroplan.md).
 
 | Version                                                   | Theme        | One-liner                                    |
 | --------------------------------------------------------- | ------------ | -------------------------------------------- |
-| [v0.1](docs/macroplan.md#v01--mvp-it-writes-it-pushes--)  | MVP          | Boots, edits one file, `:gp` publishes.      |
+| [v0.1](docs/macroplan.md#v01--mvp-it-writes-it-pushes--)  | MVP          | Boots, edits one file, `:gp` pushes.      |
 | [v0.2](docs/macroplan.md#v02--vim-navigation--)           | Vim nav      | Normal/Insert, motions, line numbers.        |
 | [v0.2.5](docs/macroplan.md#v025--international-input--)   | Intl input   | US-Intl dead keys: à é ê ç, `'`+space = `'`. |
 | [v0.3](docs/macroplan.md#v03--vim-editing--)              | Vim edit     | `dd yy p`, undo/redo, counts.                |
@@ -150,7 +150,7 @@ source live in [`docs/macroplan.md`](docs/macroplan.md).
                           (ADRs, QFD, macroplan, per-version specs, spikes.md,
                           postmortems/, notes/, tradeoff-curves/, kaizen/)
 /hardware                 enclosure — parametric OpenSCAD case (case/) + renders
-CONTEXT.md                project glossary — Tracked / Local / Save / Publish, and
+CONTEXT.md                project glossary — Tracked / Local / Save / Push, and
                           the principles that fall out of them
 GLOSSARY.md               methodology glossary — the WHAT / Function /
                           Characteristic / Metric / Target ontology layers

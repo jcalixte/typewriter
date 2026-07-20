@@ -55,14 +55,14 @@ name = "v0.5 palette + multi-file"
 start = 2026-09-07
 original = 2026-09-28
 delivered = 2026-07-12
-learning = "Delivered 2026-07-12, well ahead of the 2026-09-28 baseline, and fully on-device confirmed. Four slices: the drained Effect queue + parked-buffer LRU foundation; the Cmd-P fuzzy file palette (Spike 11 — no ghosting on the transient panel); :enew + file delete (Spike 14 caught that add_all alone doesn't stage a deletion on this libgit2 — fixed with update_all, i.e. git add -A); and the git-tracked .typoena.toml prefs with a stay-open palette `>` command mode + :settings. Both directions of the prefs loop are proven on hardware — boot-read (byte-exact parse) and on-device palette edit (a device publish flipped line_numbers on origin). Three decide-before-build calls: the idle auto-save is unformatted, and both the per-device auto_sync override and the `> auto sync` command are deferred to v0.7 where auto_sync gains behaviour. Amended 2026-07-12: a light/dark `theme` key and a set-ahead `> auto sync` preset command (2m/5m/10m/15m/30m) were added on top — the palette generalised so Enter rotates any pref to its next value (a bool is the two-option case); auto_sync is still read by nothing until v0.7. Descoped from v0.5 (not the four slices): explicit buffer close, the grey-Publish-in-Local panel cue, and the multi-file publish count."
+learning = "Delivered 2026-07-12, well ahead of the 2026-09-28 baseline, and fully on-device confirmed. Four slices: the drained Effect queue + parked-buffer LRU foundation; the Cmd-P fuzzy file palette (Spike 11 — no ghosting on the transient panel); :enew + file delete (Spike 14 caught that add_all alone doesn't stage a deletion on this libgit2 — fixed with update_all, i.e. git add -A); and the git-tracked .typoena.toml prefs with a stay-open palette `>` command mode + :settings. Both directions of the prefs loop are proven on hardware — boot-read (byte-exact parse) and on-device palette edit (a device push flipped line_numbers on origin). Three decide-before-build calls: the idle auto-save is unformatted, and both the per-device auto_sync override and the `> auto sync` command are deferred to v0.7 where auto_sync gains behaviour. Amended 2026-07-12: a light/dark `theme` key and a set-ahead `> auto sync` preset command (2m/5m/10m/15m/30m) were added on top — the palette generalised so Enter rotates any pref to its next value (a bool is the two-option case); auto_sync is still read by nothing until v0.7. Descoped from v0.5 (not the four slices): explicit buffer close, the grey-Push-in-Local panel cue, and the multi-file push count."
 
 [[feature]]
 name = "v0.6 markdown"
 start = 2026-09-28
 original = 2026-10-12
 delivered = 2026-07-12
-learning = "Core complete 2026-07-12, ~92 days ahead of the 2026-10-12 baseline, host-tested (187 editor tests). The snippet feature was reshaped 2026-07-08→07-12 from a hard-coded table into a git-synced, Zed-compatible .typoena.snippets.json library: a forward-only tab-stop session ($1..$n/$0, ${n:label} stripped to $n) driven by two surfaces — inline Tab-expansion in Insert and a $ palette launcher — plus a quiet pause hint in the side panel. The Cmd-P palette generalised into a verb split: bare = files, > = a real command registry (toggles stay open, one-shots format/publish close, the parameterised `new file` two-step), $ = snippets — retiring :e. Firmware bumped 0.5.0→0.6.0; the boot-read of the library was confirmed to build for xtensa (serde_json, the one new dep — cargo check passes). `just init` now seeds a curated 17-snippet catalog (three opt-in groups). On-device smoke-test still pending (pure editor-core + a mirror of the proven prefs boot-read, low risk). Known caveat: two symbols the catalog inserts (arrow →, neq ≠) are outside ISO-8859-15, so they store/sync correctly but need a display-layer glyph overlay (in flight) to draw on the panel; the other 15 render on the stock font."
+learning = "Core complete 2026-07-12, ~92 days ahead of the 2026-10-12 baseline, host-tested (187 editor tests). The snippet feature was reshaped 2026-07-08→07-12 from a hard-coded table into a git-synced, Zed-compatible .typoena.snippets.json library: a forward-only tab-stop session ($1..$n/$0, ${n:label} stripped to $n) driven by two surfaces — inline Tab-expansion in Insert and a $ palette launcher — plus a quiet pause hint in the side panel. The Cmd-P palette generalised into a verb split: bare = files, > = a real command registry (toggles stay open, one-shots format/push close, the parameterised `new file` two-step), $ = snippets — retiring :e. Firmware bumped 0.5.0→0.6.0; the boot-read of the library was confirmed to build for xtensa (serde_json, the one new dep — cargo check passes). `just init` now seeds a curated 17-snippet catalog (three opt-in groups). On-device smoke-test still pending (pure editor-core + a mirror of the proven prefs boot-read, low risk). Known caveat: two symbols the catalog inserts (arrow →, neq ≠) are outside ISO-8859-15, so they store/sync correctly but need a display-layer glyph overlay (in flight) to draw on the panel; the other 15 render on the stock font."
 
 [[feature]]
 name = "v0.7 search + git"
@@ -112,7 +112,7 @@ The editor **core** has been built 2–3 versions ahead of the device
 **releases**, and is now **extracted into a host-testable `editor` crate** (plus
 a `display` crate for the panel framebuffer) so `cargo test` exercises it off the
 xtensa target. **v0.1 shipped 2026-07-11** (late against the 2026-06-29
-baseline): SD storage, save, and **git publish are all wired into the app binary
+baseline): SD storage, save, and **git push are all wired into the app binary
 and hardware-verified** (`:sync` commits on the SD `/sd/repo` and pushes to a
 test repo), and the **boot splash (Spike 9) is confirmed on the panel** — a
 vector `typoena`-in-a-circle shown at startup while the SD mounts, then the
@@ -140,7 +140,7 @@ on-device confirmed: the Cmd-P fuzzy palette, `:e`/`:enew`/delete across the
 `/sd/repo` + `/sd/local` scopes, and the git-tracked `.typoena.toml` prefs
 (boot-read plus a stay-open palette `>` command mode + `:settings` that edits them
 live and syncs the change). Descoped to later: explicit buffer close, the
-grey-Publish-in-Local panel cue, and the multi-file publish count.
+grey-Push-in-Local panel cue, and the multi-file push count.
 **v0.6 Markdown is COMPLETE in core 2026-07-12** (firmware **0.6.0**), host-tested
 (187 editor tests), on-device smoke-test pending. The render affordances (heading
 bold, list continuation, soft-wrap) were done early; the headline is the
@@ -148,7 +148,7 @@ bold, list continuation, soft-wrap) were done early; the headline is the
 prefix + Tab in Insert) and from a **`$` palette** launcher, fed by a git-synced,
 Zed-compatible `.typoena.snippets.json` read at boot (serde_json, confirmed to
 build for xtensa). The `Cmd-P` palette **generalised** into a verb split — bare =
-files, `>` = a command registry (toggles stay open, `format`/`publish` one-shots
+files, `>` = a command registry (toggles stay open, `format`/`push` one-shots
 close, a two-step `new file`), `$` = snippets — which **retired `:e`**. `just init`
 seeds a curated 17-snippet catalog (Symbols · Structure · Prose, opt-in). One
 caveat: `→`/`≠` sit outside ISO-8859-15 and need a display-layer glyph overlay
@@ -159,7 +159,7 @@ panel-confirmed, and `:gl` pull proven in all four shapes — the fast-forward
 closing gate passed with an O(changed) `apply_tree_diff` written after libgit2's
 `checkout_tree` crashed the device on run 2. TLS session resumption cut the
 rejected-push reconcile cycle from 59 s to 24 s, and `:sync` was renamed `:gp`.
-Still open post-v0.7: the warm clean-publish measurement, the images-off-card
+Still open post-v0.7: the warm clean-push measurement, the images-off-card
 decision, and the empty-note trailing-newline watch item.
 **v0.7.5 focus mode is DELIVERED 2026-07-17** (firmware **0.7.5**), an unplanned
 same-day insert specced/built/verified in one session: a silent-timer Pomodoro
@@ -189,7 +189,7 @@ checklist and status.
 ## v0.1 — MVP: "it writes, it pushes" — [x]
 
 The minimum thing that justifies the hardware existing — boot, type one file,
-`:w` to save, `:sync` to publish to GitHub. **SHIPPED 2026-07-11** (late vs the
+`:w` to save, `:sync` to push to GitHub. **SHIPPED 2026-07-11** (late vs the
 2026-06-29 baseline); cold boot verified at 4258 ms.
 **Design:** [product](v0.1-mvp-product.md) · [technical](v0.1-mvp-technical.md).
 

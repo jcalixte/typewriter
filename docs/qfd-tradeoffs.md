@@ -15,8 +15,8 @@ below.
 | T7  | FAT-on-SD + LittleFS-on-flash split             | Desktop can read SD; config survives SD reformat                                                     | Two filesystems to manage; FAT's power-loss weakness mitigated by atomic-rename                                                                       | [ADR-007] |
 | T8  | Wall power for v0.1, battery deferred           | Measure real draw before sizing the cell                                                             | Tethered MVP; not the final aesthetic                                                                                                                 | [ADR-008] |
 | T9  | USB host (TinyUSB) over BLE-HID                 | No radio contention with Wi-Fi during push; keyboard powered from the device                         | One more USB connector on enclosure                                                                                                                   | [ADR-009] |
-| T10 | Atomic Publish (`:gp`, was `Ctrl-G`) + auto-timestamp commit message | One action, one outcome; matches the user's existing `gct` workflow; no modal prompt to slow H1 latency | Commit history is timestamp noise; the device authors replay commits the user never sees; reversal would break muscle memory                          | [ADR-010] |
-| T11 | Splice commit over full index write             | Real-repo Publish exists at all: ~19–24 s vs 611 s / OOM on the index path; dirty-path journal makes it power-pull-safe | Desktop-side edits to the card are never committed by the device; hand-edits on a computer must be pushed from that computer                         | [sync-commit-staging](tradeoff-curves/sync-commit-staging.md) |
+| T10 | Atomic Push (`:gp`, was `Ctrl-G`) + auto-timestamp commit message | One action, one outcome; matches the user's existing `gct` workflow; no modal prompt to slow H1 latency | Commit history is timestamp noise; the device authors replay commits the user never sees; reversal would break muscle memory                          | [ADR-010] |
+| T11 | Splice commit over full index write             | Real-repo Push exists at all: ~19–24 s vs 611 s / OOM on the index path; dirty-path journal makes it power-pull-safe | Desktop-side edits to the card are never committed by the device; hand-edits on a computer must be pushed from that computer                         | [sync-commit-staging](tradeoff-curves/sync-commit-staging.md) |
 | T12 | Media stays in git, never on the card           | Killed `:gl`'s last OOM path; pull/apply touches text only; the repo stays whole for remote readers | Stale card media; phantom `git status` noise if the card is mounted on a computer; never hand-commit from the card                                   | (2026-07-14, `is_media_path`) |
 | T13 | Shallow clone + ~30 MB repo gate at onboarding  | First-run clone fits device memory and minutes-scale patience                                        | Repos over the gate are refused at the repo-pick step (libgit2 has no partial clone, so tip media would download even if never written)               | [wizard](v0.9-onboarding-wizard.md) |
 | T14 | Installer provisions the card, never flashes    | No USB-flash toolchain in the user path; devices ship pre-flashed; installer stays a small TUI      | Field firmware updates cannot lean on the installer: auto-update becomes a device-side problem (open, macroplan v1.x)                                | [installer/DESIGN.md](../installer/DESIGN.md) |
@@ -29,7 +29,7 @@ carries the trigger that would force the decision: a tension without a
 trigger is a decision being avoided, not deferred.
 
 - **FAT loose-object cost vs H7's v1.0 target** (falls out of T11). The
-  convicted residual of Publish latency is FAT's linear directory scans
+  convicted residual of Push latency is FAT's linear directory scans
   (~0.4 s per loose write against the 256-dir `objects/` fan-out), bounded
   at ≤ ~2 s per commit and **accepted** for now; the lever is pack-not-loose
   writes. Until then the ≤ 10 s v1.0 H7 target is not honest for deep
@@ -83,6 +83,6 @@ trigger is a decision being avoided, not deferred.
 [ADR-007]: adr.md#adr-007-storage-split--fat-on-sd-for-working-copy-littlefs-on-flash-for-config
 [ADR-008]: adr.md#adr-008-mvp-power--wall-powered-battery-deferred-to-v08
 [ADR-009]: adr.md#adr-009-keyboard-transport--usb-host-tinyusb
-[ADR-010]: adr.md#adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
+[ADR-010]: adr.md#adr-010-push-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
 [ADR-011]: adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest
 [ADR-012]: adr.md#adr-012-sd-on-its-own-spi3-host-not-shared-with-the-epd-on-spi2

@@ -111,7 +111,7 @@ Once integration lands, the costs of carrying media the device never renders:
 
 1. **Bandwidth for unusable bytes.** No partial fetch in libgit2, so a fetch
    pulls the full new image blobs. 20 MB of pasted screenshots = a 20 MB fetch
-   before a one-line note can publish.
+   before a one-line note can push.
 2. **~2× SD storage.** Each image lives in `.git` _and_ in the working-tree
    checkout that `checkout_head(force)` writes.
 3. **Memory — the real edge.** libgit2 tends to materialize a whole blob in
@@ -120,7 +120,7 @@ Once integration lands, the costs of carrying media the device never renders:
    risk on checkout. Verify on hardware (push a 20 MB image from remanso, watch
    `min_free_heap`) rather than trusting a read of libgit2 internals.
 
-**The trap:** `publish()` stages with `add_all(["*"])`. A sparse checkout that
+**The trap:** `push()` stages with `add_all(["*"])`. A sparse checkout that
 omitted images would make `add_all` see them as deleted → the device would
 commit "delete all images" and push it → remanso loses every image. So with
 the current staging, a full checkout is mandatory — which is what feeds costs
@@ -151,7 +151,7 @@ restores every image from `.git` if a clean tree is ever wanted.
 
 ## Related
 
-- `firmware/src/bin/git_sync.rs` — the persistent-clone publish cycle analysed
+- `firmware/src/bin/git_sync.rs` — the persistent-clone push cycle analysed
   here (milestone #2A).
 - ADR-010 — "writing tool, not sync engine": the principle this decision
   serves.

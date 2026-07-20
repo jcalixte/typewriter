@@ -36,7 +36,7 @@ theme. The `editor` crate is laid out this way.
 Adding a test:
 
 1. Put it in the theme file matching the surface it exercises. A test that spans
-   surfaces (e.g. edit → format → publish) goes with its _primary_ intent.
+   surfaces (e.g. edit → format → push) goes with its _primary_ intent.
 2. Need a helper used by more than one theme? Add it to `mod.rs`. A helper used
    by a single theme may stay in that theme file.
 3. New theme? Add `mod <name>;` to `mod.rs` and a `//!` one-liner to the file.

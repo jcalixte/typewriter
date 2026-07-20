@@ -10,7 +10,7 @@ Format inspired by Michael Nygard's ADR template, kept short on purpose.
 **Related docs:**
 [`../README.md`](../README.md) — project overview, hardware table, macro plan.
 [`../CONTEXT.md`](../CONTEXT.md) — project glossary: **Tracked**, **Local**,
-**Save**, **Publish**, plus the principles ("writing tool, not sync engine")
+**Save**, **Push**, plus the principles ("writing tool, not sync engine")
 that constrain [ADR-010] specifically.
 [`macroplan.md`](macroplan.md) — per-version scope (v0.1 → v1.x).
 [`v0.1-mvp-product.md`](v0.1-mvp-product.md) — what the v0.1 device must do.
@@ -447,7 +447,7 @@ if TinyUSB host turns out unstable
 
 ---
 
-## ADR-010: Publish UX — atomic `Ctrl-G`, auto-timestamp commit message, no user prompt
+## ADR-010: Push UX — atomic `Ctrl-G`, auto-timestamp commit message, no user prompt
 
 **Status:** Accepted — 2026-05-14
 **Scope:** Whole project, all releases.
@@ -467,7 +467,7 @@ with a `git pull --no-edit` fallback when the push fails non-fast-forward.
 | Option                                                                                    | Pros                                                                                                            | Cons                                                                                                                                                                                                       |
 | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Three separate gestures** (save / commit / push)                                        | Maximally git-native; user has fine control.                                                                    | Three keys to remember, three failure modes to surface, three concepts in the user's head. Wrong shape for an appliance whose job is to remove ceremony.                                                   |
-| **One gesture, prompt for message** (`Ctrl-G` → modal asking for message → commit → push) | Conventional "publish" pattern; each commit is named.                                                           | A modal prompt on e-ink is hostile (latency, full refresh); the user's actual workflow (`gct`) explicitly avoids authoring messages; messages would be noise (`"updated notes"` × 1000).                   |
+| **One gesture, prompt for message** (`Ctrl-G` → modal asking for message → commit → push) | Conventional "push" pattern; each commit is named.                                                           | A modal prompt on e-ink is hostile (latency, full refresh); the user's actual workflow (`gct`) explicitly avoids authoring messages; messages would be noise (`"updated notes"` × 1000).                   |
 | **One gesture, auto-timestamp message** (`Ctrl-G` mirrors `gct`)                          | Matches the user's real workflow; one key, one outcome; no prompts, no modes, no decisions in the writing path. | Commit history is timestamp-noise (useless for code archaeology); a future reader will wonder where the commit messages went; locks in a UX assumption that's hard to undo without breaking muscle memory. |
 
 ### Decision
@@ -479,7 +479,7 @@ retry). Failure surfaces as a single retry-able outcome in the status line.
 
 ### Consequences
 
-- The user's vocabulary collapses to **Save** and **Publish**;
+- The user's vocabulary collapses to **Save** and **Push**;
   [`CONTEXT.md`](../CONTEXT.md#user-facing-actions) pins this — _commit_ is
   not a user-facing term.
 - Commit history is a stream of timestamps. The device is a writing tool, not
@@ -499,11 +499,11 @@ The user contract held — one deliberate action, auto-message, atomic outcome,
 no prompt — but three mechanics drifted from the letter of this ADR as the
 implementation matured:
 
-- **The trigger is the `:gp` ex command, not `Ctrl-G`.** Publish shipped as
+- **The trigger is the `:gp` ex command, not `Ctrl-G`.** Push shipped as
   `:sync`, renamed `:gp` on 2026-07-14 to pair with `:gl` (pull); the palette
-  exposes it as `> publish`. The keymap has no `Ctrl-G` binding at all. The
+  exposes it as `> push`. The keymap has no `Ctrl-G` binding at all. The
   muscle-memory lock-in argument transferred intact to the ex command.
-- **The commit message is `Typoena publish — unix <epoch>`**
+- **The commit message is `Typoena push — unix <epoch>`**
   (`git_sync.rs`), not the ISO-8601 string this ADR specified. Same
   contract (device-authored timestamp noise, zero prompts), different
   format; nothing downstream parses it.
@@ -704,7 +704,7 @@ It wins decisively on the top three criteria and loses on none where `main` isn'
 trivially recoverable:
 
 - **Testability (the whole point):** the `Runtime` is driven through ports with
-  in-memory doubles, so save / delete / publish-dispatch / pull-dispatch /
+  in-memory doubles, so save / delete / push-dispatch / pull-dispatch /
   "a pull that moves the tree reloads the active buffer and rewalks" / every
   snackbar variant are now **host** tests (`app/src/runtime/tests.rs`). That logic
   used to live in `main.rs` and could only be exercised by flashing.
@@ -745,8 +745,8 @@ matching its host double:
   change (~525 ms).
 - **`Storage` (write):** opened `_inbox/2026-07-09.md` (695 B), edited in Insert, `:w`
   saved **703 B** to the card.
-- **`SyncService` (publish):** `:gp` brought Wi-Fi up, committed `8470d7ac`, and the
-  **push was accepted by the remote** (publish 28.8 s).
+- **`SyncService` (push):** `:gp` brought Wi-Fi up, committed `8470d7ac`, and the
+  **push was accepted by the remote** (push 28.8 s).
 - **`SyncService` (pull) + `FileIndex`:** `:gl` fast-forwarded `main`
   `8470d7ac → bcff040e` (2 files) and triggered the post-pull rewalk — the on-device
   counterpart of the `pull_that_moves_the_tree_reloads_active_and_rewalks` host test.
@@ -778,4 +778,4 @@ lowest-risk seam (a marker write + `esp_restart`, and its save leg is the now-pr
 [ADR-007]: #adr-007-storage-split--fat-on-sd-for-working-copy-littlefs-on-flash-for-config
 [ADR-008]: #adr-008-mvp-power--wall-powered-battery-deferred-to-v08
 [ADR-009]: #adr-009-keyboard-transport--usb-host-tinyusb
-[ADR-010]: #adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
+[ADR-010]: #adr-010-push-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt

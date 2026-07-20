@@ -50,7 +50,7 @@ needs **no repo checkout and no Rust toolchain** — just the card.
 - **Card-ambiguity refusal** — never guess when >1 removable volume; a wrong
   guess lets a write hit the wrong disk. Refuse and ask.
 - **`.typoena-dirty` guard** — refuse to overwrite a card that carries
-  unpublished device edits; offer backup-and-discard.
+  unpushed device edits; offer backup-and-discard.
 - **AppleDouble `._*`** — `dot_clean` before eject; `._pack-*.idx` corrupts the
   pack scan (Mac git *and* device libgit2).
 - **Token never derived** — it comes from the ^G sign-in or is typed, never
@@ -101,7 +101,7 @@ it.
   measure, and fall back to clone-to-temp-then-copy if it's too slow.
 - **Re-provision** — DONE for the destructive case: an existing card is handled
   by an explicit **wipe-and-reclone** (`y`-confirmed screen showing origin +
-  HEAD + unpublished-edit count; removes only `repo/` + the dirty journal, then
+  HEAD + unpushed-edit count; removes only `repo/` + the dirty journal, then
   clones fresh). Follow-ups: a config-only rewrite that rotates the PAT /
   switches Wi-Fi *without* recloning (like `just provision`), and backing up
   `.typoena-dirty` edits before wiping instead of only warning.

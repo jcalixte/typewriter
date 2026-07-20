@@ -27,7 +27,7 @@ default:
     @just --list
 
 # compile (release) — THE product firmware: editor + EPD + USB + SD + git
-# publishing (`:gp`/`:gl`) + `:update` OTA + onboarding wizard. Always the full
+# pushing (`:gp`/`:gl`) + `:update` OTA + onboarding wizard. Always the full
 # build (compiles libgit2 + mbedTLS, links git2). Editor/render logic is
 # host-tested off-device (`cargo test -p app -p editor`); after the first build
 # libgit2 is a cached esp-idf component, so on-device rebuilds are incremental.
@@ -303,7 +303,7 @@ init repo_src sd_volume="":
 # device's push needs the one-pack layout — see _load-repo), then rsync it
 # across (full clone, gitignored paths excluded) and eject — e.g. to refresh
 # the card after the device pushed new notes.
-# Refuses if the card's .typoena-dirty journal lists unpublished device edits
+# Refuses if the card's .typoena-dirty journal lists unpushed device edits
 # (:sync from the device first, or TW_DISCARD_UNPUBLISHED=1 to back up+discard).
 # --force wipes the card's repo/ + dirty journal first for a from-scratch copy
 # (recovers a corrupt or half-written card clone; journaled files still get the
@@ -383,7 +383,7 @@ repro-foreign-card sd_volume="":
 # Reformat a card to an empty FAT32 volume and eject — a blank slate for testing
 # the first-boot wizard (no repo/, no typoena.conf, no .typoena-dirty). Runs the
 # installer's headless `--wipe`: it prints exactly what's about to be erased
-# (device, size, any unpublished device edits), asks once y/N, then streams the
+# (device, size, any unpushed device edits), asks once y/N, then streams the
 # erase (+ eject). Removable-only detection means it can't touch the internal
 # disk; FAT32 is what the device mounts (esp_vfs_fat, format_if_mount_failed=
 # false). The label is uppercased to ≤11 chars by diskutil. Args pass straight
@@ -457,10 +457,10 @@ _load-repo repo_src vol wipe="":
     wipe="{{wipe}}"
     [ -d "$src/.git" ] || { echo "error: '$src' is not a git repo (no .git/)"; exit 1; }
 
-    # ── unpublished-work guard ───────────────────────────────────────────────
+    # ── unpushed-work guard ───────────────────────────────────────────────
     # /sd/.typoena-dirty (card root — outside the repo/ rsync scope) lists the
     # repo-relative paths the device saved or `:delete`d but never confirmed
-    # published; the device clears it only on a confirmed push, so it also
+    # pushed; the device clears it only on a confirmed push, so it also
     # covers any stranded splice commit in repo/.git. Mirroring repo/ over
     # those edits while the journal survives is worse than losing them: the
     # device's next :sync splices the journaled paths from the mirrored tree,
@@ -470,7 +470,7 @@ _load-repo repo_src vol wipe="":
     # leaves no stale journal behind.
     journal="{{vol}}/.typoena-dirty"
     if [ -s "$journal" ]; then
-        echo "card carries unpublished device edits (.typoena-dirty):" >&2
+        echo "card carries unpushed device edits (.typoena-dirty):" >&2
         sed 's/^/    /' "$journal" >&2
         if [ -z "${TW_DISCARD_UNPUBLISHED:-}" ] && [ -z "$wipe" ]; then
             echo "error: loading would overwrite these with the Mac clone and strand the journal." >&2
@@ -489,7 +489,7 @@ _load-repo repo_src vol wipe="":
             fi
         done < "$journal"
         rm -f "$journal"
-        echo "journal cleared; unpublished files backed up to $rescue" >&2
+        echo "journal cleared; unpushed files backed up to $rescue" >&2
     fi
 
     origin="$(git -C "$src" remote get-url origin 2>/dev/null || true)"

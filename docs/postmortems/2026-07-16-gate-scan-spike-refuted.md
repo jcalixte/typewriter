@@ -98,7 +98,7 @@ Known costs, which is why this stays parked:
   unbalanced one can permanently degrade the panel over months.
 - **Temperature** — the OTP LUT is selected per temperature reading; one
   custom table behaves differently cold vs warm.
-- **No reference** — the OTP waveform isn't published; this is
+- **No reference** — the OTP waveform isn't pushed; this is
   reverse-engineering with the panel as the test bench.
 
 Today's ~545 ms per keystroke *batch* (not per keystroke) is acceptable for

@@ -19,7 +19,7 @@ device — only the toy test repo has. Full measurement trail:
 | ----------------------------------------------- | ------------------------------------------------------- |
 | + words safely on the remote with one keystroke | – waiting on a frozen device                            |
 | + trust that `:sync` completes, every time      | – power-cycling mid-sync and losing the session's trust |
-| + keep writing while it publishes               | – babysitting git from a desktop to rescue the card     |
+| + keep writing while it pushes               | – babysitting git from a desktop to rescue the card     |
 
 **Measurement**: seconds from `:sync` to the snackbar, on the real
 `jcalixte/notes` clone on the device.
@@ -185,7 +185,7 @@ fn stage_and_commit(repo: &Repository, paths: &BTreeSet<String>) -> Result<Optio
         let spliced = splice(repo, tree.as_ref(), &parts(path), blob)?;
         tree = Some(repo.find_tree(spliced)?);
     }
-    // … same "tree unchanged → nothing to publish" check, same commit call
+    // … same "tree unchanged → nothing to push" check, same commit call
 }
 
 /// Reads ~depth tree objects, writes ~depth new ones; every sibling entry is
@@ -237,7 +237,7 @@ xychart-beta
     line [10, 10]
 ```
 
-Split: Wi-Fi bring-up 3.7 s + clock/TLS 0.6 s + publish 19.8 s (splice 5.0 s,
+Split: Wi-Fi bring-up 3.7 s + clock/TLS 0.6 s + push 19.8 s (splice 5.0 s,
 commit-obj 1.2 s, push ≈ 6.1 s, repo open/journal/refs the rest). The ≤ ~10 s
 target line is **not yet met** — but the failure mode changed category: from
 "bricks the device, forever" to "a finite number to shave".
@@ -327,7 +327,7 @@ three runs earlier), mmap live 1868 KB, odb cache 70 KB.
 **Next steps** (each now owned by a version doc or done — this list is the
 historical record, the owner is authoritative)
 
-- Close the gap to the ≤ ~10 s target: publish is 19.8 s; the splice's 5.0 s
+- Close the gap to the ≤ ~10 s target: push is 19.8 s; the splice's 5.0 s
   and the ~7 s of repo-open/negotiation overhead are the next curves.
   → [v0.7](../v0.7-search-and-git.md).
 - The keep-alive race is **avoided, not fixed** (3.5 s ≪ ~30 s) — a future

@@ -176,7 +176,7 @@ the Xtensa GCC to `PATH`):
 Then from this directory, `just build` — the product firmware:
 
 ```sh
-just build   # the product firmware: editor + git publishing + OTA + wizard
+just build   # the product firmware: editor + git pushing + OTA + wizard
 ```
 
 The first build is slow (the esp-idf C sources are checked out and built
@@ -187,7 +187,7 @@ off-device (`cargo test -p app -p editor`), which is the fast iteration loop.
 
 ### The `full` feature — why libgit2 stays behind a switch
 
-Publishing (`:gp`/`:gl` → git) and `:update` (OTA) drag in libgit2 + mbedTLS
+Pushing (`:gp`/`:gl` → git) and `:update` (OTA) drag in libgit2 + mbedTLS
 (compiled as an esp-idf component) and the `git2` crate — expensive to build.
 The `firmware` bin sets `required-features = ["full"]`, so the product firmware
 always has them. `full` is nonetheless **off by default**, for one reason: a

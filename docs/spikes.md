@@ -45,7 +45,7 @@ risk early.
    row than the cursor costs a **second** windowed-Y band — burning the "20 partials
    → forced full refresh" ghosting counter twice as fast (render module). That sorts
    what the panel may hold: static (filename, dirty), event-driven (mode, Wi-Fi,
-   keyboard-disconnect, publish state), and throttled (clock, word count, session)
+   keyboard-disconnect, push state), and throttled (clock, word count, session)
    fields only — nothing that repaints per keystroke, so no live cursor _column_.
    The panel sits entirely in the master half (right of the `x = 396` seam), so its
    glyphs never split the seam; the writing column still straddles it, as today.
@@ -143,7 +143,7 @@ risk early.
     disabled). **Delete** extends v0.5 scope (the roadmap lists `:enew` but not
     delete): removing the currently-open buffer must close it and fall back to
     another resident buffer or an empty one, and — the load-bearing check — the
-    FAT unlink must reach the next Publish's _staged_ set, which the git
+    FAT unlink must reach the next Push's _staged_ set, which the git
     module's `git add .`-equivalent staging may not catch for removals (needs
     `git rm` / `add -A` semantics —
     [`git` module](v0.1-mvp-technical.md#git--commit--push)). Prove:

@@ -21,7 +21,7 @@ typoena.dev site with its `install.sh` one-liner, and the Typoena GitHub App
 (device-flow auth shared by installer and on-device wizard). The remaining
 v0.8–v1.0 trajectory ([README](../README.md), [macroplan](macroplan.md)) is
 kept in mind so we don't paint into a corner. Terminology
-(e.g. **Tracked**, **Local**, **Save**, **Publish**) follows the project
+(e.g. **Tracked**, **Local**, **Save**, **Push**) follows the project
 glossary at [`../CONTEXT.md`](../CONTEXT.md); the WHAT / Function /
 Characteristic / Metric / Target ontology is defined in
 [`../GLOSSARY.md`](../GLOSSARY.md).
@@ -57,7 +57,7 @@ lives on the same page as the tables it mirrors.
 ## What matters now (as of 2026-07-17)
 
 **Top engineering priorities** ([§3](qfd-house-1.md#3-house-of-quality--whats--hows),
-by basement Σ): H9 heap during Publish (193) · H1 type latency (178) ·
+by basement Σ): H9 heap during Push (193) · H1 type latency (178) ·
 H2 refresh area per keystroke (177) · H12 network reconnect (160) ·
 H8 save durability (156).
 
@@ -75,7 +75,7 @@ W16/flow re-score) · C12 libgit2 #3 · C2 std runtime #4.
 - **H17 reach cost and H16 onboarding duration are unmeasured** — the
   two budget rows that have never been clocked (≤ 6 keystrokes median;
   ≤ 10 min blank-card-to-cursor).
-- **H7's v1.0 ≤ 10 s Publish target is not honest on deep paths**
+- **H7's v1.0 ≤ 10 s Push target is not honest on deep paths**
   (~12–13 s root-level warm): FAT loose-object residual, lever =
   pack-not-loose writes, deferred to a perf pass.
 

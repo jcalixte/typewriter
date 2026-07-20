@@ -30,7 +30,7 @@ Mirrors the v0.1 `git` module contract:
 1. open the working copy
 2. stage with `git add --all` semantics (**deletions propagate** — needed for
    v0.5 file-delete)
-3. short-circuit when nothing is staged → "nothing to publish"
+3. short-circuit when nothing is staged → "nothing to push"
 4. commit; author from config, message = an ISO-8601 timestamp (the time _is_
    the message)
 5. push `HEAD` to `origin/<branch>` over HTTPS, PAT in the credential callback
@@ -44,7 +44,7 @@ Mirrors the v0.1 `git` module contract:
 Run live against a local `file://` bare remote (no credentials):
 
 - **first commit + push** from an unborn `HEAD` → lands in origin ✅
-- **nothing to publish** short-circuits when the index matches `HEAD` ✅
+- **nothing to push** short-circuits when the index matches `HEAD` ✅
 - **divergence**: a second clone advances origin → push rejected → `pull
 --no-edit` merges cleanly → retry push succeeds, origin gets a two-parent
   merge commit ✅

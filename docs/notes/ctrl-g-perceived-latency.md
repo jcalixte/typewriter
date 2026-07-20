@@ -2,12 +2,12 @@
 
 > Why a 10-second keystroke on a typewriter I'm building doesn't have to feel slow.
 
-I'm building a small device called **Typoena**: an e-ink panel, a mechanical keyboard, an ESP32-S3, and a single purpose. You open the lid, you write Markdown, you press a key to publish it to GitHub. There is no browser, no notification tray, no second app — the hardware enforces focus the way software can't.
+I'm building a small device called **Typoena**: an e-ink panel, a mechanical keyboard, an ESP32-S3, and a single purpose. You open the lid, you write Markdown, you press a key to push it to GitHub. There is no browser, no notification tray, no second app — the hardware enforces focus the way software can't.
 
 The whole product surface is two user-facing actions:
 
 - **Save** (`Ctrl-S`) — write the buffer to the SD card. ~200 ms.
-- **Publish** (`Ctrl-G`) — ship the working copy to the git remote. **5–10 seconds.**
+- **Push** (`Ctrl-G`) — ship the working copy to the git remote. **5–10 seconds.**
 
 The same kind of keystroke, but one takes 50× longer than the other. The physical keypress is ~150 ms either way — key down, debounce, USB report, key up. On `Ctrl-S` that's _most_ of the perceived time; on `Ctrl-G` it's barely the first sliver of a long process. And the human perception threshold for "instant" is around 100 ms, so the gap isn't just a number on paper.
 

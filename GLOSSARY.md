@@ -1,7 +1,7 @@
 # Glossary
 
 Methodology vocabulary for this project's design docs. Device-specific
-vocabulary (Save, Publish, Recover, Tracked, Local, …) lives in
+vocabulary (Save, Push, Recover, Tracked, Local, …) lives in
 [`CONTEXT.md`](CONTEXT.md).
 
 ## Ontology stack
@@ -14,7 +14,7 @@ Five layers, top to bottom:
 
 2. **Function** — a transformation the device performs (verb,
    input → output). Lives in [`docs/qfd-house-1.md`](docs/qfd-house-1.md) §2's
-   Functions inventory. Examples: Type, Save, Publish, Recover,
+   Functions inventory. Examples: Type, Save, Push, Recover,
    Boot, Provision.
 
 3. **Characteristic** ≡ **HOW** — a measurable attribute of a

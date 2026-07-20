@@ -795,6 +795,6 @@ its breadth-based rank reads low exactly the way H8's once did in House 1
 [ADR-007]: adr.md#adr-007-storage-split--fat-on-sd-for-working-copy-littlefs-on-flash-for-config
 [ADR-008]: adr.md#adr-008-mvp-power--wall-powered-battery-deferred-to-v08
 [ADR-009]: adr.md#adr-009-keyboard-transport--usb-host-tinyusb
-[ADR-010]: adr.md#adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
+[ADR-010]: adr.md#adr-010-push-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
 [ADR-011]: adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest
 [ADR-012]: adr.md#adr-012-sd-on-its-own-spi3-host-not-shared-with-the-epd-on-spi2

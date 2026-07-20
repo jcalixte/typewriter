@@ -52,7 +52,7 @@ exact v0.1 `git` module contract:
 
 - **first commit + push** from an unborn `HEAD` (fresh clone of an empty repo)
   → the commit lands in origin. Message is an ISO-8601 timestamp.
-- **nothing to publish** → short-circuits when the staged tree matches `HEAD`.
+- **nothing to push** → short-circuits when the staged tree matches `HEAD`.
 - **divergence** → a second clone advances origin; the first clone's push is
   rejected, `pull --no-edit` merges cleanly (different files), the retry push
   succeeds, and origin ends with a correct two-parent merge commit.
@@ -69,7 +69,7 @@ Implementation notes that carry into the real module:
 
 - **`git add --all` semantics.** libgit2's `index.add_all(["*"], DEFAULT)` stages
   new + modified + **deleted** paths, unlike a naive `git add .`. v0.5 file-delete
-  needs removals to reach the next Publish's staged set — this is that behavior.
+  needs removals to reach the next Push's staged set — this is that behavior.
 - **Push rejection is not always a `push()` error.** A non-fast-forward can come
   back as a transport `Err` (local transport did this) _or_ silently via the
   `push_update_reference` callback with a status string while `push()` returns
@@ -233,7 +233,7 @@ up.
   shallow+sparse or a dedicated small repo (ADR-007), can't clone whole.
 - [x] Move git to a dedicated large-stack task so the shared main-task stack (and
       the editor build) can drop back — **DONE + hardware-verified 2026-07-06**.
-      `git_publish` now runs on its own `std::thread` (`GIT_STACK = 96 KB` via
+      `git_push` now runs on its own `std::thread` (`GIT_STACK = 96 KB` via
       `Builder::stack_size`; main joins it), and `CONFIG_ESP_MAIN_TASK_STACK_SIZE`
       dropped 98304 → **12288** (the Spike-6 value proven with the editor +
       TLS-on-main). On-device push succeeded off-main — no panic/overflow, no
@@ -442,7 +442,7 @@ false` for every OID and an empty objects dir, isolating it to the _write_
   is HTTPS-only (mbedTLS build; no ssh client, libssh2 unported), and the proven
   path is HTTPS+PAT, so the product keeps ADR-005 rather than porting SSH. The
   real project remote (`git@github.com:jcalixte/typewriter.git`, SSH) stays for
-  desktop/human use; the device publishes over an HTTPS remote + token (stored
+  desktop/human use; the device pushes over an HTTPS remote + token (stored
   securely, not in flash). No libssh2 port needed.
 
 ## Artifacts (this session)

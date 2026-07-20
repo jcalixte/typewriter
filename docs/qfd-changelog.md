@@ -31,9 +31,9 @@ anchors unchanged.
   roadmap entry.
 - **Vocabulary leak.** Earlier docs used "commit" and "push" as if they
   were distinct user actions; the gct/[ADR-010] model collapses them into a
-  single user-facing **Publish**. Resolved by introducing
+  single user-facing **Push**. Resolved by introducing
   [`CONTEXT.md`](../CONTEXT.md) as the canonical glossary; user-facing text
-  now uses **Save** and **Publish** only.
+  now uses **Save** and **Push** only.
 - **House of Quality column sums recomputed.** Earlier Σ row drifted from
   the matrix arithmetic: H1 listed 138 but sums to 148; H8 147 vs 132;
   H9 162 vs 172; H13 74 vs 65; smaller deltas elsewhere. Recomputed all
@@ -106,16 +106,16 @@ anchors unchanged.
   in the name. (b) Measure or behaviour assertion instead of attribute:
   H6's "success rate" is a metric; H8 "Save survives power loss after
   status confirms" is a behaviour assertion. Renamed to pure attributes
-  under outcome-shaped conditions: H6 = "Publish reliability (network
-  up)", H7 = "Publish latency (one file)", H8 = "Save durability
+  under outcome-shaped conditions: H6 = "Push reliability (network
+  up)", H7 = "Push latency (one file)", H8 = "Save durability
   (post-confirm power loss)", H12 = "Network reconnect time (transient
   outage)". H7's "latency" pairs with H1's "Type latency".
   Matrix cell strengths held; no Σ recompute.
 - **Functions surfaced as their own ontology layer.** Earlier, the
   HOW names packed both a function reference and an attribute
-  ("Publish reliability" = Publish [function] + reliability
+  ("Push reliability" = Push [function] + reliability
   [attribute]) without Functions being defined anywhere. §2 now
-  opens with a Functions inventory (Type, Save, Publish, Recover,
+  opens with a Functions inventory (Type, Save, Push, Recover,
   Boot, Provision) so the function names HOWs reference have a
   single source of truth. Render and Reconnect remain sub-functions
   referenced inside HOW names; they did not earn top-level slots in
@@ -175,12 +175,12 @@ anchors unchanged.
   §6 rank-2 fallback, and the §7 row all rewritten to the libgit2 reality.
   Lesson for the "keep this honest" list: an ADR outcome edit must cascade
   here the same day.
-- **`Ctrl-G` → `:gp` swept (2026-07-16).** Publish moved off Ctrl-G to the
+- **`Ctrl-G` → `:gp` swept (2026-07-16).** Push moved off Ctrl-G to the
   `:gp` ex command (`:sync` → `:gp` rename 2026-07-14); the keymap has no
   Ctrl-G binding at all. W2's rationale and §7's [ADR-010] row updated, and
   [ADR-010] itself was amended the same day with an as-shipped Outcome
   section covering all three of its drifts: the `:gp` trigger, the
-  `Typoena publish — unix <epoch>` message (not ISO-8601), and
+  `Typoena push — unix <epoch>` message (not ISO-8601), and
   replay-not-merge on rejected pushes (the "device may author merge
   commits" consequence never materialised).
 - **Config landed on the card, not in encrypted internal flash
@@ -381,6 +381,6 @@ README, the product/technical docs, and [ADR-003] are all updated to ~13 lines
 [ADR-007]: adr.md#adr-007-storage-split--fat-on-sd-for-working-copy-littlefs-on-flash-for-config
 [ADR-008]: adr.md#adr-008-mvp-power--wall-powered-battery-deferred-to-v08
 [ADR-009]: adr.md#adr-009-keyboard-transport--usb-host-tinyusb
-[ADR-010]: adr.md#adr-010-publish-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
+[ADR-010]: adr.md#adr-010-push-ux--atomic-ctrl-g-auto-timestamp-commit-message-no-user-prompt
 [ADR-011]: adr.md#adr-011-credential-provisioning--how-the-pat-reaches-the-device-and-is-protected-at-rest
 [ADR-012]: adr.md#adr-012-sd-on-its-own-spi3-host-not-shared-with-the-epd-on-spi2
