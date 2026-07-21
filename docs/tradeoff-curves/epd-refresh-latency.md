@@ -64,17 +64,27 @@ windowed — the clear waveform needs the whole panel.
 All measured on-device via the per-refresh log
 (`{mode} refresh #N … {ms} ms` in [`main.rs`](../../firmware/src/main.rs)):
 
-```mermaid
-xychart-beta
-    title "Partial refresh: measured (bars) vs refuted 90 + 2·rows model (line)"
-    x-axis ["20 rows (windowed)", "272 rows (full-area)", "272 rows (boot 1st)"]
-    y-axis "latency (ms)" 0 --> 700
-    bar [543, 629, 680]
-    line [130, 634, 634]
+```
+  latency (ms)   Partial refresh: latency vs rows driven
+  700 |
+      |                                             m  ← measured, boot (680)
+  600 |                                          m  o  ← 272 rows: measured ≈
+      |                                      ····'        model, ~630 ms (the
+  500 |  m·······························                  model was fitted here,
+      |                            ····'                  so it held until the
+  400 |                        ····'                      first windowed bench)
+      |                    ····'
+  300 |                ····'          m = MEASURED partial: flat, set by the
+      |            ····'                  LUT (~540 ms) — rows barely matter
+  200 |        ····'                  o = MODEL 90 + 2·rows: a rows-slope the
+      |    ····'                          panel never had — at 20 rows it
+  100 |  o'                               predicted 130 ms, panel measured 543
+    0 +----+-------------------------------------+---→
+        20 rows                               272 rows
 ```
 
-Bars are the measured partials; the line is what the old linear model
-predicted. At 272 rows the two agree within 5 ms — that's where the model was
+The `m` points are the measured partials; the `o` line is what the old linear
+model predicted. At 272 rows the two agree within 5 ms — that's where the model was
 calibrated, which is how it survived until the first windowed bench. The
 20-row point (543 ms measured vs ~130 ms predicted) is the refutation.
 
@@ -218,23 +228,29 @@ minimal write.
 | 10 MHz | ~563 | 623–628 | clean | −68 ms full-area vs same-session 4 MHz; windowed flat | 2026-07-17 |
 | **20 MHz** | ~565 | 569–574 | clean (short test) | **kept — full-area now ≈ windowed**; −122 ms full-area vs same-session 4 MHz, beat the ~20 ms estimate | 2026-07-17 |
 
-```mermaid
-xychart-beta
-    title "Refresh latency vs EPD SPI clock — full-area converges on the waveform floor"
-    x-axis ["4 MHz", "10 MHz", "20 MHz"]
-    y-axis "latency (ms)" 520 --> 720
-    line [693, 625, 571]
-    line [565, 563, 565]
+```
+  latency (ms)   Refresh latency vs EPD SPI clock — full-area falls to the floor
+  700 |F
+      | ···
+  650 |     ····
+      |         ·F
+  600 |               ·
+      |                     ·
+  560 |W·········W···········F   ← windowed (typing) stays flat;
+      |                            full-area converges onto it
+  520 +----------+-----------+---→  ~543 ms waveform floor
+       4 MHz     10 MHz      20 MHz
+      F = full-area partial (272 rows)   W = windowed one-line (typing path)
 ```
 
-Upper (descending) line = full-area partial (272 rows); lower flat line ≈ 565 ms
-= windowed one-line partial (the typing path). Both sit just above the ~543 ms
-canonical waveform floor. The curve is the whole story: raising the clock only
-drains the SPI term, so the full-area line falls toward the windowed line and
-stops — past 20 MHz there's nothing left to drain. **Read the shape, not the
-slope:** the x-axis is categorical (mermaid limitation), so 4/10/20 MHz are drawn
-evenly spaced though the real gaps are 2.5× then 2×; the diminishing return is
-even sharper than the picture suggests.
+The upper (descending) `F` series = full-area partial (272 rows); the lower flat
+`W` series ≈ 565 ms = windowed one-line partial (the typing path). Both sit just
+above the ~543 ms canonical waveform floor. The curve is the whole story: raising
+the clock only drains the SPI term, so the full-area line falls toward the
+windowed line and stops — past 20 MHz there's nothing left to drain. **Read the
+shape, not the slope:** the x-axis is drawn roughly linear in MHz, so the 4→10
+step sits narrower than 10→20; the real gaps are 2.5× then 2×, so the diminishing
+return past 10 MHz is even sharper than the picture suggests.
 
 **Result: 20 MHz kept.** Full-area collapsed to ~571 ms — within ~6 ms of the
 windowed typing path (~565 ms), so a full-panel repaint is now essentially
@@ -357,21 +373,26 @@ below the ~495 ms floor.
 | **`0x08`** | **~265** | **~300** | **solid black** | **none seen** | **KEPT — −155 ms (~37 %) vs 0x04; committed `371bba7`, device-confirmed** | 2026-07-21 |
 | `0x0C` | ~382 | ~422 | black | slightly more | **worse** — slower *and* ghostier than 0x08 | 2026-07-21 |
 
-```mermaid
-xychart-beta
-    title "Custom 0x32 partial: latency vs FR frame-rate byte (non-monotonic; 0x08 is the floor)"
-    x-axis ["FR 0x04", "FR 0x08", "FR 0x0C"]
-    y-axis "latency (ms)" 250 --> 480
-    line [456, 300, 422]
-    line [420, 265, 382]
+```
+  latency (ms)   Custom 0x32 partial: latency vs FR frame-rate byte
+  460 |F
+  420 |W  ·                   F   ← both paths dip to a minimum at 0x08
+  380 |   · ·             ·   W     and rise again: FR is non-monotonic,
+  340 |      · ·      ·   ·         not a linear frame period
+  300 |        ·  F   ·          ← 0x08 = fastest that still fully darkens
+  260 |           W                 (do NOT raise past 0x08 blind)
+  250 +----------+-----------+---→
+       0x04       0x08        0x0C
+      FR byte (0x32 tail, index 224)
+      F = full-area partial (272 rows)   W = windowed one-line (typing path)
 ```
 
-Upper line = full-area partial (272 rows); lower = windowed one-line typing path.
-Both dip to a minimum at `0x08` and rise again at `0x0C` — **FR is non-monotonic**,
-so it is *not* a linear frame period; the byte's encoding is undocumented by the
-vendor, and `0x08` is simply the fastest of the sampled values that still fully
-darkens. Do not raise past `0x08` blind. (x-axis categorical, mermaid limitation —
-the real values 4/8/12 happen to be evenly spaced, so here the spacing is honest.)
+The `F` series = full-area partial (272 rows); `W` = windowed one-line typing
+path. Both dip to a minimum at `0x08` and rise again at `0x0C` — **FR is
+non-monotonic**, so it is *not* a linear frame period; the byte's encoding is
+undocumented by the vendor, and `0x08` is simply the fastest of the sampled
+values that still fully darkens. Do not raise past `0x08` blind. (The sampled
+values 4/8/12 are evenly spaced, so the x-axis spacing here is honest.)
 
 **Why the ink stays solid black while the refresh drops ~37 %** — the
 counter-intuitive part, worth stating because it looks like a free lunch. It isn't

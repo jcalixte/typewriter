@@ -105,12 +105,18 @@ arrives, so there is still no reason to stay reachable.)
 `E(T) = K / T` with the revised `K ≈ 36 mAh·min/hr` (≈ 0.6 mAh per dirty
 sync):
 
-```mermaid
-xychart-beta
-    title "Wi-Fi energy vs auto-sync interval (placeholder currents)"
-    x-axis "interval (min)" ["1", "2", "5", "10", "15", "30", "60"]
-    y-axis "mAh/hr" 0 --> 36
-    bar [36, 18, 7.2, 3.6, 2.4, 1.2, 0.6]
+```
+  mAh/hr   Wi-Fi energy per hour vs auto-sync interval  —  E(T) = K / T
+   36 |*
+      |  ·              left of the knee, each extra sync/hr pays a full
+   18 |     *           splice + radio burst for ~zero payload benefit
+      |       ·····*
+    9 |            ·····*·····*·········*···········*   flat tail: past
+    0 +----+------+----+-----+---------+-----------+--→ ~10 min, longer
+       1    2      5    10    15        30          60  intervals save
+                interval (min)                          almost nothing
+                └─ knee 5–10 min ─┘   (placeholder currents; exact
+                                       values in the table below)
 ```
 
 The knee sits at **5–10 min**: left of it, every extra sync per hour costs a
