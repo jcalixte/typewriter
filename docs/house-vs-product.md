@@ -175,6 +175,95 @@ flagged it.
 
 ---
 
+## D3 — Focus mode acts on its own, and W8 says the UI must not
+
+**Opened 2026-07-22 · OPEN.**
+
+**The claim** (this audit): focus mode — the silent Pomodoro behind `:focus`
+(v0.7.5) — is a shipped feature that **no WHAT names**, and its behaviour runs
+against one that exists. `Panel::rest_if_due` ([`app/src/render.rs`](../app/src/render.rs),
+called from the idle/pause branch of the run loop, `runtime.rs:244`) drops a
+full-screen Rest card **on a timer**: at the first typing pause after a block
+completes, with no keystroke from the writer. W8 is "the UI never moves except
+when I move it" (weight 7, scores **4** on the perception table). A card that
+appears on a clock is the UI moving when the writer didn't move it. W7 ("nothing
+on the device competes with prose", weight 8) reads a non-prose full-screen card
+as a competing surface.
+
+**What the house says instead:** the house has no row for timeboxing, rest, or
+writing *practice*. The nearest WHATs — W7 (absence of distraction) and W8 (UI
+stillness) — both point *against* an autonomous card, not for it. Focus mode was
+never scored, for or against; it shipped anyway.
+
+**Evidence:** `rest_if_due` is gated only on the focus block length plus a typing
+pause, never on a key; the card is `Mode::Rest`, a full-screen surface like
+`:about`. It is opt-in via `:focus`, so the writer consents to the *mode* — but
+not to each individual card, and the card is the W8-relevant event.
+
+**The reconciliation (focus mode is Shitsuke; W8 needs a carve-out or the card
+must soften).** [D1](#d1--flow-is-the-products-center-and-the-house-cant-see-it)
+already found this category and marked it unbuilt: the 5S table's **Shitsuke —
+"whatever makes the device sustain a writing *practice*, not just a session"** was
+the single row with no product behind it. Focus mode is the first concrete
+Shitsuke. So the honest reading is not "focus mode violates W8" but "the house is
+missing the WHAT focus mode serves, and W8 was written before any
+sustain-the-practice feature existed." Two exits: **(a)** add a practice/Shitsuke
+WHAT ("the device sustains a session's rhythm, not just its keystrokes"), against
+which the autonomous card is a *feature*, and give W8 an explicit carve-out for
+user-armed timers; or **(b)** if no such WHAT is wanted, change the card — arm it
+but let it wait for the *next* pause the writer takes on their own, so it never
+interrupts and W8 stays literal.
+
+**Trigger to resolve:** the next House-1 re-score (same trigger as
+[D2](#d2--refresh-area-is-not-a-latency-lever); take them together) must decide
+whether a practice WHAT joins the house and whether W8's "except when I move it"
+carves out user-armed autonomy. Early trigger: any **second** autonomous surface
+(a break reminder, a daily-goal nudge) — one is a mode, two is a pattern the house
+must price before it accretes. Recorded from this audit; connects to D1's unbuilt
+Shitsuke row.
+
+---
+
+## D4 — The font picker may over-serve W13
+
+**Opened 2026-07-22 · OPEN.**
+
+**The claim** (this audit): the baked-font feature (`font` pref + a Font row in
+the `>` palette cycling six options — the built-in default plus five baked
+families; landed 2026-07-21) is the **first concrete delivery of W13 "Typography
+sets a writing-tool tone"**, a WHAT that until now had no HOW behind it (every
+H-column is a performance characteristic; none rendered type). So it is
+need-driven, not feature-factory output. But W13 asks for a *tone*, and tone is a
+quality a designer *sets*, not a knob the user cycles. The product shipped a
+six-way live picker where W13 arguably wanted one well-chosen default.
+
+**What the house says instead:** W13 is a *tone* WHAT — a felt quality — not a
+*customization* WHAT. Nothing in the house asks for user-selectable typography;
+the picker answers a question the house never posed.
+
+**Evidence:** grid-invariant (10×20), so the engineering cost is near-nil — ~5 KB
+atlas × 5 families ≈ 25 KB flash (H10, against a 2 MB budget), no H1/H2/H3,
+user-initiated so no W8. The only real cost is the extra settings surface itself
+(a nick against W7). `display/src/fonts/mod.rs` `FONT_OPTIONS`, cycled from the
+`>` palette.
+
+**The reconciliation (support yes, picker maybe).** Font *support* clearly earns
+its place under W13. The open question is scope: does W13 want the user cycling
+six families, or the designer choosing the one that sets the tone (JBM Medium
+today) and shipping that? The former is a preference product; the latter is a
+curation product — and Typoena's identity (D1's seiri, W7) leans curation. Likely
+resolution: keep the baked-font machinery, but reconsider whether the *cycling
+picker* stays a shipped surface or collapses to a single opinionated default, the
+alternates reachable only via a hand-edited `.typoena.toml`.
+
+**Trigger to resolve:** the same House-1 re-score that weighs
+[D1](#d1--flow-is-the-products-center-and-the-house-cant-see-it)'s flow cluster
+(W7/W13) — decide there whether W13 stays a pure tone WHAT (→ curated default) or
+gains a customization reading (→ picker). No standalone trigger; it rides the W13
+weight question D1 already parked.
+
+---
+
 ## How to keep this page honest
 
 - One entry per challenge, D-numbered, dated, stamped OPEN or RESOLVED,
