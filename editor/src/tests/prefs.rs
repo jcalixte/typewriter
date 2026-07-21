@@ -69,6 +69,7 @@ fn prefs_to_toml_round_trips_through_parse() {
         line_numbers: false,
         open_last_on_boot: false,
         theme: "dark".into(),
+        font: "jetbrains-mono".into(),
         auto_sync: "5m".into(),
         scroll_margin: 3,
         fast_partial: true,
@@ -99,6 +100,14 @@ fn prefs_parse_reads_theme_and_auto_sync_strings() {
     let p = Prefs::parse("theme = \"dark\"\nauto_sync = \"15m\"\n");
     assert_eq!(p.theme, "dark");
     assert_eq!(p.auto_sync, "15m");
+}
+
+#[test]
+fn prefs_parse_reads_font_and_defaults_to_builtin() {
+    assert_eq!(Prefs::default().font, "default"); // built-in Misc Fixed
+    assert_eq!(Prefs::parse("font = \"jetbrains-mono\"\n").font, "jetbrains-mono");
+    // The font key is emitted by to_toml, so it survives a `:gp` to other devices.
+    assert!(Prefs::default().to_toml().contains("font = \"default\""));
 }
 
 #[test]

@@ -327,7 +327,12 @@ impl Editor {
         // owned frame — the body predates this signature — and hand it back.
         let mut f = std::mem::replace(out, Frame::empty());
         f.clear_white();
-        let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+        // The chosen body family (Misc Fixed by default) — applied to the writing
+        // text, its selection/caret and the heading double-strike; UI chrome (cmd
+        // line, palette, cards, panel) keeps the built-in font. Grid-invariant:
+        // every family renders into the same 10×20 cell (see `display::body_font`).
+        let body = display::body_font(&self.prefs.font);
+        let text_style = MonoTextStyle::new(body, BinaryColor::On);
         let gutter = self.gutter_cols();
         let cols = WRITE_COLS - gutter; // text columns after the gutter
         let gx = gutter as i32 * CW; // text (and cursor) x-origin, past the gutter
@@ -382,7 +387,7 @@ impl Editor {
         // on a 1-bit panel this inversion is the only selection affordance.
         if self.in_visual() {
             let (ss, se, lw) = self.visual_span();
-            let inv = MonoTextStyle::new(&FONT_10X20, BinaryColor::Off);
+            let inv = MonoTextStyle::new(body, BinaryColor::Off);
             for (vis, li) in (self.scroll_top..end).enumerate() {
                 let y = vis as i32 * CH;
                 let rs = lay[li].start;
@@ -430,7 +435,7 @@ impl Editor {
                             blit_glyph(&mut f, x, y, g, BinaryColor::Off);
                         } else {
                             let mut buf = [0u8; 4];
-                            let inv = MonoTextStyle::new(&FONT_10X20, BinaryColor::Off);
+                            let inv = MonoTextStyle::new(body, BinaryColor::Off);
                             Text::with_baseline(
                                 ch.encode_utf8(&mut buf),
                                 Point::new(x, y),
@@ -834,7 +839,16 @@ impl Editor {
         let max_chars = WRITE_COLS - 1; // leave a right margin
         let list_top = CH + 3;
         let hint_y = HEIGHT as i32 - CH; // bottom row holds the key hint
-        let visible = ((hint_y - list_top) / CH).max(1) as usize;
+        // Live font preview: when the highlighted `>` command is Font, reserve the
+        // row above the hint for a sample line drawn in the selected font. The
+        // palette covers the writing column, so this is the only way to see a font
+        // while cycling it.
+        let sel = self.palette_sel.min(matches.len().saturating_sub(1));
+        let font_preview = command_mode
+            && matches.get(sel).map_or(false, |&idx| matches!(PALETTE_CMDS[idx], PaletteCmd::Font));
+        let preview_y = hint_y - CH;
+        let list_bottom = if font_preview { preview_y } else { hint_y };
+        let visible = ((list_bottom - list_top) / CH).max(1) as usize;
 
         if matches.is_empty() {
             let msg = if snippet_mode {
@@ -858,7 +872,6 @@ impl Editor {
                 .draw(f)
                 .unwrap();
         } else {
-            let sel = self.palette_sel.min(matches.len() - 1);
             // Scroll the window so the selection stays visible.
             let start = if sel >= visible { sel - visible + 1 } else { 0 };
             for (row, &idx) in matches.iter().enumerate().skip(start).take(visible) {
@@ -892,6 +905,23 @@ impl Editor {
                         .unwrap();
                 }
             }
+        }
+
+        // The reserved preview row (see `font_preview`): a pangram in the chosen
+        // body font, under a thin rule mirroring the prompt rule above.
+        if font_preview {
+            Rectangle::new(Point::new(0, preview_y - 1), Size::new(DIVIDER_X as u32, 1))
+                .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+                .draw(f)
+                .unwrap();
+            let preview = MonoTextStyle::new(display::body_font(&self.prefs.font), BinaryColor::On);
+            let sample: String = "The quick brown fox jumps over the lazy dog"
+                .chars()
+                .take(WRITE_COLS - 1)
+                .collect();
+            Text::with_baseline(&sample, Point::new(2, preview_y), preview, Baseline::Top)
+                .draw(f)
+                .unwrap();
         }
 
         let hint = if snippet_mode {

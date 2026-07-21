@@ -78,6 +78,7 @@ pub(crate) enum PaletteCmd {
     ScrollMargin,
     OpenLastOnBoot,
     Theme,
+    Font,
     AutoSync,
 }
 
@@ -110,7 +111,7 @@ impl PaletteCmd {
 
 /// The palette command list, in display order (empty `>` query shows them all):
 /// the actions first, the settings after.
-pub(crate) const PALETTE_CMDS: [PaletteCmd; 13] = [
+pub(crate) const PALETTE_CMDS: [PaletteCmd; 14] = [
     PaletteCmd::NewFile,
     PaletteCmd::Format,
     PaletteCmd::Push,
@@ -123,6 +124,7 @@ pub(crate) const PALETTE_CMDS: [PaletteCmd; 13] = [
     PaletteCmd::ScrollMargin,
     PaletteCmd::OpenLastOnBoot,
     PaletteCmd::Theme,
+    PaletteCmd::Font,
     PaletteCmd::AutoSync,
 ];
 
@@ -390,6 +392,7 @@ impl Editor {
                 format!("open last on boot: {}", on(self.prefs.open_last_on_boot))
             }
             PaletteCmd::Theme => format!("theme: {}", self.prefs.theme),
+            PaletteCmd::Font => format!("font: {}", self.prefs.font),
             PaletteCmd::AutoSync => format!("auto sync: {}", self.prefs.auto_sync),
         }
     }
@@ -579,6 +582,9 @@ impl Editor {
             }
             PaletteCmd::AutoSync => {
                 self.prefs.auto_sync = next_option(&self.prefs.auto_sync, &AUTO_SYNC_OPTIONS).to_string()
+            }
+            PaletteCmd::Font => {
+                self.prefs.font = next_option(&self.prefs.font, &display::FONT_OPTIONS).to_string()
             }
             // Actions, not prefs: palette_run_command routes them away, so we never
             // arrive here. Return before the SavePrefs/notice below rather than

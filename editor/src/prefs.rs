@@ -41,6 +41,16 @@ pub struct Prefs {
     /// value other than `"dark"` reads as light. The palette rotates it through
     /// [`THEME_OPTIONS`]; a hand-typed value still round-trips.
     pub theme: String,
+    /// Body writing font: `"default"` (the built-in Misc Fixed `FONT_10X20`) or a
+    /// baked alternate family (see `display::fonts`). Applied by the host render
+    /// engine to the **writing text** only — the caret, visual-selection reverse
+    /// video and Markdown-heading double-strike follow it, while UI chrome (command
+    /// line, palette, cards, side panel) stays on the built-in font. An unrecognized
+    /// value falls back to the built-in via [`display::body_font`], so a hand-typed
+    /// name can never leave the editor fontless. The palette rotates it through
+    /// [`display::FONT_OPTIONS`]; grid-invariant — every family renders into the same
+    /// 10×20 cell, so layout, scrolling and refresh windowing are untouched.
+    pub font: String,
     /// Max-staleness cap for opportunistic auto-push, as a duration string.
     /// The palette rotates it through [`AUTO_SYNC_OPTIONS`] (`"2m"`..`"30m"`);
     /// hand-editing can still set any string. **Persisted-but-inert in v0.5** —
@@ -96,6 +106,7 @@ impl Default for Prefs {
             line_numbers: true,
             open_last_on_boot: true,
             theme: "light".into(),
+            font: "default".into(),
             auto_sync: "10m".into(),
             scroll_margin: 2,
             fast_partial: false,
@@ -142,6 +153,7 @@ impl Prefs {
                     }
                 }
                 "theme" => p.theme = val.trim_matches('"').to_string(),
+                "font" => p.font = val.trim_matches('"').to_string(),
                 "auto_sync" => p.auto_sync = val.trim_matches('"').to_string(),
                 "scroll_margin" => {
                     if let Ok(n) = val.parse::<usize>() {
@@ -173,6 +185,7 @@ impl Prefs {
              line_numbers = {}\n\
              open_last_on_boot = {}\n\
              theme = \"{}\"\n\
+             font = \"{}\"\n\
              auto_sync = \"{}\"\n\
              scroll_margin = {}\n\
              # Experimental fast partial-refresh waveform — leave false unless\n\
@@ -185,6 +198,7 @@ impl Prefs {
             self.line_numbers,
             self.open_last_on_boot,
             self.theme,
+            self.font,
             self.auto_sync,
             self.scroll_margin,
             self.fast_partial,
