@@ -372,6 +372,20 @@ editor's 20 px font (`FONT_10X20`, `editor.rs` `ROWS = HEIGHT / 20 = 13`).
 README, the product/technical docs, and [ADR-003] are all updated to ~13 lines
 (writing column).
 
+- **H1 typing-latency target was a guess; bench corrected it (2026-07-21).**
+  §6's H1 row marked the typing tier met (✓) on a ~100–130 ms *projection* that
+  assumed refresh time scales with refresh area. The custom `0x32` fast-partial
+  LUT work (now on `main`) measured it: refresh time is area-**independent** —
+  waveform BUSY dominates, windowing the Y-band saves only ~35 ms — so the default
+  windowed factory partial is ~495 ms, never the projected 100–130 ms, and never
+  met ≤ 400 ms. The custom LUT (FR `0x08`, behind the default-off `fast_partial`
+  flag) does reach ~265 ms, pending a longevity + cold soak. Fixed §6 row 4
+  (Watched/Verdict/fallback) and the hub's H1 open-gap bullet; data in
+  [`tradeoff-curves/epd-refresh-latency.md`](tradeoff-curves/epd-refresh-latency.md).
+  The dead "windowed erase" fallback was retired with it. **Open follow-on:** this
+  undercuts the premise that H2 (refresh area) is a latency driver — a
+  [house-vs-product](house-vs-product.md) question, not re-scored here.
+
 [ADR-001]: adr.md#adr-001-language-and-runtime--rust-on-esp-idf-rs-std
 [ADR-002]: adr.md#adr-002-ui-strategy--custom-widgets-on-embedded-graphics-not-ratatui
 [ADR-003]: adr.md#adr-003-display-medium--e-ink-gdey0579t93-panel

@@ -67,9 +67,14 @@ W16/flow re-score) · C12 libgit2 #3 · C2 std runtime #4.
 
 **Open gaps** (detail and fallbacks in [§6](qfd-budget.md#6-critical-performance-budget)):
 
-- **H1 erase/caret tier ~630 ms vs ≤ 400 ms** — the one unmet v0.1
-  target. Additive typing rides the windowed-Y partial (~100–130 ms
-  projected; bench confirmation owed).
+- **H1 erase/caret tier ~630 ms vs ≤ 400 ms** — still unmet. Additive
+  typing was bench-clocked 2026-07-21: refresh time is area-*independent*
+  (waveform BUSY, not the band-write), so the default windowed factory
+  partial is ~495 ms and the earlier ~100–130 ms guess was wrong. The
+  custom `0x32` fast-partial LUT (FR `0x08`, `fast_partial` opt-in) reaches
+  ~265 ms (meets ≤ 400 ms), pending a longevity + cold soak before it can
+  default on:
+  [`tradeoff-curves/epd-refresh-latency.md`](tradeoff-curves/epd-refresh-latency.md).
 - **H8 power-pull test still owed** (v0.9 gate); dirty journal + boot
   recovery are shipped, the physical test is not run.
 - **H17 reach cost and H16 onboarding duration are unmeasured** — the
