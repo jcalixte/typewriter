@@ -124,6 +124,7 @@ below — this table is the standing menu; the log records what each flash showe
 | Lever                                | Touches waveform? | Moves *perceived* per-stroke latency? | Risk                                                          | Status                                    |
 | ------------------------------------ | ----------------- | ------------- | ------------------------------------------------------------ | ----------------------------------------- |
 | Custom partial LUT via `0x32`        | **yes — authored** | **Yes — the only lever that does.** ~100–200 ms reported on similar panels | ghosting, DC balance/longevity, cold-temperature margin (reference waveform now obtained) | **validated 2026-07-21 — 495→266 ms windowed via real vendor `LUT_DATA_part` + FR `0x08`; see FR sweep below** |
+| Charge-pump keep-hot (`0xCC` vs `0xCF`) | no — trigger + power state | maybe — skips the booster ramp on keystrokes 2..N of a burst; upside uncertain (ramp is a smaller share of the ~266 ms than first assumed) | pump draws while typing; holding the ±15 V rails is a mild longevity/thermal tax; register writes while powered could glitch bands | **untried — testable behind `FAST_PART_KEEP_HOT`, 2026-07-21** |
 | SPI clock 4 → 20 MHz                 | no                | full-area only — measured **−122 ms** (~693→~571 ms, now ≈ windowed); typing flat | signal integrity — 20 MHz clean in test but at panel ceiling on jumpers | **shipped 2026-07-17** — see log            |
 | `set_ram_area` settle delay 2 → 0 ms | no                | **yes — the typing path**: windowed **−70 ms** (~565→~495), full-area −44 ms | too-short latch would garble bands / add ghosting — panel clean, user-attested | **shipped 2026-07-17** — `delay_ms(2)` was a whole `vTaskDelay(1)` tick; see log |
 | ~~Async partial + deferred bank resync~~ | no — pure firmware | no — frees the editor loop during BUSY, not the eye | bank-toggle ordering (this panel is treacherous — [postmortem](../postmortems/2026-07-16-partial-refresh-bank-toggle.md)) | **closed 2026-07-17** — not worth it post-20 MHz (see below) |
@@ -408,4 +409,24 @@ device-confirmed 2026-07-21).** Per-keystroke windowed typing on the custom LUT 
 **~265 ms** — down from the ~495 ms factory partial floor this whole doc was fighting,
 and the first lever ever to break below it. Not yet merged to main; longevity soak +
 cold check outstanding.
+
+### Next candidate — charge-pump keep-hot (queued, untried)
+
+FR trimmed the *waveform* portion of the refresh; the *power-cycle* portion is still
+fully there. Trigger `0xCF` powers the ±15 V charge pump **up** (booster soft-start),
+runs the waveform, then powers it **down** — on every keystroke. Keep-hot uses `0xCC`
+(same trigger minus the disable-analog `0x02` + disable-clock `0x01` bits) so the pump
+stays energized and keystrokes 2..N of a burst skip the ramp. It's orthogonal to FR and
+stacks with it; the every-32 full refresh and any factory/idle refresh (which carry the
+power-down bits) bound the hot time to an active burst, so it can't stay energized
+indefinitely.
+
+Wired behind `const FAST_PART_KEEP_HOT` in
+[`screen_epd.rs`](../../firmware/src/drivers/screen_epd.rs) (flip to `false` to revert).
+**Honest expectation:** smaller than the FR win — the original "the floor is all
+charge-pump ramp" guess was disproved when FR removed ~155 ms of *frame* time, so the
+ramp is a smaller slice of the remaining ~266 ms. Measure keystroke #2+ vs #1 in a burst;
+watch for band corruption (writing registers while powered) and streak ghosting. Needs a
+real idle power-off before it could ship — the const is a bench toggle, not a shippable
+power-state machine.
 
