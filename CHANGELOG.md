@@ -9,6 +9,30 @@ _Generated from the commit history with [git-cliff](https://git-cliff.org)._
 ## Firmware
 
 
+### [0.8.0] — 2026-07-21
+#### Added
+- **changelog:** Auto-generate CHANGELOG.md from commits with git-cliff
+- **editor:** Add :pub/:publish to mark a note .pub.md
+- **wizard:** Erase and dedicate a bring-your-own card on consent
+- **firmware:** Fast partial waveform experiment (0x32 custom LUT)
+- **firmware:** Swap in real Good Display GDEY0579T93 partial waveform
+- **firmware:** Trim fast partial LUT — drop weakest tail phase per group
+- **firmware:** Fast partial FR 0x04->0x08 — 420ms -> 266ms, solid black
+- **firmware:** Keep-hot charge-pump experiment + re-scope validated comments
+- **display:** Simplify boot splash to a lowercase wordmark
+- **app:** Clear panel ghosting with scheduled full refreshes
+- **editor:** Show friendlier filenames in the panel and palette
+- **editor:** Open the command palette with Cmd+Shift+P
+- **display:** Bake alternate mono font families into MonoFont atlases
+- **editor:** Choose the writing font family from the settings palette
+- **editor:** Group the side panel into file, sync and vim tiers
+
+#### Changed
+- **firmware:** Pin the file-walk to Core1 so it can't starve the UI
+
+#### Fixed
+- **build:** Compile firmware at opt-level 2 to dodge Xtensa miscompile
+
 ### [0.7.9] — 2026-07-19
 #### Added
 - **editor:** Add :about splash and name the active file in the panel
@@ -199,6 +223,14 @@ _Generated from the commit history with [git-cliff](https://git-cliff.org)._
 The macOS setup tool that prepares an SD card — install it with
 `curl -fsSL https://typoena.dev/install.sh | sh`.
 
+
+### [0.5.0] — 2026-07-19
+#### Added
+- Frame the header as the device's e-ink screen
+- Add --wipe card-reformat TUI
+- Make just wipe headless with --no-eject
+- Complete a bare repo name against the GitHub user
+- Fill the GitHub username from the ^G sign-in
 
 ### [0.4.0] — 2026-07-15
 #### Added
