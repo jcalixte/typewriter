@@ -27,6 +27,7 @@ use keymap::Key;
 mod buffers;
 mod editing;
 mod fuzzy;
+mod hud;
 mod markdown;
 mod motions;
 mod palette;
