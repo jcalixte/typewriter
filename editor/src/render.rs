@@ -499,13 +499,23 @@ impl Editor {
         *out = f;
     }
 
-    /// Draw the side panel: a full-height rule, the active file name and word
-    /// count at the top, and the mode indicator + pending-command echo at the
-    /// bottom-left, with a keyboard-disconnect flag just above the mode while the
-    /// keyboard is dropped. Small 6×10 font. This is the surface every later field
-    /// (clock, Wi-Fi, push state) will add to. Word count is a throttled
-    /// snapshot and the rest is event-driven, so the panel never repaints per
-    /// keystroke.
+    /// Draw the side panel: a full-height rule plus three stacked tiers grouped
+    /// by subject, separated by a blank row (structure by spacing, not header
+    /// labels):
+    ///
+    /// * **File** (top-anchored): the active file name, then the word count with
+    ///   a trailing `*` when the buffer has unsaved edits.
+    /// * **Sync** (below the file tier, after a gap): the buffer [`Scope`]
+    ///   (`Tracked`/`Local` — whether it syncs at all), and beneath it the
+    ///   transient push/pull/save `notice` ("snackbar") when one is present.
+    /// * **Vim** (bottom-anchored): the focus marker, the mode indicator +
+    ///   pending-command echo, and a keyboard-disconnect flag / snippet hint just
+    ///   above the mode line.
+    ///
+    /// FONT_9X15 throughout. Word count is a throttled snapshot and everything
+    /// else is event-driven, so the panel never repaints per keystroke. The file
+    /// tier grows down and the vim tier is pinned up, with the (capped) sync tier
+    /// between them, so a long notice can no longer run into the mode strip.
     pub(crate) fn draw_panel(&self, f: &mut Frame) {
         // The rule dividing writing column from panel, full panel height.
         Rectangle::new(Point::new(DIVIDER_X, 0), Size::new(1, HEIGHT as u32))
@@ -536,20 +546,41 @@ impl Editor {
         }
 
         // Word count on the line below the (possibly wrapped) name, from the
-        // throttled snapshot (never per keystroke).
+        // throttled snapshot (never per keystroke). A trailing `*` — vim's
+        // modified marker — flags unsaved edits (`dirty`); `·` is already the
+        // focus marker, so `*` keeps the two unambiguous.
         let words_y = 2 + name_rows as i32 * PANEL_CH;
-        let words = format!("{} words", self.shown_words);
+        let words = if self.dirty {
+            format!("{} words *", self.shown_words)
+        } else {
+            format!("{} words", self.shown_words)
+        };
         Text::with_baseline(&words, Point::new(PANEL_X, words_y), style, Baseline::Top)
             .draw(f)
             .unwrap();
 
-        // Transient notice ("snackbar"), a line under the word count: the last
-        // save/push result. Word-wrapped to the panel width (so a message like
-        // "save FAILED - retry :w" keeps its actionable tail instead of clipping
-        // mid-word) and capped at a few lines so it can't reach the bottom mode
-        // strip; cleared on the next keystroke.
+        // ── Sync tier ────────────────────────────────────────────────────────
+        // One blank row below the file tier. The buffer scope is the persistent
+        // signal — whether this file syncs at all (`:gp` is refused in Local) —
+        // so it anchors the tier even with no notice. There is no ahead/behind
+        // state to show: push/pull results only ever arrive as the transient
+        // notice below.
+        let scope_y = words_y + 2 * PANEL_CH;
+        let scope_label = match self.scope {
+            Scope::Tracked => "Tracked",
+            Scope::Local => "Local",
+        };
+        Text::with_baseline(scope_label, Point::new(PANEL_X, scope_y), style, Baseline::Top)
+            .draw(f)
+            .unwrap();
+
+        // Transient notice ("snackbar") directly under the scope: the last
+        // save/push/pull result. Word-wrapped to the panel width (so a message
+        // like "save FAILED - retry :w" keeps its actionable tail instead of
+        // clipping mid-word) and capped at a few lines; cleared on the next
+        // keystroke.
         if let Some(msg) = &self.notice {
-            let notice_top = words_y + PANEL_CH + 2;
+            let notice_top = scope_y + PANEL_CH;
             for (i, line) in wrap_text(msg, PANEL_COLS)
                 .into_iter()
                 .take(NOTICE_MAX_LINES)
