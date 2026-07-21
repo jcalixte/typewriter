@@ -123,7 +123,7 @@ below — this table is the standing menu; the log records what each flash showe
 
 | Lever                                | Touches waveform? | Moves *perceived* per-stroke latency? | Risk                                                          | Status                                    |
 | ------------------------------------ | ----------------- | ------------- | ------------------------------------------------------------ | ----------------------------------------- |
-| Custom partial LUT via `0x32`        | **yes — authored** | **Yes — the only lever that does.** ~100–200 ms reported on similar panels | ghosting, DC balance/longevity, temperature, no reference waveform — [postmortem](../postmortems/2026-07-16-gate-scan-spike-refuted.md) | parked ("touching the LUT")               |
+| Custom partial LUT via `0x32`        | **yes — authored** | **Yes — the only lever that does.** ~100–200 ms reported on similar panels | ghosting, DC balance/longevity, cold-temperature margin (reference waveform now obtained) | **validated 2026-07-21 — 495→266 ms windowed via real vendor `LUT_DATA_part` + FR `0x08`; see FR sweep below** |
 | SPI clock 4 → 20 MHz                 | no                | full-area only — measured **−122 ms** (~693→~571 ms, now ≈ windowed); typing flat | signal integrity — 20 MHz clean in test but at panel ceiling on jumpers | **shipped 2026-07-17** — see log            |
 | `set_ram_area` settle delay 2 → 0 ms | no                | **yes — the typing path**: windowed **−70 ms** (~565→~495), full-area −44 ms | too-short latch would garble bands / add ghosting — panel clean, user-attested | **shipped 2026-07-17** — `delay_ms(2)` was a whole `vTaskDelay(1)` tick; see log |
 | ~~Async partial + deferred bank resync~~ | no — pure firmware | no — frees the editor loop during BUSY, not the eye | bank-toggle ordering (this panel is treacherous — [postmortem](../postmortems/2026-07-16-partial-refresh-bank-toggle.md)) | **closed 2026-07-17** — not worth it post-20 MHz (see below) |
@@ -319,4 +319,93 @@ The settle was cargo-cult — an e-ink controller latches its RAM-window address
 the SPI transaction completes; there is nothing to wait for. This stacks on the
 20 MHz SPI bump: per-keystroke windowed is now **~495 ms**, essentially the bare
 partial waveform.
+
+### Experiment log — custom `0x32` LUT + FR frame-rate sweep
+
+**The lever that finally moved the floor.** Every lever above only drains the
+*non-waveform* terms (SPI, settle) and bottoms out at the ~495 ms partial-waveform
+floor. The one thing that moves the floor itself is authoring the `0x32` waveform —
+parked for a year: we had no reference waveform for this panel and a hand-guessed
+one (Waveshare 1.54″) never darkened the ink. Good Display supplied the real
+`LUT_DATA_part` on 2026-07-21 (archive `S-GDEY0579T93-FP(LUT)`, kept verbatim in
+[`../../firmware/reference/gdey0579t93-fp-lut/`](../../firmware/reference/gdey0579t93-fp-lut/)),
+which unblocked it. Gated behind the `fast_partial` pref; only the additive Insert
+path (`windowed-fast`) drives it. Driver:
+[`../../firmware/src/drivers/screen_epd.rs`](../../firmware/src/drivers/screen_epd.rs).
+
+**Two knobs looked plausible; only one moved the number.**
+
+**1. Phase-row count — a near-noop on the partial.** The waveform is 32 phase-rows
+(7 bytes each), ~12 active. Good Display's own fast-full waveform (`LUT_DATA1`)
+speeds up by *zeroing whole phase-rows*, so we tried the same on the partial: zero
+4 of 12 active rows (commit `f0fa320`). Result: **~430 → ~420 ms, ~2 %.** BUSY time
+is *not* proportional to active-phase count here — each phase ≈ 2.5 ms. Phase count
+dominates *full* refreshes (many frames — the vendor's 1.5 s "快刷" vs ~2 s full
+gap), but the short partial has too few phases for it to matter. Dead lever; the
+trim was kept only because it's harmless.
+
+**2. The FR byte (LUT index 224, tail "FR, XON") — the lever.** The frame-rate byte
+in the `0x32` tail scales the waveform clock, and it is the first thing to break
+below the ~495 ms floor.
+
+| FR byte | Windowed-fast (20-row) ms | Full-area partial (272) ms | Ink | Ghosting | Verdict | Date |
+| ------- | ---: | ---: | --- | --- | --- | --- |
+| factory OTP partial (`fast_partial` off) | ~495 | ~527 | solid black | clean | shipping baseline | 2026-07-17 |
+| `0x04` (vendor `LUT_DATA_part` default) | ~420 | ~456 | solid black | clean | real waveform, but barely faster than factory | 2026-07-21 |
+| **`0x08`** | **~265** | **~300** | **solid black** | **none seen** | **KEPT — −155 ms (~37 %) vs 0x04; committed `371bba7`, device-confirmed** | 2026-07-21 |
+| `0x0C` | ~382 | ~422 | black | slightly more | **worse** — slower *and* ghostier than 0x08 | 2026-07-21 |
+
+```mermaid
+xychart-beta
+    title "Custom 0x32 partial: latency vs FR frame-rate byte (non-monotonic; 0x08 is the floor)"
+    x-axis ["FR 0x04", "FR 0x08", "FR 0x0C"]
+    y-axis "latency (ms)" 250 --> 480
+    line [456, 300, 422]
+    line [420, 265, 382]
+```
+
+Upper line = full-area partial (272 rows); lower = windowed one-line typing path.
+Both dip to a minimum at `0x08` and rise again at `0x0C` — **FR is non-monotonic**,
+so it is *not* a linear frame period; the byte's encoding is undocumented by the
+vendor, and `0x08` is simply the fastest of the sampled values that still fully
+darkens. Do not raise past `0x08` blind. (x-axis categorical, mermaid limitation —
+the real values 4/8/12 happen to be evenly spaced, so here the spacing is honest.)
+
+**Why the ink stays solid black while the refresh drops ~37 %** — the
+counter-intuitive part, worth stating because it looks like a free lunch. It isn't
+*more* drive, it's *less wasted* drive. E-paper ink **saturates**: once every black
+particle has reached the surface the pixel is as black as it gets, and extra frames
+add nothing but time. The vendor tunes `LUT_DATA_part` conservatively — enough
+frames to saturate across cold temperature, humidity, panel spread, and years of
+aging. On a warm, fresh bench panel that margin is slack: at `0x04` the ink is fully
+black partway through and the controller then clocks frames it doesn't need. `0x08`
+runs a faster clock that still lets the ink saturate — same endpoint, the
+post-saturation tail removed.
+
+**We are spending the vendor's safety margin, so the caveats are real:**
+
+- **Cold is the risk.** Ink migrates slower when cold; `0x08` that's solid black at
+  room temperature may go slightly grey in a cold room where `0x04` still had
+  headroom. Sanity-check before relying on it in the cold — this is the leading
+  reason it's still opt-in, not shipped on by default.
+- **Longevity.** Faster frames stress DC balance more per partial; the periodic full
+  refresh (`FULL_REFRESH_EVERY_FAST = 32`, half the normal cadence, reloads the OTP
+  waveform) is the reset. Watch ghosting over a long real session, not a short bench.
+- **Bonus, not tuned-for.** Once a fast refresh loads the custom LUT into SRAM, the
+  factory `0xFF` fallbacks (delete / caret / mode-switch) *reuse* it until the next
+  true full refresh — so those dropped too (~456 → ~300 ms at `0x08`).
+
+**How to run.** Edit the FR byte (`FAST_PARTIAL_LUT` index 224) in
+[`screen_epd.rs`](../../firmware/src/drivers/screen_epd.rs), `just flash`, set
+`fast_partial = true` on the SD `.typoena.toml`, type, read
+`windowed-fast refresh #N … ms`. For a window-position-free A/B, compare the factory
+fallbacks (labelled `full-area`, same `rows 0..=271`) build-to-build. Confirm the ink
+is still solid black and watch ghosting across a full ~32-partial streak, not just
+the first refresh.
+
+**Status: `0x08` kept (committed `371bba7`, branch `experiment/fast-partial-lut`,
+device-confirmed 2026-07-21).** Per-keystroke windowed typing on the custom LUT is
+**~265 ms** — down from the ~495 ms factory partial floor this whole doc was fighting,
+and the first lever ever to break below it. Not yet merged to main; longevity soak +
+cold check outstanding.
 
