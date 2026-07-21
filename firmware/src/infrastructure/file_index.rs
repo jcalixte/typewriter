@@ -8,6 +8,9 @@
 
 use std::sync::mpsc::{channel, Receiver, Sender};
 
+use esp_idf_svc::hal::cpu::Core;
+use esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration;
+
 use crate::infrastructure::storage_sd::{LOCAL_DIR, REPO_DIR};
 
 /// [`app::FileIndex`] — owns the palette file-walk channel. A rewalk spawns a
@@ -63,9 +66,34 @@ fn enumerate_files() -> String {
 /// over `tx`; the run loop's idle branch feeds it to the editor. Off the UI loop
 /// because the walk takes seconds on a big tree and the palette is not mandatory
 /// for typing.
+///
+/// The walk is pinned to the APP core (Core1) at the lowest usable priority — a
+/// true background task. The esp-idf main task (the UI loop) runs at priority 1
+/// on Core0, but `std::thread` spawns default to priority 5 with **no** core
+/// affinity, so the default walk *preempted* the UI loop for its whole multi-
+/// second run: a keystroke was buffered but could not be drained or painted until
+/// the walk finished. The 2026-07-21 cold-boot trace showed it plainly — `o`
+/// enqueued at 6554 ms, first paint at 9834 ms, right after the 5.4 s / 1100-file
+/// walk ended (8684 ms): a ~3.3 s type-to-ink lag. Pinning to Core1 keeps the
+/// walk off the UI core entirely (the main task is CPU0-pinned by default); the
+/// priority floor is belt-and-braces should the scheduler ever float it to Core0.
 fn spawn_file_walk(tx: Sender<String>) {
-    // Explicit stack: the default pthread stack (4 KB) is tight for 8 levels of
-    // readdir recursion plus FatFS underneath.
+    // Background-task scheduling for the spawn below. `..Default::default()` keeps
+    // the esp-idf-version-specific fields (e.g. `stack_alloc_caps` on IDF ≥ 5.3)
+    // at their defaults. Explicit 16 KB stack: the default pthread stack (4 KB) is
+    // tight for 8 levels of readdir recursion plus FatFS underneath.
+    let cfg = ThreadSpawnConfiguration {
+        name: None, // the std Builder below carries the "walk" name
+        stack_size: 16 * 1024,
+        priority: 1,
+        inherit: false,
+        pin_to_core: Some(Core::Core1),
+        ..Default::default()
+    };
+    if let Err(e) = cfg.set() {
+        log::warn!("walk thread cfg (Core1, prio 1) FAILED ({e}); spawning at pthread default");
+    }
+
     let spawned = std::thread::Builder::new()
         .name("walk".into())
         .stack_size(16 * 1024)
@@ -82,6 +110,13 @@ fn spawn_file_walk(tx: Sender<String>) {
         });
     if let Err(e) = spawned {
         log::warn!("file-walk thread spawn FAILED ({e}); palette list not refreshed");
+    }
+
+    // Restore the pthread default so later spawns from this (UI) thread aren't
+    // silently pinned to Core1 / deprioritised. `Default` reads esp-idf's built-in
+    // config, not the one just set above.
+    if let Err(e) = ThreadSpawnConfiguration::default().set() {
+        log::warn!("restoring default thread cfg FAILED ({e})");
     }
 }
 
