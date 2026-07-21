@@ -7,7 +7,7 @@
 //! deliberately no JSON parser on-device:
 //!
 //! ```text
-//!   <base>/latest.txt          → the newest release's semver, one line
+//!   <base>/latest              → the newest release's semver, one line
 //!   <base>/typoena-<ver>.bin   → that release's app image
 //! ```
 //!
@@ -61,11 +61,11 @@ pub fn run_update() -> Result<Option<String>> {
     Ok(Some(latest))
 }
 
-/// GET `<base>/latest.txt` and return the trimmed version line. The manifest is
+/// GET `<base>/latest` and return the trimmed version line. The manifest is
 /// a single short token, so a small bounded read is enough (and caps a bad URL
 /// that returns HTML from flooding the heap).
 fn fetch_latest_version() -> Result<String> {
-    let url = format!("{}/latest.txt", update_base_url());
+    let url = format!("{}/latest", update_base_url());
     let mut conn = http_get(&url)?;
     let status = conn.status();
     if status != 200 {
