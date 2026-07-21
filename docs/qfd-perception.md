@@ -77,7 +77,7 @@ finding: Typoena's column is bench data, the market's is marketing copy.
 
 | Characteristic                    | Typoena (measured)                          | reM.       | Frw.T | Frw.S | Pom.        |
 | --------------------------------- | ------------------------------------------- | ---------- | ----- | ----- | ----------- |
-| H1 type latency, additive typing  | ~100–130 ms projected (bench confirm owed)  |            |       |       |             |
+| H1 type latency, additive typing  | ~265 ms fast (opt-in) · ~495 ms default (bench 2026-07-21) |  |  |  |  |
 | H1 erase / caret tier             | ~630 ms                                     |            |       |       |             |
 | H4 boot (cold, to cursor)         | 4.26 s (2026-07-11)                         | ~20 s *(a)* |      |       | ~3 s *(a)*  |
 | H5 endurance                      | ≥ 1 h attested (2026-07-11)                 |            |       |       |             |
