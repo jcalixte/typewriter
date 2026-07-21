@@ -26,7 +26,7 @@ already-met targets.
 
 The two not-in-MVP rows but already-shaped-by-design:
 
-| — | H13 current | Measured only in v0.1 | bench multimeter | Cell sizing for v0.8 is data-driven, not spec-sheet | If measurements say > 2-day life is unreachable: revisit [ADR-008]'s cell class or W11's weight, on numbers, not hope |
+| — | H13 current | Measured only in v0.1 | bench multimeter | Cell sizing for v0.8 is data-driven, not spec-sheet; the Wi-Fi/auto-sync energy half is modelled in [wifi-auto-sync](tradeoff-curves/wifi-auto-sync.md) | If measurements say > 2-day life is unreachable: revisit [ADR-008]'s cell class or W11's weight, on numbers, not hope |
 | — | H11 stacks | Sum ≤ 128 KB (was ≤ 80 KB) | measured: 124 KB explicit (git 96 + walk 16 + USB 4+8) | Target followed the shipped architecture; [§2 ∥](qfd-house-1.md#2-engineering-characteristics-the-hows) | Re-price before adding any thread; if a new one breaks the sum, shrink or merge an existing stack first |
 
 ---
