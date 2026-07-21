@@ -86,12 +86,19 @@ delivered = 2026-07-19
 learning = "Delivered 2026-07-19 — an unplanned insert that RESOLVES the v1.x 'firmware auto-update' open question (raised 2026-07-14) well ahead of its pre-v1.0 deadline. `:update` GETs typoena.dev/firmware/latest.txt and, if newer, streams typoena-<ver>.bin into the inactive slot of an A/B layout (partitions-ota.csv: factory + ota_0 + ota_1 + otadata) via esp-idf OTA, then reboots into it. Proven on hardware across two back-to-back installs (0.7.7→0.7.8→0.7.9, exercising both slot directions). The load-bearing risk was device-side TLS, settled by git.apoena.dev's LE→ISRG Root X1 being in the esp-idf FULL CA bundle (validated on-device, twice). Release hosting was SPLIT after weighing one-platform: the installer stays on GitHub (its /releases/latest/download shortcut, no token), firmware releases live on Gitea git.apoena.dev — the host the device's TLS must trust; nginx on typoena.dev 302-redirects the .bin to the Gitea release asset so binaries never enter the site repo, and `just publish-firmware` cuts the release + writes latest.txt (commit-first for a reproducible tag). A/B rollback (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE) is enforced on customer units by `just ship`. The 0.7.9 payload that proved it also shipped :about (a version splash), :update naming the running version, and the active filename in the side panel — firmware now 0.7.9."
 
 [[feature]]
-name = "v0.8 battery + sleep"
+name = "v0.8 editor: palette + fonts + panel"
+start = 2026-07-22
+original = 2026-07-22
+delivered = 2026-07-22
+learning = "Delivered 2026-07-22 — an unplanned feature batch (like v0.7.5 / v0.7.7), numbered 0.8.0 and taking the roadmap's 0.8 slot, which pushed the planned battery+sleep to v0.10 and moved robustness ahead to v0.9. Headline UX: the command palette opens on Cmd+Shift+P; the writing font family is chosen live from the settings palette (alternate mono families baked into MonoFont atlases, grid-invariant — this lands v1.0's 'runtime-switchable fonts' early); the side panel is grouped into file / sync / vim tiers with friendlier filenames; :pub marks a note .pub.md; the boot splash is a lowercase wordmark. Reliability: the file-walk is pinned to Core1 so it can't starve the UI (fixed the type-to-ink lag), panel ghosting is cleared by scheduled full refreshes, and the crate is pinned to opt-level 2 after 's' miscompiled the wizard into a boot loop. Also: the fast-partial typing waveform (real Good Display GDEY0579T93 LUT, ~495 → ~265 ms) landed behind a default-off fast_partial pref, gated on a longevity + cold soak; a QC bring-up fixture for the carrier PCB; the first-boot wizard can now erase and dedicate a bring-your-own SD card on consent (v0.9's on-device provisioning); and the git-push 'publish' concept was renamed 'push'. Host-tested; fast-partial + QC verified at the bench."
+
+[[feature]]
+name = "v0.9 robustness"
 start = 2026-11-02
 original = 2026-11-30
 
 [[feature]]
-name = "v0.9 robustness"
+name = "v0.10 battery + sleep"
 start = 2026-11-30
 original = 2026-12-28
 
@@ -106,7 +113,7 @@ week = 2026-06-29
 requires = ["v0.1 it writes, it pushes"]
 ```
 
-## Status — synced 2026-07-19
+## Status — synced 2026-07-22
 
 The editor **core** has been built 2–3 versions ahead of the device
 **releases**, and is now **extracted into a host-testable `editor` crate** (plus
@@ -177,6 +184,23 @@ the device's TLS trusts, via ISRG Root X1 in the esp-idf CA bundle). `just ship`
 enforces the rollback bootloader for customer units. Shipped alongside: the
 `:about` version splash, the version in the up-to-date notice, and the active
 filename in the side panel.
+**v0.8 editor: palette + fonts + panel is DELIVERED 2026-07-22** (firmware
+**0.8.0**) — an unplanned batch that took the roadmap's 0.8 slot, pushing the
+planned **battery + sleep to v0.10** and moving **robustness ahead to v0.9**. The
+command palette opens on `Cmd+Shift+P`; the **writing font family** is chosen live
+from the settings palette (alternate mono families baked into MonoFont atlases,
+grid-invariant — this lands **v1.0's runtime-switchable fonts early**); the side
+panel is grouped into **file / sync / vim tiers** with friendlier filenames;
+`:pub` marks a note `.pub.md`; the boot splash is a lowercase wordmark. Reliability:
+the file-walk is **pinned to Core1** so it can't starve the UI (fixed the
+type-to-ink lag), panel ghosting is cleared by scheduled full refreshes, and the
+crate is **pinned to opt-level 2** after `s` miscompiled the wizard into a boot
+loop. Also landed: the **fast-partial typing waveform** (real Good Display
+GDEY0579T93 LUT, ~495 → ~265 ms) behind a **default-off** `fast_partial` pref,
+gated on a longevity + cold soak; a **QC bring-up fixture** for the carrier PCB;
+the first-boot wizard can now **erase and dedicate a bring-your-own SD card** on
+consent (**v0.9's on-device provisioning**); and the git-push "publish" concept
+was renamed **"push"**. Host-tested; fast-partial + QC verified at the bench.
 
 Marks: `[x]` done in core · `[~]` partially done · `[ ]` not started. An
 inline `(✓)` marks the done half of a split item.
@@ -273,24 +297,42 @@ the side panel. **DELIVERED 2026-07-19** (firmware 0.7.9), verified on hardware
 across two back-to-back installs. Resolves the v1.x "firmware auto-update" open
 question (below); rationale there.
 
-## v0.8 — Power: battery + sleep — [ ]
+## v0.8 — Editor: command palette + fonts + panel — [x]
+
+The command palette on `Cmd+Shift+P`, a live **writing-font-family** picker in the
+settings palette (alternate mono families baked into MonoFont atlases), the side
+panel grouped into **file / sync / vim** tiers with friendlier filenames, `:pub`
+to mark a note `.pub.md`, and a lowercase-wordmark boot splash. Reliability rode
+along: the file-walk **pinned to Core1** (no more type-to-ink lag), scheduled
+full refreshes against panel ghosting, and the crate **pinned to opt-level 2**
+(opt-`s` miscompiled the wizard into a boot loop). Plus the **default-off**
+fast-partial typing waveform (Good Display GDEY0579T93 LUT, ~495 → ~265 ms, soak
+pending), a **QC bring-up fixture** for the carrier PCB, wizard SD-card dedication,
+and the git-push "publish" → "push" rename. **DELIVERED 2026-07-22** (firmware
+0.8.0), host-tested; fast-partial + QC verified at the bench. An unplanned insert
+that took the 0.8 slot — battery + sleep moved to v0.10, robustness to v0.9.
+
+## v0.9 — Robustness — [~]
+
+Crash-safe writes, interrupted-push recovery, SD removal handling, Wi-Fi
+reconnect, and on-device provisioning (the first release usable by a non-author).
+**On-device provisioning is DELIVERED early (✓)** — the zero-computer first-boot
+wizard, verified on device, now also erases and dedicates a bring-your-own SD card
+on consent. The rest is **not started.** Moved ahead of battery + sleep.
+Detail: [v0.9-robustness.md](v0.9-robustness.md).
+
+## v0.10 — Power: battery + sleep — [ ]
 
 Bench current-draw measurement, 18650 + charge board, per-sync Wi-Fi teardown,
 light/deep sleep, the `auto_sync` runtime (re-homed from v0.7), and a battery
 indicator. **Not started.**
-Detail: [v0.8-battery-and-sleep.md](v0.8-battery-and-sleep.md).
-
-## v0.9 — Robustness — [ ]
-
-Crash-safe writes, interrupted-push recovery, SD removal handling, Wi-Fi
-reconnect, and on-device provisioning (the first release usable by a non-author).
-**Not started.** Detail: [v0.9-robustness.md](v0.9-robustness.md).
+Detail: [v0.10-battery-and-sleep.md](v0.10-battery-and-sleep.md).
 
 ## v1.0 — Polish — [ ]
 
 ≤ 3 s boot, runtime-switchable fonts, enclosure files, and a user guide
-(light/dark theme landed early, in v0.5). **Not started.** Detail:
-[v1.0-polish.md](v1.0-polish.md).
+(light/dark theme landed early in v0.5; **runtime-switchable writing fonts landed
+early in v0.8**). **Not started.** Detail: [v1.0-polish.md](v1.0-polish.md).
 
 Quality carry-over: **graduate the fast-partial typing waveform** (custom `0x32`
 LUT, ~495 → ~265 ms per keystroke) from the default-off `fast_partial` opt-in to

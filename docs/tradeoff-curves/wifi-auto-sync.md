@@ -5,8 +5,8 @@
 > [Policy](#policy). Backs the `.typoena.toml` `auto_sync` key in
 > [`../macroplan.md`](../macroplan.md) (v0.5). The runtime behaviour was
 > pencilled for v0.7, but v0.7 closed 2026-07-14 as search + manual `:gl`/`:gp`
-> without it — it is **re-homed to v0.8**
-> ([`../v0.8-battery-and-sleep.md`](../v0.8-battery-and-sleep.md)), alongside
+> without it — it is **re-homed to v0.10**
+> ([`../v0.10-battery-and-sleep.md`](../v0.10-battery-and-sleep.md)), alongside
 > the sleep transitions it must respect and the per-sync radio teardown it
 > depends on.
 >
