@@ -380,7 +380,10 @@ README, the product/technical docs, and [ADR-003] are all updated to ~13 lines
   windowed factory partial is ~495 ms, never the projected 100–130 ms, and never
   met ≤ 400 ms. The custom LUT (FR `0x08`, behind the default-off `fast_partial`
   flag) does reach ~265 ms, pending a longevity + cold soak. Fixed §6 row 4
-  (Watched/Verdict/fallback) and the hub's H1 open-gap bullet; data in
+  (Watched/Verdict/fallback), the hub's H1 open-gap bullet, the House-1
+  §Type-latency narrative, and perception's H1 table row + intro/W1 rationale
+  (the sweep first missed the last two, leaving the stale ~100–130 ms as a live
+  claim); data in
   [`tradeoff-curves/epd-refresh-latency.md`](tradeoff-curves/epd-refresh-latency.md).
   The dead "windowed erase" fallback was retired with it. **Open follow-on:** this
   undercuts the premise that H2 (refresh area) is a latency driver — now opened as

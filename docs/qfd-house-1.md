@@ -736,17 +736,24 @@ the lever is pack-not-loose object writes, deferred to a perf pass. History:
 [`notes/sync-latency.md`](notes/sync-latency.md),
 [`kaizen/real-repo-sync.md`](kaizen/real-repo-sync.md).
 
-§ **Type latency: two tiers, re-read 2026-07-14.** The ~630 ms figure measured
-2026-07-11 is the **full-area partial** (deletes, caret moves, mode flips, the
-splash→editor swap), not the additive typing path: per-keystroke typing rides
-the **windowed-Y partial** (~10 rows), projected at **~100–130 ms** from the
-floor+slope model: inside the ≤ 400 ms target, bench confirmation from the
-on-device refresh log still pending
+§ **Type latency: two tiers, re-read 2026-07-14; typing tier bench-corrected
+2026-07-21.** The ~630 ms figure measured 2026-07-11 is the **full-area partial**
+(deletes, caret moves, mode flips, the splash→editor swap), not the additive
+typing path: per-keystroke typing rides the **windowed-Y partial** (~10 rows).
+The floor+slope model projected **~100–130 ms** here, but the 2026-07-21
+custom-LUT bench refuted it — refresh time is **area-independent** (waveform
+BUSY, not the band-write), so the default windowed partial is **~495 ms** (misses
+≤ 400 ms) and the custom `0x32` fast LUT (FR `0x08`, `fast_partial` opt-in)
+reaches **~265 ms** (meets it), pending a longevity + cold soak before it can
+default on
 ([`tradeoff-curves/epd-refresh-latency.md`](tradeoff-curves/epd-refresh-latency.md)).
+This also undercuts H2's latency framing, tracked as
+[D2](house-vs-product.md#d2--refresh-area-is-not-a-latency-lever).
 The v0.1 target history stands: relaxed from ≤ 200 ms to ≤ 400 ms (the original
 was tighter than [ADR-003]'s own accepted "~200–300 ms" e-ink cost); v1.0 reset
-from ≤ 150 ms to ≤ 300 ms. The open item is now the **erase/caret tier**
-(~630 ms full-area partial per event), not additive typing.
+from ≤ 150 ms to ≤ 300 ms. The open items are now the **erase/caret tier**
+(~630 ms full-area partial per event) and graduating the fast LUT so additive
+typing meets ≤ 400 ms on the **default** path, not just the opt-in one.
 
 ¶ **Heap during Push: measured and re-plumbed 2026-07-13.** The ≥ 1 MB
 PSRAM bar is now **met** (min-ever 4.5 MB free on the first real-repo push,
