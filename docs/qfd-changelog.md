@@ -389,6 +389,17 @@ README, the product/technical docs, and [ADR-003] are all updated to ~13 lines
   undercuts the premise that H2 (refresh area) is a latency driver — now opened as
   [house-vs-product](house-vs-product.md#d2--refresh-area-is-not-a-latency-lever) **D2**.
 
+- **Panel full-refresh cadence broadened past H3's "~64 partials" (2026-07-21).**
+  The panel-ghosting work (`app/src/render.rs`, `Panel::longevity_full`) added
+  three full-refresh triggers that fire *below* the `FULL_REFRESH_EVERY = 64`
+  budget — a one-shot boot-splash cleanup, a 30 s deep-idle launder, and a
+  file-switch piggyback (≥ half budget) — and the pause gate is 2 s
+  (`CURSOR_DEBOUNCE_MS`), not the "≥ 1 s" §6 stated. All still defer to a typing
+  pause or a file-load, so no flash lands mid-typing and H1/H2 are untouched: the
+  ghosting-vs-latency tension is scheduled around, not violated. Cadence halves to
+  32 (`FULL_REFRESH_EVERY_FAST`) when `fast_partial` is on. Fixed §6 row 6
+  (Watched/Verdict).
+
 [ADR-001]: adr.md#adr-001-language-and-runtime--rust-on-esp-idf-rs-std
 [ADR-002]: adr.md#adr-002-ui-strategy--custom-widgets-on-embedded-graphics-not-ratatui
 [ADR-003]: adr.md#adr-003-display-medium--e-ink-gdey0579t93-panel

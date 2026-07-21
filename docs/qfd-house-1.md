@@ -942,7 +942,10 @@ design are called out below.
   visible flashes that hurt H8 perception and H1 burst behaviour. The
   [ADR-003] (T3) strip aspect is the structural answer: a small framebuffer makes
   _both_ cheaper, not one at the expense of the other. The runtime answer
-  is render §H3: schedule full refreshes on idle ≥ 1 s (v0.1 tech doc). The
+  is render §H3: schedule full refreshes at a typing pause (v0.1: idle ≥ 1 s;
+  now a ≥ 2 s gate plus boot-cleanup / 30 s deep-idle / file-switch triggers that
+  clear ghosting without ever flashing mid-typing — see
+  [§6](qfd-budget.md#6-critical-performance-budget) H3). The
   rows-vs-latency cost model behind this tradeoff (full / full-area-partial /
   windowed-Y) is in
   [`tradeoff-curves/epd-refresh-latency.md`](tradeoff-curves/epd-refresh-latency.md).
