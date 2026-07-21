@@ -48,6 +48,14 @@ pub const FULL_REFRESH_EVERY_FAST: u32 = 32;
 /// panel passes right as typing resumed (the 2026-07-16 "toggling" trace).
 pub const CURSOR_DEBOUNCE_MS: u128 = 2000;
 
+/// A "genuine break" in typing — long enough that the writer has stepped back to
+/// think or walked away, not just paused mid-sentence. At this point
+/// [`Panel::longevity_full`] launders *any* accumulated ghosting with a full
+/// refresh, even below the [`FULL_REFRESH_EVERY`] budget: the flash is unobtrusive
+/// when you are not typing, and you return to a clean panel. 30 s, comfortably
+/// past the 2 s caret debounce so an ordinary think-pause never triggers it.
+pub const DEEP_IDLE_MS: u128 = 30_000;
+
 /// Focus mode (Pomodoro) block length: 25 minutes of writing before the rest
 /// card drops. Silent — never shown as a live countdown (an e-ink no-go, and the
 /// whole point). See docs/v0.7.5-focus-mode.md.
@@ -106,6 +114,12 @@ pub struct Panel<S: Screen> {
     /// Partial refreshes since the last full one — [`Panel::longevity_full`]
     /// fires when this reaches [`FULL_REFRESH_EVERY`].
     partials_since_full: u32,
+    /// One-shot: the first editor frame is a partial painted over the boot
+    /// splash, so a full refresh at the first typing pause launders the residual
+    /// wordmark ghost. Armed in [`Panel::new`], cleared the first time
+    /// [`Panel::longevity_full`] fires — independent of the partial-count cadence,
+    /// so the ghost clears within a second or two of boot, not after 64 partials.
+    boot_cleanup_pending: bool,
     /// Whether the caret is currently on the panel. Drives whether an
     /// erase-in-one-cell edit counts as additive (the debounced caret bar being
     /// re-suppressed), and is reset to `true` after any whole-panel repaint.
@@ -129,6 +143,10 @@ impl<S: Screen> Panel<S> {
     /// Takes the [`Screen`] by value: the caller keeps it for the boot splash and
     /// any boot-error screen, then hands it over here once the first editor frame
     /// is ready — after which every panel op goes through the returned `Panel`.
+    ///
+    /// Arms [`boot_cleanup_pending`](Self::boot_cleanup_pending): this first paint
+    /// is a partial over the splash wordmark, so a full refresh at the first
+    /// typing pause is scheduled to wipe its residual ghost.
     pub fn new(mut screen: S, ed: &mut Editor) -> Result<Self, S::Error> {
         let shown = ed.draw(true);
         screen.display_frame_partial_window(shown.bytes(), 0, HEIGHT)?;
@@ -137,6 +155,7 @@ impl<S: Screen> Panel<S> {
             shown,
             back: Frame::new_white(),
             partials_since_full: 0,
+            boot_cleanup_pending: true,
             cursor_shown: true, // the initial render includes the caret
             force_full: false,
             updates: 0,
@@ -336,23 +355,65 @@ impl<S: Screen> Panel<S> {
         true
     }
 
-    /// Panel-longevity full refresh, deferred to a typing pause. The partial
-    /// counter only advances on keystroke repaints, so promoting in-band would
-    /// mean the ~2 s flash could ONLY land mid-typing. Draws the caret itself, so
-    /// the pause costs one flash, not flash + caret pass. Returns `true` if it
-    /// painted (or attempted to — the caller should `continue`), `false` when not
-    /// yet due.
-    pub fn longevity_full(&mut self, ed: &mut Editor, last_activity: Instant) -> bool {
-        let every = if ed.prefs().fast_partial {
+    /// The full-refresh partial budget for the active waveform — halved when the
+    /// experimental fast partial is on, since a shorter custom LUT ghosts faster
+    /// (see [`FULL_REFRESH_EVERY_FAST`]).
+    fn full_budget(&self, ed: &Editor) -> u32 {
+        if ed.prefs().fast_partial {
             FULL_REFRESH_EVERY_FAST
         } else {
             FULL_REFRESH_EVERY
-        };
-        if !(self.partials_since_full >= every
-            && last_activity.elapsed().as_millis() >= CURSOR_DEBOUNCE_MS)
-        {
+        }
+    }
+
+    /// Piggyback a panel-cleaning full refresh onto a palette file-switch. A switch
+    /// already repaints the whole writing column and reads as "loading a document",
+    /// so it is a free moment to launder accumulated ghosting — masking the ~2 s
+    /// flash behind an expected transition instead of spending it on a standalone
+    /// idle pass. Only once ghosting has built past half the longevity budget, so
+    /// rapid browsing right after a clean pass stays on the fast full-area partial.
+    /// The runtime calls this right after servicing an `Effect::Load`, before the
+    /// switch repaint runs through [`render_batch`](Self::render_batch).
+    pub fn full_refresh_on_switch(&mut self, ed: &Editor) {
+        if self.partials_since_full >= self.full_budget(ed) / 2 {
+            self.force_full = true;
+        }
+    }
+
+    /// Deferred full refresh, at a typing pause — three triggers share this one
+    /// mechanism (and the caret draw, so a pause costs one flash, not flash + caret
+    /// pass):
+    ///   * **boot-splash cleanup** — the one-shot
+    ///     [`boot_cleanup_pending`](Self::boot_cleanup_pending) flag, at the first
+    ///     short pause, to wipe the residual splash-wordmark ghost.
+    ///   * **longevity** — [`FULL_REFRESH_EVERY`] partials accumulated, at a short
+    ///     pause, to re-launder accumulated charge.
+    ///   * **deep idle** — *any* ghosting after a genuine break
+    ///     ([`DEEP_IDLE_MS`]), so you return from stepping away to a clean panel.
+    /// All defer to a pause because the ~2 s flash must never land mid-typing; the
+    /// partial counter only advances on keystroke repaints, so promoting in-band
+    /// would mean it could ONLY land mid-sentence. Returns `true` if it painted (or
+    /// attempted to — the caller should `continue`), `false` when not yet due.
+    pub fn longevity_full(&mut self, ed: &mut Editor, last_activity: Instant) -> bool {
+        let every = self.full_budget(ed);
+        let elapsed = last_activity.elapsed().as_millis();
+        let due = (self.boot_cleanup_pending && elapsed >= CURSOR_DEBOUNCE_MS)
+            || (self.partials_since_full >= every && elapsed >= CURSOR_DEBOUNCE_MS)
+            || (self.partials_since_full > 0 && elapsed >= DEEP_IDLE_MS);
+        if !due {
             return false;
         }
+        // Capture the reason before the refresh clears the flag / resets the count.
+        let reason = if self.boot_cleanup_pending {
+            "boot-splash cleanup"
+        } else if self.partials_since_full >= every {
+            "longevity"
+        } else {
+            "deep-idle"
+        };
+        // One-shot regardless of the refresh outcome: on a failed paint `force_full`
+        // is armed below, so the next paint is a full refresh that cleans it anyway.
+        self.boot_cleanup_pending = false;
         ed.refresh_stats();
         ed.draw_into(&mut self.back, true);
         self.updates += 1;
@@ -364,7 +425,11 @@ impl<S: Screen> Panel<S> {
             return true;
         }
         self.partials_since_full = 0;
-        log::info!("idle FULL refresh #{}: {} ms", self.updates, t0.elapsed().as_millis());
+        log::info!(
+            "idle FULL refresh #{} ({reason}): {} ms",
+            self.updates,
+            t0.elapsed().as_millis()
+        );
         std::mem::swap(&mut self.shown, &mut self.back);
         self.cursor_shown = true;
         true
@@ -437,6 +502,7 @@ mod tests {
     use std::cell::RefCell;
     use std::convert::Infallible;
     use std::rc::Rc;
+    use std::time::Duration;
 
     /// A [`Screen`] that records which refresh method fired, in order, so a test can
     /// assert the fast waveform is reached only on the additive per-keystroke path.
@@ -514,6 +580,67 @@ mod tests {
             !paints.contains(&"partial-fast"),
             "a delete must not use the fast waveform; got {paints:?}"
         );
+    }
+
+    #[test]
+    fn boot_splash_ghost_is_cleared_by_one_shot_full_refresh_at_first_pause() {
+        // Panel::new paints the first editor frame as a partial *over* the boot
+        // splash wordmark, arming the one-shot cleanup. At the first typing pause
+        // (activity older than the debounce) longevity_full fires a FULL refresh to
+        // launder the residual ghost — even with no partials accumulated yet.
+        let log: Log = Rc::new(RefCell::new(Vec::new()));
+        let mut ed = Editor::with_text(String::new());
+        let mut panel = Panel::new(RecordScreen(log.clone()), &mut ed).expect("boot paint");
+        assert_eq!(log.borrow().clone(), ["partial"], "boot frame is a partial over the splash");
+
+        let paused = Instant::now() - Duration::from_millis(CURSOR_DEBOUNCE_MS as u64 + 100);
+
+        // First pause: the armed cleanup fires a full refresh despite 0 partials.
+        log.borrow_mut().clear();
+        assert!(panel.longevity_full(&mut ed, paused), "cleanup should paint at the first pause");
+        assert_eq!(log.borrow().clone(), ["full"], "boot cleanup is a full refresh");
+
+        // One-shot: a second pause does not re-fire (flag cleared, and the partial
+        // count is nowhere near the longevity cadence).
+        log.borrow_mut().clear();
+        assert!(!panel.longevity_full(&mut ed, paused), "cleanup must not repeat");
+        assert!(log.borrow().is_empty(), "no second full refresh: {:?}", log.borrow());
+    }
+
+    #[test]
+    fn file_switch_promotes_to_a_full_refresh_only_once_ghosting_has_accumulated() {
+        let (mut panel, ed, _log) = insert_panel(false);
+        // Just below half the budget: a switch stays on the fast full-area partial.
+        panel.partials_since_full = FULL_REFRESH_EVERY / 2 - 1;
+        panel.full_refresh_on_switch(&ed);
+        assert!(!panel.force_full, "light ghosting: no gratuitous full refresh on switch");
+        // At half the budget: use the masked moment to launder the panel.
+        panel.partials_since_full = FULL_REFRESH_EVERY / 2;
+        panel.full_refresh_on_switch(&ed);
+        assert!(panel.force_full, "accumulated ghosting: switch promotes to a full refresh");
+    }
+
+    #[test]
+    fn deep_idle_launders_light_ghosting_only_after_a_long_break() {
+        let (mut panel, mut ed, log) = insert_panel(false);
+        panel.boot_cleanup_pending = false; // isolate from the boot one-shot
+        panel.partials_since_full = 3; // light ghosting, well below the budget
+        log.borrow_mut().clear();
+
+        // A short (caret-debounce) pause is NOT enough for light ghosting — only
+        // the full longevity budget fires at a short pause.
+        let short = Instant::now() - Duration::from_millis(CURSOR_DEBOUNCE_MS as u64 + 100);
+        assert!(!panel.longevity_full(&mut ed, short), "short pause + light ghost: no refresh");
+        assert!(log.borrow().is_empty());
+
+        // A genuine break launders even light ghosting.
+        let deep = Instant::now() - Duration::from_millis(DEEP_IDLE_MS as u64 + 100);
+        assert!(panel.longevity_full(&mut ed, deep), "deep pause: clean the light ghost");
+        assert_eq!(log.borrow().clone(), ["full"]);
+
+        // Panel now clean (count reset) — a second deep pause does nothing.
+        log.borrow_mut().clear();
+        assert!(!panel.longevity_full(&mut ed, deep), "clean panel: no repeat flash");
     }
 }
 
