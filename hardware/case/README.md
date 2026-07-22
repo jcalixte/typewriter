@@ -178,12 +178,12 @@ Or inspect each half alone — `plan_up` (the deck/lid, shown from below) and
 
 ![The three printed parts laid out — body, bracket, baseplate](renders/print.png)
 
-- **Material:** PLA/PETG. Print the body in matte **indigo** (`#130f40`), the
+- **Material:** PLA/PETG. Print the body in matte **sage** (`#B6CEB4`), the
   bracket/base in cream or brass — two-tone reads unmistakably "typewriter" for
   the price of a filament swap.
-- **Make the engrave read:** on a body this dark the recessed `TYPOENA` is
-  near-invisible until you give it contrast — a swipe of paint pen in the recess,
-  or a 3–4 layer filament swap across the nameplate band mid-print.
+- **Make the engrave read:** the recessed `TYPOENA` reads only as a faint shadow
+  line until you give it contrast — a swipe of paint pen in the recess, or a 3–4
+  layer filament swap across the nameplate band mid-print.
 - **Shell, not solid:** 2.4 mm walls + open bottom keep material low despite the
   chunky body form.
 - **Orientation:** body deck-up (or on its back) needs little/no support; the
