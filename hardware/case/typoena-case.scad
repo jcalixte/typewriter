@@ -114,7 +114,7 @@ bat_y0 = wall + 4;                             // front edge just off the front 
 usbc_w   = 8.0;  usbc_h = 2.5;               // USB-C shell opening (W x H)
 sd_w     = 13.0; sd_h   = 2.0;               // microSD slot (W x H)
 usbc_cz  = 3.5;                              // USB-C opening centre, above PCB top
-sd_cz    = 2.5;                              // µSD slot centre — aligned with the USB-Cs, 1 mm lower
+sd_cz    = 3.0;                              // µSD slot centre — 0.5 mm below the USB-C centre
 pcb2_z   = bp_t + standoff_h + pcb_t;        // PCB 2 top face height off the floor
 // per-port centre heights off the floor       [charge, keyboard, µSD]
 port_z   = [pcb2_z+usbc_cz, pcb2_z+usbc_cz, pcb2_z+sd_cz];
