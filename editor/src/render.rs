@@ -52,6 +52,17 @@ pub(crate) const NOTICE_MAX_LINES: usize = 4;
 /// PANEL_CH rows ≈ 45 chars — enough for a dated title like `2026-07-21 je dois
 /// parler de outer wilds`.
 pub(crate) const FILENAME_MAX_LINES: usize = 3;
+/// Typo's face on the side panel: the 48 px sprite at this scale (96 px), between
+/// the sync tier and the vim tier.
+pub(crate) const FACE_SCALE: i32 = 2;
+/// Fixed top y of the face box. Fixed — never laid out below the (variable)
+/// notice — so a mood swap only ever changes pixels inside the box, and the face
+/// can't jump rows when a notice comes and goes. Below the sync tier's worst-case
+/// scope row (a 3-line filename puts it at 77..92) and above the vim tier's
+/// topmost row (the focus marker at HEIGHT − 3·PANEL_CH = 227): 124 + 96 = 220.
+/// A notice long enough to wrap into the box wins over the face (see
+/// [`Editor::draw_panel`]).
+pub(crate) const FACE_Y: i32 = 124;
 /// Tab stop, in spaces. Tabs never enter the buffer — they expand on insert so
 /// the buffer stays 1 char = 1 column.
 pub(crate) const TAB: &str = "    ";

@@ -20,7 +20,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
 
-use display::{blit_glyph, extra_glyph, Frame, HEIGHT, WIDTH};
+use display::{blit_glyph, extra_glyph, typo, Frame, HEIGHT, WIDTH};
 use keymap::Key;
 
 
@@ -433,6 +433,18 @@ pub struct Editor {
     /// [`set_version`](Self::set_version) — the pure core has no build metadata.
     /// Shown by `:about`; empty until fed (host tests leave it so).
     version: String,
+    /// Typo's current face on the side panel. The host's render engine drives it
+    /// off the e-ink refresh cycle via [`set_companion_mood`](Self::set_companion_mood)
+    /// (frustrated as ghosting builds, a rotating humor into each full-refresh
+    /// frame); the core itself only sets it on a word-count milestone. Pure
+    /// state — changing it never queues an effect or repaint; it rides whatever
+    /// paint comes next.
+    companion_mood: typo::Mood,
+    /// Highest word-count milestone already celebrated for the active buffer,
+    /// baselined to the buffer's count on load/switch — so opening a 6k-word
+    /// file never celebrates 5k, and hovering around a threshold (delete below,
+    /// type back over) never re-fires. See [`check_milestone`](Self::check_milestone).
+    milestone: usize,
 }
 
 
@@ -477,6 +489,8 @@ impl Editor {
             snippets: Vec::new(),
             snippet_stops: Vec::new(),
             snippet_hint: None,
+            companion_mood: typo::Mood::Neutral,
+            milestone: 0,
             pomodoro_on: false,
             rest_stats: None,
             focus_debug: false,
@@ -507,6 +521,7 @@ impl Editor {
         if ed.caret > ed.line_start(ed.caret) {
             ed.caret = ed.prev_char(ed.caret);
         }
+        ed.milestone = milestone_floor(ed.word_count());
         ed
     }
 
@@ -558,6 +573,42 @@ impl Editor {
     pub fn refresh_stats(&mut self) {
         self.shown_words = self.word_count();
         self.snippet_hint = self.current_snippet_hint();
+        self.check_milestone();
+    }
+
+    /// Celebrate a word-count milestone through the *existing* notice slot: when
+    /// the throttled snapshot crosses a threshold ([`milestone_floor`]) above the
+    /// buffer's baseline, post "5,000 words!" and give Typo the anticipation
+    /// face. Runs inside [`refresh_stats`](Self::refresh_stats), so it fires at a
+    /// typing pause / non-Insert action — moments whose repaint is already a
+    /// full-area partial — never per keystroke, and never interrupts typing.
+    /// Each threshold fires at most once per buffer session (the baseline
+    /// ratchets), and a buffer loaded already past a threshold starts baselined
+    /// there (see [`milestone`](Self::milestone)).
+    fn check_milestone(&mut self) {
+        if !self.prefs.companion {
+            return;
+        }
+        let floor = milestone_floor(self.shown_words);
+        if floor > self.milestone {
+            self.milestone = floor;
+            self.set_notice(format!("{} words!", group_thousands(floor)));
+            self.companion_mood = typo::Mood::Anticipation;
+        }
+    }
+
+    /// Typo's current side-panel face. Exposed for the host render engine's
+    /// refresh-cycle transitions and for tests.
+    pub fn companion_mood(&self) -> typo::Mood {
+        self.companion_mood
+    }
+
+    /// Set Typo's face for the next paint. Called by the host render engine at
+    /// the moments its repaint is already whole-panel (a full refresh, or the
+    /// typing-pause caret repaint) — never mid-typing, so a face swap can never
+    /// knock a windowed keystroke partial off the fast path.
+    pub fn set_companion_mood(&mut self, mood: typo::Mood) {
+        self.companion_mood = mood;
     }
 
     /// The snippet name inline Tab would expand at the caret right now, or `None`.
@@ -632,7 +683,33 @@ impl Editor {
     pub fn word_count(&self) -> usize {
         self.text.split_whitespace().count()
     }
+}
 
+/// The largest word-count milestone at or below `words`, or 0 below the first.
+/// The ladder the character sheet fixed: 500 · 1k · 2k · 5k · 10k, then every
+/// 10k — dense while a note is growing, sparse once it's a manuscript.
+pub(crate) fn milestone_floor(words: usize) -> usize {
+    if words >= 10_000 {
+        return words / 10_000 * 10_000;
+    }
+    [5_000, 2_000, 1_000, 500].into_iter().find(|&t| words >= t).unwrap_or(0)
+}
+
+/// `5002` → `"5,002"` — the panel word count and the milestone notice share this
+/// so the two figures read as the same number.
+pub(crate) fn group_thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+impl Editor {
     /// Dispatch one decoded key event according to the current mode. Any host
     /// effect a `:` command (or a buffer switch) triggers is pushed to the queue
     /// drained by [`take_effects`](Self::take_effects); ordinary keys queue

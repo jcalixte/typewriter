@@ -18,6 +18,8 @@ pub use glyphs::{blit_glyph, extra_glyph, Glyph};
 pub mod fonts;
 pub use fonts::{body_font, FONT_OPTIONS};
 
+pub mod typo;
+
 pub const WIDTH: u16 = 792;
 pub const HEIGHT: u16 = 272;
 
@@ -60,16 +62,17 @@ impl Frame {
         Self { buf: vec![0x00; FB_BYTES] }
     }
 
-    /// The Typoena boot splash: the lowercase "typoena" wordmark centred on a
-    /// white frame. Pure `embedded-graphics`, so it renders the same on the host
-    /// (the preview) as it does through the `Epd` driver at boot. `main.rs` shows
-    /// this once at startup (async full refresh, overlapping the SD mount + note
-    /// load); the first editor frame then partial-refreshes over it, and the
-    /// one-shot boot-cleanup full refresh launders the residual ghost at the first
-    /// typing pause (see `app::Panel`).
+    /// The Typoena boot splash: Typo (the tucano companion, [`typo::BODY`])
+    /// centred over the lowercase "typoena" wordmark on a white frame. Pure
+    /// `embedded-graphics`, so it renders the same on the host (the preview) as
+    /// it does through the `Epd` driver at boot. `main.rs` shows this once at
+    /// startup (async full refresh, overlapping the SD mount + note load); the
+    /// first editor frame then partial-refreshes over it, and the one-shot
+    /// boot-cleanup full refresh launders the residual ghost at the first typing
+    /// pause (see `app::Panel`).
     pub fn splash() -> Self {
         let mut f = Self::new_white();
-        f.draw_wordmark();
+        f.draw_brand();
         f
     }
 
@@ -80,7 +83,7 @@ impl Frame {
     /// the boot splash — the restart reads as one continuous motion, not a freeze.
     pub fn reboot() -> Self {
         let mut f = Self::new_white();
-        f.draw_wordmark();
+        f.draw_brand();
 
         // A subtitle near the bottom edge, well clear of the centred wordmark
         // (baseline ≈ HEIGHT/2), with room for one FONT_10X20 line.
@@ -101,30 +104,47 @@ impl Frame {
         f
     }
 
-    /// Draw the lowercase "typoena" wordmark, centred on the panel, onto this
-    /// frame. Shared by [`splash`](Self::splash) and [`reboot`](Self::reboot) so
-    /// the boot and restart screens are pixel-identical bar the subtitle, keeping
-    /// a `:reboot` visually seamless into boot.
+    /// Draw the brand lockup — Typo at 3× over the lowercase "typoena" wordmark,
+    /// centred on the panel — onto this frame. Shared by [`splash`](Self::splash)
+    /// and [`reboot`](Self::reboot) so the boot and restart screens are
+    /// pixel-identical bar the subtitle, keeping a `:reboot` visually seamless
+    /// into boot.
     ///
-    /// Deliberately just the wordmark — no badge/circle. The boot splash is
-    /// painted, then the first editor frame partial-refreshes over it, and a
-    /// partial can't fully drive ink back to paper: the less ink the splash
-    /// leaves, the less it ghosts under your opening text. The small residual is
-    /// then laundered by the one-shot boot-cleanup full refresh (see `app::Panel`).
-    fn draw_wordmark(&mut self) {
+    /// Typo is line art (his belly is paper, not fill), so the splash still
+    /// leaves little ink: the first editor frame partial-refreshes over it, and a
+    /// partial can't fully drive ink back to paper — the residual sprite ghost is
+    /// laundered by the one-shot boot-cleanup full refresh (see `app::Panel`).
+    fn draw_brand(&mut self) {
         const WORDMARK: &str = "typoena";
+        /// Boot-splash sprite scale: 48 px × 3 = 144 px, the size approved on
+        /// the character sheet.
+        const SPLASH_SCALE: i32 = 3;
 
-        let center = Point::new(WIDTH as i32 / 2, HEIGHT as i32 / 2);
+        // Stack the sprite over the wordmark and centre the lockup vertically.
+        let sprite_px = typo::BODY.h as i32 * SPLASH_SCALE;
+        let gap = 14; // sprite baseline → wordmark centre
+        let top = (HEIGHT as i32 - (sprite_px + gap + 20)) / 2;
+        typo::blit_sprite(
+            self,
+            (WIDTH as i32 - typo::BODY.w as i32 * SPLASH_SCALE) / 2,
+            top,
+            typo::BODY,
+            SPLASH_SCALE,
+        );
 
-        // Centre the wordmark on the panel centre in both axes.
         let char_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
         let text_style = TextStyleBuilder::new()
             .alignment(Alignment::Center)
             .baseline(Baseline::Middle)
             .build();
-        Text::with_text_style(WORDMARK, center, char_style, text_style)
-            .draw(self)
-            .unwrap();
+        Text::with_text_style(
+            WORDMARK,
+            Point::new(WIDTH as i32 / 2, top + sprite_px + gap + 10),
+            char_style,
+            text_style,
+        )
+        .draw(self)
+        .unwrap();
     }
 
     pub fn bytes(&self) -> &[u8] {

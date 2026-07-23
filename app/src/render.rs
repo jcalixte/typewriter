@@ -20,6 +20,7 @@
 
 use std::time::Instant;
 
+use display::typo;
 use display::{Frame, FB_BYTES_W, HEIGHT};
 use editor::{Editor, Mode, CH, CW};
 
@@ -130,6 +131,10 @@ pub struct Panel<S: Screen> {
     force_full: bool,
     /// Monotonic refresh counter, for the serial trace.
     updates: u32,
+    /// Where Typo is in his post-flash humor rotation ([`typo::POOL`]): every
+    /// frame painted with a FULL refresh carries the next of the six, so the
+    /// flash never plays the same beat twice. Wraps forever.
+    pool_idx: usize,
 }
 
 impl<S: Screen> Panel<S> {
@@ -159,7 +164,33 @@ impl<S: Screen> Panel<S> {
             cursor_shown: true, // the initial render includes the caret
             force_full: false,
             updates: 0,
+            pool_idx: 0,
         })
+    }
+
+    /// Typo's refresh-cycle transitions — the whole reason the faces are free:
+    /// they are only ever swapped into a frame whose repaint is already paid for.
+    ///
+    /// Rotate to the next post-flash humor, for a frame about to be painted with
+    /// a FULL refresh: the new face rides the flash, and what comes back after
+    /// the black/white cycle is Typo with a fresh take on "keep going".
+    fn companion_pool_mood(&mut self, ed: &mut Editor) {
+        if !ed.prefs().companion {
+            return;
+        }
+        ed.set_companion_mood(typo::POOL[self.pool_idx % typo::POOL.len()]);
+        self.pool_idx = self.pool_idx.wrapping_add(1);
+    }
+
+    /// At a typing-pause repaint (already a silent full-area partial): once
+    /// ghosting has built past **half** the full-refresh budget, Typo turns
+    /// frustrated — at the residue dusting *his* feathers, never at the writer.
+    /// He stays that way until the longevity flash launders the panel and the
+    /// pool rotation above answers with a humor.
+    fn companion_ghost_mood(&mut self, ed: &mut Editor) {
+        if ed.prefs().companion && self.partials_since_full >= self.full_budget(ed) / 2 {
+            ed.set_companion_mood(typo::Mood::Frustrated);
+        }
     }
 
     /// Repaint after a batch of keystrokes. Renders the editor into `back`, then
@@ -184,20 +215,26 @@ impl<S: Screen> Panel<S> {
         // The experimental fast partial waveform is scoped to the additive path
         // below (guardrail 1); read live so a bench toggle takes effect at once.
         let fast_partial = ed.prefs().fast_partial;
-        let prev_scroll = ed.scroll_top();
-        ed.draw_into(&mut self.back, insert_cursor_on);
-        let scrolled = ed.scroll_top() != prev_scroll;
 
         // A full-screen card (the rest curtain, or the `:about` splash) swapping
         // to or from the editor is a big ink change: force a clean full refresh so
         // it doesn't ghost. Rest only ever *leaves* through here (the focus timer
         // drops it in via `rest_if_due`); `:about` both enters and leaves by
-        // keystroke, so either of its transitions counts.
+        // keystroke, so either of its transitions counts. Checked before the
+        // render (the keys are already applied, so both modes are known) so that
+        // a frame headed for a FULL refresh can carry Typo's next pool humor.
         let was_card = prev_mode == Mode::Rest || prev_mode == Mode::About;
         let is_card = ed.mode() == Mode::About; // Rest never enters via a key batch
         if was_card != is_card {
             self.force_full = true;
         }
+        if self.force_full {
+            self.companion_pool_mood(ed);
+        }
+
+        let prev_scroll = ed.scroll_top();
+        ed.draw_into(&mut self.back, insert_cursor_on);
+        let scrolled = ed.scroll_top() != prev_scroll;
 
         // Only the rows that changed since the last shown frame need updating.
         let Some((y0, y1)) = changed_rows(self.shown.bytes(), self.back.bytes()) else {
@@ -415,6 +452,7 @@ impl<S: Screen> Panel<S> {
         // is armed below, so the next paint is a full refresh that cleans it anyway.
         self.boot_cleanup_pending = false;
         ed.refresh_stats();
+        self.companion_pool_mood(ed); // the humor rides the flash, for free
         ed.draw_into(&mut self.back, true);
         self.updates += 1;
         let t0 = Instant::now();
@@ -450,6 +488,7 @@ impl<S: Screen> Panel<S> {
             return false;
         }
         ed.refresh_stats();
+        self.companion_ghost_mood(ed); // this repaint is whole-panel already
         ed.draw_into(&mut self.back, true);
         if let Err(e) = self.screen.display_frame_partial_window(self.back.bytes(), 0, HEIGHT) {
             log::warn!("caret repaint FAILED ({e}); full refresh next");
@@ -641,6 +680,58 @@ mod tests {
         // Panel now clean (count reset) — a second deep pause does nothing.
         log.borrow_mut().clear();
         assert!(!panel.longevity_full(&mut ed, deep), "clean panel: no repeat flash");
+    }
+
+    #[test]
+    fn every_full_refresh_rotates_typo_through_the_humor_pool() {
+        let (mut panel, mut ed, _log) = insert_panel(false);
+        let paused = Instant::now() - Duration::from_millis(CURSOR_DEBOUNCE_MS as u64 + 100);
+
+        // Boot-cleanup full: the first flash already carries the first humor.
+        assert!(panel.longevity_full(&mut ed, paused));
+        assert_eq!(ed.companion_mood(), typo::POOL[0]);
+
+        // Each further full refresh steps the rotation — never the same beat twice.
+        for expect in typo::POOL.iter().skip(1) {
+            panel.partials_since_full = FULL_REFRESH_EVERY;
+            assert!(panel.longevity_full(&mut ed, paused));
+            assert_eq!(ed.companion_mood(), *expect);
+        }
+        // ...and the seventh wraps back to the first.
+        panel.partials_since_full = FULL_REFRESH_EVERY;
+        assert!(panel.longevity_full(&mut ed, paused));
+        assert_eq!(ed.companion_mood(), typo::POOL[0]);
+    }
+
+    #[test]
+    fn typo_turns_frustrated_at_a_pause_once_ghosting_passes_half_the_budget() {
+        let (mut panel, mut ed, _log) = insert_panel(false);
+        let paused = Instant::now() - Duration::from_millis(CURSOR_DEBOUNCE_MS as u64 + 100);
+
+        // Below half the budget the pause repaint leaves the face alone.
+        panel.partials_since_full = FULL_REFRESH_EVERY / 2 - 1;
+        panel.cursor_shown = false;
+        assert!(panel.caret_if_due(&mut ed, paused), "caret was due");
+        assert_eq!(ed.companion_mood(), typo::Mood::Neutral, "light ghosting: no frown");
+
+        // At half the budget the same free repaint carries the frustrated face.
+        panel.partials_since_full = FULL_REFRESH_EVERY / 2;
+        panel.cursor_shown = false;
+        assert!(panel.caret_if_due(&mut ed, paused));
+        assert_eq!(ed.companion_mood(), typo::Mood::Frustrated);
+    }
+
+    #[test]
+    fn companion_off_freezes_the_face_machinery() {
+        let (mut panel, mut ed, _log) = insert_panel(false);
+        ed.set_prefs(Prefs { companion: false, ..Prefs::default() });
+        let paused = Instant::now() - Duration::from_millis(CURSOR_DEBOUNCE_MS as u64 + 100);
+
+        assert!(panel.longevity_full(&mut ed, paused), "the flash itself still runs");
+        panel.partials_since_full = FULL_REFRESH_EVERY / 2;
+        panel.cursor_shown = false;
+        assert!(panel.caret_if_due(&mut ed, paused));
+        assert_eq!(ed.companion_mood(), typo::Mood::Neutral, "pref off: no mood swaps");
     }
 }
 

@@ -73,9 +73,19 @@ fn prefs_to_toml_round_trips_through_parse() {
         auto_sync: "5m".into(),
         scroll_margin: 3,
         fast_partial: true,
+        companion: false,
         timezone: "CET-1CEST,M3.5.0,M10.5.0/3".into(),
     };
     assert_eq!(Prefs::parse(&p.to_toml()), p);
+}
+
+#[test]
+fn prefs_parse_reads_companion_and_defaults_on() {
+    assert!(Prefs::default().companion); // Typo ships on; the pref is the opt-out
+    assert!(!Prefs::parse("companion = false\n").companion);
+    assert!(Prefs::parse("companion = true\n").companion);
+    // A non-bool value leaves it at the (on) default rather than reading false.
+    assert!(Prefs::parse("companion = off\n").companion);
 }
 
 #[test]

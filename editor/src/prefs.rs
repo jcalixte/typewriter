@@ -85,6 +85,12 @@ pub struct Prefs {
     /// device's SD copy only, so it never rides `:gp` to every device before the
     /// waveform is validated (BUSY time measured, ghosting/longevity soak passed).
     pub fast_partial: bool,
+    /// Typo, the tucano companion: the resident side-panel face with its
+    /// refresh-cycle moods, the empty-file card, and the word-count milestone
+    /// notices. Off hides all of it — the panel goes back to text-only metadata
+    /// (the boot splash keeps the brand mark either way; it is painted before
+    /// this file is read). For the purists.
+    pub companion: bool,
     /// The device timezone, as a **POSIX TZ string** (e.g. Paris:
     /// `CET-1CEST,M3.5.0,M10.5.0/3`). Applied at boot by the host
     /// (`setenv("TZ", …)` + `tzset()`), so `localtime_r` — and thus the `:inbox`
@@ -110,6 +116,7 @@ impl Default for Prefs {
             auto_sync: "10m".into(),
             scroll_margin: 2,
             fast_partial: false,
+            companion: true,
             timezone: String::new(),
         }
     }
@@ -165,6 +172,11 @@ impl Prefs {
                         p.fast_partial = b;
                     }
                 }
+                "companion" => {
+                    if let Some(b) = parse_bool(val) {
+                        p.companion = b;
+                    }
+                }
                 "timezone" => p.timezone = val.trim_matches('"').to_string(),
                 _ => {}
             }
@@ -191,6 +203,8 @@ impl Prefs {
              # Experimental fast partial-refresh waveform — leave false unless\n\
              # validating the custom LUT on a bench device (see Prefs::fast_partial).\n\
              fast_partial = {}\n\
+             # Typo, the side-panel companion (faces, empty-file card, milestones).\n\
+             companion = {}\n\
              # POSIX TZ (e.g. CET-1CEST,M3.5.0,M10.5.0/3); empty = UTC.\n\
              timezone = \"{}\"\n",
             self.save_on_idle,
@@ -202,6 +216,7 @@ impl Prefs {
             self.auto_sync,
             self.scroll_margin,
             self.fast_partial,
+            self.companion,
             self.timezone,
         )
     }

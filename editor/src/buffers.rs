@@ -261,6 +261,9 @@ impl Editor {
     /// The register and `.` history are deliberately left alone — they are global
     /// (vim-like), so a yank in one file pastes in another.
     pub(crate) fn reset_active_input(&mut self) {
+        // Re-baseline the milestone ladder to the incoming text, so a switch to
+        // an already-long file never celebrates thresholds it was loaded past.
+        self.milestone = crate::milestone_floor(self.word_count());
         self.mode = Mode::Normal;
         self.visual_anchor = None;
         self.cmdline.clear();

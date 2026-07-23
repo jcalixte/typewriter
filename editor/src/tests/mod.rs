@@ -22,6 +22,7 @@ mod snippets;
 mod search;
 mod pull;
 mod focus;
+mod companion;
 
 pub(crate) use crate::*;
 

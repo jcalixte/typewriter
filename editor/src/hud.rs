@@ -66,10 +66,13 @@ impl Editor {
         // modified marker — flags unsaved edits (`dirty`); `·` is already the
         // focus marker, so `*` keeps the two unambiguous.
         let words_y = 2 + name_rows as i32 * PANEL_CH;
+        // Thousands-grouped ("5,002 words") so it reads as the same figure as the
+        // milestone notice ("5,000 words!"). Worst realistic case fits the 15-col
+        // panel: "99,999 words *" is 14 chars.
         let words = if self.dirty {
-            format!("{} words *", self.shown_words)
+            format!("{} words *", group_thousands(self.shown_words))
         } else {
-            format!("{} words", self.shown_words)
+            format!("{} words", group_thousands(self.shown_words))
         };
         Text::with_baseline(&words, Point::new(PANEL_X, words_y), style, Baseline::Top)
             .draw(f)
@@ -106,6 +109,45 @@ impl Editor {
                 Text::with_baseline(&line, Point::new(PANEL_X, y), style, Baseline::Top)
                     .draw(f)
                     .unwrap();
+            }
+        }
+
+        // ── Companion tier ───────────────────────────────────────────────────
+        // Typo, resident between the sync and vim tiers: the current mood face
+        // (mirrored, watching the text) at [`FACE_SCALE`], horizontally centred
+        // in the panel at the fixed [`FACE_Y`]. His moods ride the refresh
+        // cycle (see `app::Panel`) and the word-count milestones; an empty
+        // buffer always gets the neutral face plus the blank-page nudge. A
+        // notice whose wrapped lines would run into the face box wins — it is
+        // transient, and the next keystroke clears it and brings Typo back.
+        if self.prefs.companion {
+            let notice_rows = self
+                .notice
+                .as_ref()
+                .map_or(0, |m| wrap_text(m, PANEL_COLS).len().min(NOTICE_MAX_LINES));
+            let notice_end = scope_y + (1 + notice_rows as i32) * PANEL_CH;
+            if notice_end <= FACE_Y {
+                let empty = self.text.is_empty();
+                let mood = if empty { typo::Mood::Neutral } else { self.companion_mood };
+                let face = mood.face();
+                let fw = face.w as i32 * FACE_SCALE;
+                let fx = PANEL_X + (WIDTH as i32 - PANEL_X - fw) / 2;
+                typo::blit_sprite(f, fx, FACE_Y, face, FACE_SCALE);
+                // The empty-file nudge, centred under the face. Only when the
+                // rows beneath are actually free: the focus marker and the
+                // NO KBD flag own them when shown (a snippet hint can't — it
+                // needs typed text, and the buffer is empty).
+                if empty && self.keyboard_present && !self.pomodoro_on {
+                    let caption_top = FACE_Y + face.h as i32 * FACE_SCALE + 4;
+                    for (i, line) in ["plenty of", "beak left."].iter().enumerate() {
+                        let w = line.chars().count() as i32 * PANEL_CW;
+                        let x = PANEL_X + (WIDTH as i32 - PANEL_X - w) / 2;
+                        let y = caption_top + i as i32 * PANEL_CH;
+                        Text::with_baseline(line, Point::new(x, y), style, Baseline::Top)
+                            .draw(f)
+                            .unwrap();
+                    }
+                }
             }
         }
 

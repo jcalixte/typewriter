@@ -80,6 +80,7 @@ pub(crate) enum PaletteCmd {
     Theme,
     Font,
     AutoSync,
+    Companion,
 }
 
 /// How a [`PaletteCmd`] behaves on Enter — see [`PaletteCmd::kind`].
@@ -111,7 +112,7 @@ impl PaletteCmd {
 
 /// The palette command list, in display order (empty `>` query shows them all):
 /// the actions first, the settings after.
-pub(crate) const PALETTE_CMDS: [PaletteCmd; 14] = [
+pub(crate) const PALETTE_CMDS: [PaletteCmd; 15] = [
     PaletteCmd::NewFile,
     PaletteCmd::Format,
     PaletteCmd::Push,
@@ -126,6 +127,7 @@ pub(crate) const PALETTE_CMDS: [PaletteCmd; 14] = [
     PaletteCmd::Theme,
     PaletteCmd::Font,
     PaletteCmd::AutoSync,
+    PaletteCmd::Companion,
 ];
 
 /// Which step the palette is showing. Most of its life it is a
@@ -394,6 +396,7 @@ impl Editor {
             PaletteCmd::Theme => format!("theme: {}", self.prefs.theme),
             PaletteCmd::Font => format!("font: {}", self.prefs.font),
             PaletteCmd::AutoSync => format!("auto sync: {}", self.prefs.auto_sync),
+            PaletteCmd::Companion => format!("companion: {}", on(self.prefs.companion)),
         }
     }
 
@@ -573,6 +576,7 @@ impl Editor {
             PaletteCmd::OpenLastOnBoot => {
                 self.prefs.open_last_on_boot = !self.prefs.open_last_on_boot
             }
+            PaletteCmd::Companion => self.prefs.companion = !self.prefs.companion,
             PaletteCmd::ScrollMargin => {
                 self.prefs.scroll_margin =
                     next_usize_option(self.prefs.scroll_margin, &SCROLL_MARGIN_OPTIONS)
