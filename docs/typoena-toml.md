@@ -2,8 +2,8 @@
 
 > The git-tracked file that controls how the editor behaves — auto-save,
 > format-on-save, the line-number gutter, the boot file, and the panel theme. Hand-editable, or
-> changed live from the `Cmd-P` palette (booleans flip; the theme and auto-sync
-> interval rotate through preset options on **Enter**). Landed in **v0.5** (see
+> changed live from the `Cmd-P` palette (booleans flip; the theme, font and
+> auto-sync interval rotate through preset options on **Enter**). Landed in **v0.5** (see
 > [`macroplan.md`](macroplan.md)).
 >
 > **Not to be confused with `/sd/typoena.conf`** — that holds the device
@@ -39,6 +39,7 @@ works with no config present.
 | `line_numbers`      | bool   | `true`    | `true` / `false`                    | Show the absolute line-number gutter. Off reclaims its columns for text.                                               |
 | `open_last_on_boot` | bool   | `true`    | `true` / `false`                    | Boot into the file that was active at power-off, instead of `notes.md`.                                                |
 | `theme`             | string | `"light"` | `light` / `dark`                    | Panel colour polarity. `dark` inverts the whole frame to white-on-black.                                               |
+| `font`              | string | `"default"` | `default` / `jetbrains-mono` / `dejavu-sans-mono` / `cascadia-mono` / `mononoki` / `fira-code` / `courier-prime` / `ibm-plex-mono` / `space-mono` / `hack` | The body font the editor writes in. All families render into the same 10×20 cell, so switching never moves the grid.   |
 | `auto_sync`         | string | `"10m"`   | `2m` / `5m` / `10m` / `15m` / `30m` | Max-staleness cap for opportunistic auto-push. **Value only — no behaviour yet** (rides v0.8, with the sleep work). |
 
 The **Options** column is what the palette rotates through on **Enter**; a
@@ -55,6 +56,7 @@ format_on_save = true
 line_numbers = true
 open_last_on_boot = true
 theme = "light"
+font = "default"
 auto_sync = "10m"
 ```
 
@@ -125,6 +127,23 @@ the palette repaints inverted at once.
 > ghost more than over white, and the panel is tuned for white-background reading.
 > It works, but expect a slightly muddier refresh than `light` — verify on-device.
 
+### `font`
+
+The body font the editor writes in. `default` is the built-in Misc Fixed
+`FONT_10X20`; the rest — `jetbrains-mono`, `dejavu-sans-mono`, `cascadia-mono`,
+`mononoki`, `fira-code`, `courier-prime`, `ibm-plex-mono`, `space-mono`, `hack` —
+are alternate monospace families baked offline (by
+`display/tools/fontgen.py`) into the **same 10×20 cell**. Because every family
+shares that fixed cell, changing it never moves the character grid — layout,
+wrapping, the gutter and scrolling are all untouched. Applied **live** — cycling
+it from the palette repaints in the new face at once.
+
+An **unrecognized value** — a typo, or a family the firmware wasn't built with —
+falls back to the built-in `default`, so a hand-edited font name can never leave
+the editor without a body font. Only the ~5 KB atlas per family ships to flash
+and there is no on-device rasterizer, so the choice is limited to the families
+baked into the build.
+
 ### `auto_sync`
 
 A duration string that will one day cap how stale the pushed copy is allowed
@@ -158,6 +177,7 @@ Two ways, both landing in the same file:
      line numbers: on
      open last on boot: on
      theme: light
+     font: default
      auto sync: 10m
    ```
 
