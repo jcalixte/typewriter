@@ -28,10 +28,13 @@ fn main() {
     let out = std::env::args().nth(1).unwrap_or_else(|| "/tmp/font_preview.fb".into());
     let mut f = Frame::new_white();
 
+    // Fit every FONT_OPTIONS entry in the fixed device-height frame: keep the
+    // roomy 30px pitch when there are few families, tighten it as more are added.
+    let pitch = 30.min((HEIGHT as i32 - 4) / FONT_OPTIONS.len() as i32);
     let mut y = 4;
     for name in FONT_OPTIONS {
         line(&mut f, name, name, y);
-        y += 30;
+        y += pitch;
     }
 
     std::fs::File::create(&out).unwrap().write_all(f.bytes()).unwrap();
